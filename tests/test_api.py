@@ -95,4 +95,4 @@ def test_backtest_endpoint(client):
 def test_index_served(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "Klevs FX Trading App" in r.text
+    assert "klevs FX trading App" in r.text

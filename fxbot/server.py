@@ -28,9 +28,9 @@ from .universe import BY_SYMBOL, UNIVERSE
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 app = FastAPI(
-    title="Klevs FX Trading App",
+    title="klevs FX trading App",
     version="1.0.0",
-    description="Klevs FX Trading App — scans the entire FX market, forecasts direction, "
+    description="klevs FX trading App — scans the entire FX market, forecasts direction, "
                 "and produces entry / take-profit / stop-loss trade plans with risk sizing.",
 )
 

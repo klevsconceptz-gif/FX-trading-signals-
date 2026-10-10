@@ -1,4 +1,4 @@
-# Klevs FX Trading App
+# klevs FX trading App
 
 An end-to-end FX market intelligence platform that **traces signals across the
 entire FX market** (23 currency pairs + gold & silver), **forecasts direction and

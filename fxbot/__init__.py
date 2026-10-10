@@ -1,4 +1,4 @@
-"""Klevs FX Trading App — FX trading signals & market intelligence platform.
+"""klevs FX trading App — FX trading signals & market intelligence platform.
 
 Traces FX signals across the whole market (currency pairs, metals and
 commodity crosses), forecasts direction and volatility, and produces
