@@ -1,0 +1,82 @@
+# Progress Log — klevs FX trading App
+
+Session save point · branch `arena/641dff05-fx-trading-signals` · 2026-10-10
+Status: **complete & green** — 47/47 tests · ruff clean · 32-instrument stress verified
+
+---
+
+## ✅ Delivered
+
+### 1. Whole-market prediction engine (`fxbot/`)
+- **Universe**: 32 instruments — 7 majors, 15 crosses, 8 exotics, XAU/XAG
+- **Data layer**: live provider chain (Frankfurter/ECB → exchangerate.host →
+  yfinance) with a deterministic, correlated **currency-factor simulator**
+  fallback (coherent crosses, regime-switching volatility, trend persistence)
+- **Indicators** (`indicators.py`): SMA/EMA/WMA, RSI-Wilder, MACD, Bollinger,
+  Keltner, Donchian, ATR-Wilder, ADX/DI, Stochastic, CCI, ROC, Momentum, OBV,
+  Ichimoku, swing structure, support/resistance — pure pandas, no C deps
+- **ML forecasting** (`ml.py`): per-pair HistGradientBoosting ensembles
+  (direction P(up), expected move, volatility) — walk-forward, time-ordered
+  splits, permutation feature importance, honest OOS accuracy reporting
+- **Signal engine** (`signals.py`): 6 weighted factors (trend, momentum,
+  mean-reversion, breakout, ML, currency-strength) × regime adaptation →
+  composite score → full trade plan (entry, ATR TP/SL ≥ 1.5 R:R, structure
+  refinement, partial-profit schedule)
+
+### 2. Buy → Predict → Sell instruction lifecycle
+- **① WHEN TO BUY**: `BUY NOW @ …` / `SELL NOW (short)` / `DO NOT BUY YET` + trigger
+- **② PREDICTED OUTCOME**: signed target/stop moves, R:R, ML expectation with
+  side-aligned probability, P(target before stop), expected resolution bars
+- **③ WHEN TO SELL**: take-profit ladder (50% at +1.5R → breakeven → trail to 3R),
+  stop-loss sell-all, **time stop** (36 bars), **flip exit** (`⛔ SIGNAL FLIPPED —
+  SELL NOW` tracked across scans)
+- Backtester enforces the same lifecycle (partials, breakeven, trailing,
+  time_stop, target exits)
+
+### 3. Risk management (`risk.py`)
+ATR position sizing (fixed % equity risk), per-currency exposure caps,
+correlation down-sizing, daily-loss circuit breaker, drawdown throttle,
+half-Kelly reference (edge-case safe).
+
+### 4. klevs FX trading App (dashboard + API)
+- Dark trading terminal: live **instruction feed** (auto-refresh 5 min), market
+  pulse (DXY/breadth/mood), currency-strength grid, sortable signals table,
+  canvas candle charts with plan levels + RSI, correlation heatmap, backtest lab
+- API: `/api/health` · `/api/universe` · `/api/scan` · `/api/instructions` ·
+  `/api/pair/{symbol}` · `POST /api/backtest` — all validated, JSON errors only
+- Branding: exact name **klevs FX trading App** (title, header KFX, footer, API)
+- Thread-safe engine (lock), no-store headers, self-contained (no CDN)
+
+### 5. Tooling & quality
+- CLIs: `scripts/scan.py` · `scripts/backtest.py` · `scripts/train.py`
+- **47 tests** (indicators, signals & instruction lifecycle, risk, backtest
+  invariants/no-lookahead, ML, API) — all passing
+- `ruff.toml` (F,E9,I,B,SIM,C4,RUF) — All checks passed
+- `RESOURCES.md` — GitHub/paper/data-source research survey with design mapping
+
+## 🐛 Bug-hunt history (all fixed & regression-tested)
+1. Signal engine missing indicator computation (silent empty scans)
+2. RSI on flat series returned 100 instead of 50 (false BUY on dead markets)
+3. NaN ADX poisoning composite scores (false SELL on flat markets)
+4. Backtest wiped banked partial profits on breakeven-stop exits; 3R target
+   never taken; R-multiple mis-accounting
+5. Synthetic market too mean-reverting for trend strategies (retuned factor
+   model: realistic vol, near-zero short-horizon autocorr, multi-week trends)
+6. `POST /api/backtest` HTTP 500 crash for bars < 250 → now 422 validation
+7. `kelly_fraction()` ZeroDivisionError with zero avg-win size
+8. Thread-race on shared engine under parallel requests → locked
+9. Metals instruments built with misaligned positional args (TypeError)
+10. Lint sweep: unused imports/locals, annotations, f-strings, import order
+
+## ▶️ Resume commands
+```bash
+source .venv/bin/activate
+python -m pytest tests/ -q                  # 47 tests
+python -m scripts.scan                      # whole-market scan
+python -m scripts.backtest --symbol EURUSD  # backtest lab
+python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000   # the app
+```
+
+## ⚠ Disclaimer
+Educational software — analysis & simulation only. Not financial advice.
+No orders are ever sent to a broker.
