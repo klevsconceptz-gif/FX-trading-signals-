@@ -1,4 +1,4 @@
-# FX Trading Signals — Whole-Market Prediction & Trade-Plan Engine
+# Klevs FX Trading App
 
 An end-to-end FX market intelligence platform that **traces signals across the
 entire FX market** (23 currency pairs + gold & silver), **forecasts direction and

@@ -28,10 +28,10 @@ from .universe import BY_SYMBOL, UNIVERSE
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 app = FastAPI(
-    title="FX Trading Signals & Market Intelligence",
+    title="Klevs FX Trading App",
     version="1.0.0",
-    description="Scans the entire FX market, forecasts direction, and produces "
-                "entry / take-profit / stop-loss trade plans with risk sizing.",
+    description="Klevs FX Trading App — scans the entire FX market, forecasts direction, "
+                "and produces entry / take-profit / stop-loss trade plans with risk sizing.",
 )
 
 # one shared engine — scan is cached until `refresh`

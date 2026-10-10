@@ -1,4 +1,4 @@
-/* FX Trading Signals — dashboard client.
+/* Klevs FX Trading App — dashboard client.
    Vanilla JS + canvas charts (zero external dependencies). */
 "use strict";
 
