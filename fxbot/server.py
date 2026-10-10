@@ -12,6 +12,7 @@ GET  /api/universe          instrument list
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -34,8 +35,10 @@ app = FastAPI(
                 "and produces entry / take-profit / stop-loss trade plans with risk sizing.",
 )
 
-# one shared engine — scan is cached until `refresh`
+# one shared engine — scan is cached until `refresh`.  Sync endpoints run in
+# FastAPI's threadpool, so all engine access is serialized with this lock.
 _engine = MarketEngine(AppConfig())
+_engine_lock = threading.Lock()
 
 
 class BacktestRequest(BaseModel):
@@ -73,14 +76,16 @@ def universe() -> list[dict[str, Any]]:
 
 @app.get("/api/scan")
 def scan(refresh: bool = False) -> dict[str, Any]:
-    report = _engine.scan(use_cache=not refresh)
+    with _engine_lock:
+        report = _engine.scan(use_cache=not refresh)
     return report.to_dict()
 
 
 @app.get("/api/instructions")
 def instructions(refresh: bool = False) -> dict[str, Any]:
     """Distilled command stream: when to buy, predicted outcome, when to sell."""
-    report = _engine.scan(use_cache=not refresh)
+    with _engine_lock:
+        report = _engine.scan(use_cache=not refresh)
     d = report.to_dict()
     return {
         "generated_at": d["generated_at"],
@@ -94,7 +99,8 @@ def pair(symbol: str) -> dict[str, Any]:
     symbol = symbol.upper()
     if symbol not in BY_SYMBOL:
         raise HTTPException(status_code=404, detail=f"unknown symbol {symbol}")
-    payload = _engine.pair_report(symbol)
+    with _engine_lock:
+        payload = _engine.pair_report(symbol)
     if payload is None:
         raise HTTPException(status_code=404, detail="no data")
     return payload
@@ -117,10 +123,11 @@ def backtest(req: BacktestRequest) -> dict[str, Any]:
     if req.risk_per_trade_pct:
         cfg.risk.risk_per_trade_pct = req.risk_per_trade_pct
 
-    try:
-        result = run_backtest(symbol, df, cfg)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with _engine_lock:
+        try:
+            result = run_backtest(symbol, df, cfg)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     curve = result.equity_curve
     return {
         "symbol": symbol,

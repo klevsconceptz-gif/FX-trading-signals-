@@ -156,8 +156,10 @@ class RiskManager:
 
 def kelly_fraction(win_rate: float, avg_win_r: float = 1.5, avg_loss_r: float = 1.0) -> float:
     """Fractional Kelly (capped) — used only as a reference in reports."""
-    if win_rate <= 0 or win_rate >= 1 or avg_loss_r <= 0:
+    if win_rate <= 0 or win_rate >= 1 or avg_loss_r <= 0 or avg_win_r <= 0:
         return 0.0
     b = avg_win_r / avg_loss_r
+    if b <= 0:
+        return 0.0
     edge = win_rate * b - (1.0 - win_rate)
     return float(np.clip(edge / b, 0.0, 0.25)) * 0.5   # half-Kelly, hard-capped

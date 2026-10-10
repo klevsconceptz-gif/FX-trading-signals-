@@ -86,3 +86,7 @@ def test_kelly_fraction():
     assert kelly_fraction(1.0) == 0.0
     assert kelly_fraction(0.6, 1.5, 1.0) > 0
     assert kelly_fraction(0.6, 1.5, 1.0) <= 0.125   # half of 0.25 cap
+    # zero edge cases must not divide by zero
+    assert kelly_fraction(0.6, 0.0, 1.0) == 0.0
+    assert kelly_fraction(0.6, -1.0, 1.0) == 0.0
+    assert kelly_fraction(0.6, 1.5, 0.0) == 0.0
