@@ -6,7 +6,7 @@ and the scanner, so adding an instrument here extends the entire platform.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

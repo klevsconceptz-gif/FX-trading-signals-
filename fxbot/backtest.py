@@ -104,7 +104,6 @@ def _run_single(symbol: str, df: pd.DataFrame, cfg: AppConfig,
                 stop=stop, target=target, units=units,
             )
             stop_dist = abs(entry_price - stop)
-            initial_units = units
             bars_held = 0
             partial_taken = False
             entry_at_next_open = None

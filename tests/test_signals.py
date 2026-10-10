@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from fxbot.config import SignalConfig
 from fxbot.signals import build_plan

@@ -28,8 +28,7 @@ import numpy as np
 import pandas as pd
 
 from .config import DataConfig
-from .universe import CURRENCIES, METALS, Instrument, UNIVERSE
-
+from .universe import CURRENCIES, METALS, UNIVERSE, Instrument
 
 OHLC_COLS = ["open", "high", "low", "close"]
 
@@ -210,8 +209,8 @@ class SyntheticMarket:
 # ---------------------------------------------------------------------------
 
 def _try_fetch_json(url: str, timeout: float):
-    import urllib.request
     import json
+    import urllib.request
 
     req = urllib.request.Request(url, headers={"User-Agent": "fxbot/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:

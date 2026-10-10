@@ -5,7 +5,15 @@ import pandas as pd
 import pytest
 
 from fxbot.indicators import (
-    atr, bollinger, compute_all, ema, macd, rsi, sma, stochastic, support_resistance,
+    atr,
+    bollinger,
+    compute_all,
+    ema,
+    macd,
+    rsi,
+    sma,
+    stochastic,
+    support_resistance,
     true_range,
 )
 

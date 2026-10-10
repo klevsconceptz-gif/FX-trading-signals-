@@ -19,7 +19,7 @@ import pandas as pd
 from .config import AppConfig
 from .data import MarketData
 from .ml import MarketForecaster
-from .risk import RiskManager, kelly_fraction
+from .risk import RiskManager
 from .signals import TradePlan, build_plan
 from .strength import CurrencyStrength, compute_strength, correlation_matrix, detect_regime
 from .universe import BY_SYMBOL
@@ -81,7 +81,6 @@ class MarketEngine:
     def scan(self, use_cache: bool = False) -> MarketReport:
         if use_cache and self._cache is not None:
             return self._cache
-        t0 = time.time()
         history = self._history or self.load_data()
 
         # 1. cross-sectional currency strength over the whole market
@@ -352,7 +351,7 @@ class MarketEngine:
                 f"⚠ {len(vol_hot)} of {len(plans)} markets are in a high-volatility regime: "
                 f"reduce size 25-50%, widen stops to 2 ATR, and avoid mean-reversion entries."
             )
-        strong_set, weak_set = set(strongest), set(weakest)
+        # per-currency stacking check
         stacked = {}
         for p in active:
             for cur in (p.symbol[:3], p.symbol[3:6]):

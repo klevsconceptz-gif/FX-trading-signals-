@@ -26,7 +26,7 @@ volatility-adaptive levels:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
 import numpy as np
@@ -35,9 +35,8 @@ import pandas as pd
 from .config import SignalConfig
 from .indicators import compute_all, support_resistance
 from .ml import Forecast
-from .strength import Regime, CurrencyStrength, detect_regime
+from .strength import CurrencyStrength, detect_regime
 from .universe import BY_SYMBOL
-
 
 # ---------------------------------------------------------------------------
 # factor scores
@@ -324,7 +323,7 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
                 f"⑤ TIME STOP (sell): if the trade is unresolved after "
                 f"{cfg.time_stop_bars} bars, close at market — the predicted move did not "
                 f"materialize.",
-                f"⑥ SELL EARLY if the system flips to a contrary signal on this pair.",
+                "⑥ SELL EARLY if the system flips to a contrary signal on this pair.",
             ]
         else:
             actions = [
@@ -337,7 +336,7 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
                 f"⑤ TIME STOP (cover): if the trade is unresolved after "
                 f"{cfg.time_stop_bars} bars, close at market — the predicted move did not "
                 f"materialize.",
-                f"⑥ COVER EARLY if the system flips to a contrary signal on this pair.",
+                "⑥ COVER EARLY if the system flips to a contrary signal on this pair.",
             ]
 
         notes.append(

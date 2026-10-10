@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 from fxbot.backtest import run_backtest
-from fxbot.config import AppConfig
 
 
 def test_backtest_runs_and_reports(eurusd, cfg):

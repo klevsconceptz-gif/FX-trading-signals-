@@ -9,7 +9,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-
 # ---------------------------------------------------------------------------
 # moving averages / trend
 # ---------------------------------------------------------------------------
@@ -40,7 +39,7 @@ def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> 
 
 def adx(df: pd.DataFrame, window: int = 14) -> pd.DataFrame:
     """Average Directional Index with +DI / -DI (Wilder smoothing)."""
-    high, low, close = df["high"], df["low"], df["close"]
+    high, low = df["high"], df["low"]
     up = high.diff()
     down = -low.diff()
     plus_dm = pd.Series(np.where((up > down) & (up > 0), up, 0.0), index=df.index)
