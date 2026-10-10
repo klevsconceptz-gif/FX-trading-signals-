@@ -49,7 +49,7 @@ def main() -> None:
         print(f"\n  last {min(15, len(result.trades))} trades:")
         print(f"  {'SIDE':5} {'ENTRY TIME':22} {'ENTRY':>10} {'EXIT':>10} {'R':>6} {'P&L':>10}  REASON")
         for t in result.trades[-15:]:
-            print(f"  {t.side:5} {str(t.entry_time):22} {t.entry:10.5g} {t.exit:10.5g} "
+            print(f"  {t.side:5} {t.entry_time!s:22} {t.entry:10.5g} {t.exit:10.5g} "
                   f"{t.r_multiple:6.2f} {t.pnl:10.2f}  {t.exit_reason}")
 
 

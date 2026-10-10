@@ -35,6 +35,11 @@ def main() -> None:
     forecasts = forecaster.run(history)
 
     print(f"\n=== ML TRAINING · {len(forecasts)} models · horizon {cfg.ml.horizon} bars ===\n")
+    if not forecasts:
+        known = ", ".join(sorted(__import__("fxbot.universe", fromlist=["BY_SYMBOL"]).BY_SYMBOL)[:8])
+        print(f"  no models trained — unknown symbols or insufficient data.\n"
+              f"  known symbols include: {known} …")
+        return
     print(f"  {'PAIR':9} {'P(up)':>7} {'EXP MOVE':>10} {'VOL x':>7} {'OOS ACC':>8} {'BARS':>7}")
     for symbol, f in sorted(forecasts.items()):
         acc = f"{f.accuracy:.1%}" if f.accuracy is not None else "—"

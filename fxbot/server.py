@@ -42,7 +42,7 @@ class BacktestRequest(BaseModel):
     symbol: str = Field(..., description="e.g. EURUSD")
     equity: Optional[float] = Field(None, gt=0)
     risk_per_trade_pct: Optional[float] = Field(None, gt=0, le=5)
-    bars: Optional[int] = Field(None, ge=200, le=20000)
+    bars: Optional[int] = Field(None, ge=250, le=20000)
 
 
 @app.get("/api/health")
@@ -117,7 +117,10 @@ def backtest(req: BacktestRequest) -> dict[str, Any]:
     if req.risk_per_trade_pct:
         cfg.risk.risk_per_trade_pct = req.risk_per_trade_pct
 
-    result = run_backtest(symbol, df, cfg)
+    try:
+        result = run_backtest(symbol, df, cfg)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     curve = result.equity_curve
     return {
         "symbol": symbol,

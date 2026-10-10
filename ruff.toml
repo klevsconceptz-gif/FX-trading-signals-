@@ -1,0 +1,7 @@
+line-length = 120
+
+[lint]
+select = ["F", "E9", "I", "B", "SIM", "C4", "RUF"]
+# RUF001-003 flag typographic math notation (×, −, σ) used intentionally
+# in user-facing text and docstrings — not confusable-attack vectors.
+ignore = ["RUF001", "RUF002", "RUF003"]

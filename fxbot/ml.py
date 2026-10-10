@@ -52,14 +52,14 @@ class PairModel:
 
     def __init__(self, cfg: Optional[MLConfig] = None):
         self.cfg = cfg or MLConfig()
-        common = dict(
-            max_iter=self.cfg.n_estimators,
-            max_depth=self.cfg.max_depth,
-            learning_rate=self.cfg.learning_rate,
-            random_state=self.cfg.random_state,
-            early_stopping=True,
-            validation_fraction=0.1,
-        )
+        common = {
+            "max_iter": self.cfg.n_estimators,
+            "max_depth": self.cfg.max_depth,
+            "learning_rate": self.cfg.learning_rate,
+            "random_state": self.cfg.random_state,
+            "early_stopping": True,
+            "validation_fraction": 0.1,
+        }
         self.clf = HistGradientBoostingClassifier(**common)
         self.ret_reg = HistGradientBoostingRegressor(**common)
         self.vol_reg = HistGradientBoostingRegressor(**common)

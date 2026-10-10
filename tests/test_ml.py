@@ -42,7 +42,7 @@ def test_pair_model_trains_and_forecasts(eurusd):
 def test_market_forecaster_full_universe(full_history, cfg):
     cfg_ml = MLConfig(n_estimators=40, min_train_bars=300)
     f = MarketForecaster(cfg_ml)
-    out = f.run({k: v for k, v in list(full_history.items())[:6]})
+    out = f.run(dict(list(full_history.items())[:6]))
     assert len(out) >= 4
     for fc in out.values():
         assert 0 <= fc.p_up <= 1
