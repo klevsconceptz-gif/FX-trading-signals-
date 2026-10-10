@@ -51,6 +51,8 @@ class SignalConfig:
     min_risk_reward: float = 1.5
     # regime detection
     adx_trend_threshold: float = 20.0
+    # time stop: if neither target nor stop is hit within N bars, close out
+    time_stop_bars: int = 36
 
 
 @dataclass

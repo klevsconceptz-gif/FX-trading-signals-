@@ -81,7 +81,9 @@ function renderScan() {
   // insights
   $("#insights").innerHTML = (SCAN.insights || [])
     .map((t) => {
-      const cls = t.startsWith("⚠") ? "warn" : t.includes("BUY") || t.includes("long") ? "good" : "";
+      let cls = "";
+      if (t.startsWith("⛔") || t.startsWith("⚠") || t.startsWith("SIGNAL FLIPPED")) cls = "warn";
+      else if (t.startsWith("WHEN TO") || t.startsWith("INSTRUCTION")) cls = "good";
       return `<li class="${cls}">${t}</li>`;
     })
     .join("");
@@ -99,7 +101,7 @@ function renderScan() {
     .map(
       (p) => `<tr data-symbol="${p.symbol}">
       <td><strong>${p.display}</strong></td>
-      <td><span class="badge ${sideClass(p.side)}">${p.side}</span></td>
+      <td><span class="badge ${sideClass(p.side)}">${p.side === "WAIT" ? "WAIT" : p.side + " NOW"}</span></td>
       <td>${pct(p.confidence, 0)}</td>
       <td>${String(p.regime).replace("_", " ")}</td>
       <td>${fmt(p.price)}</td>
@@ -169,20 +171,47 @@ function renderPair() {
   drawRsi($("#rsi-chart"), PAIR.rsi);
 
   const f = PAIR.forecast;
+  const steps = (p.actions || [])
+    .map((a) => `<li>${a}</li>`)
+    .join("");
   $("#plan-box").innerHTML = `
-    <h3>Trade plan — ${PAIR.display} ${p.side}</h3>
+    <h3>Trade instructions — ${PAIR.display}</h3>
+    <div class="lifecycle">
+      <div class="stage stage-in">
+        <div class="stage-tag">① WHEN TO ${p.side === "BUY" ? "BUY" : p.side === "SELL" ? "SELL" : "ACT"}</div>
+        <div class="stage-main">${
+          p.side === "WAIT"
+            ? `<span class="badge wait">DO NOT BUY YET</span> — no qualifying edge`
+            : `<span class="badge ${sideClass(p.side)}">${p.side} NOW</span> at ≈ ${fmt(p.entry)}`
+        }</div>
+      </div>
+      <div class="stage stage-pred">
+        <div class="stage-tag">② PREDICTED OUTCOME</div>
+        <div class="stage-main">${p.predicted_outcome || "—"}</div>
+      </div>
+      <div class="stage stage-out">
+        <div class="stage-tag">③ WHEN TO SELL / EXIT</div>
+        <div class="stage-main">
+          take profit at <strong>${fmt(p.target)}</strong> · stop-loss at
+          <strong>${fmt(p.stop)}</strong> · trail to <strong>${fmt(p.target2)}</strong>
+          · time stop <strong>${p.time_stop_bars} bars</strong>
+          · P(target before stop) ≈ <strong>${pct(p.p_target_first, 0)}</strong>
+        </div>
+      </div>
+    </div>
     <div class="levels">
       <div class="level"><div class="lbl">Entry</div><div class="val">${fmt(p.entry)}</div></div>
-      <div class="level"><div class="lbl">Stop loss</div><div class="val" style="color:var(--red)">${fmt(p.stop)}</div></div>
-      <div class="level"><div class="lbl">Take profit</div><div class="val" style="color:var(--green)">${fmt(p.target)}</div></div>
+      <div class="level"><div class="lbl">Stop loss (sell all)</div><div class="val" style="color:var(--red)">${fmt(p.stop)}</div></div>
+      <div class="level"><div class="lbl">Take profit (sell)</div><div class="val" style="color:var(--green)">${fmt(p.target)}</div></div>
       <div class="level"><div class="lbl">Stretch target</div><div class="val" style="color:var(--green)">${fmt(p.target2)}</div></div>
       <div class="level"><div class="lbl">Risk : reward</div><div class="val">1 : ${p.risk_reward ? p.risk_reward.toFixed(2) : "—"}</div></div>
       <div class="level"><div class="lbl">Size</div><div class="val">${p.lots ? p.lots.toFixed(2) + " lots" : "—"}</div></div>
     </div>
-    <ol>${(p.notes || []).map((n) => `<li>${n}</li>`).join("")}</ol>
+    <ol class="actions">${steps}</ol>
     ${f ? `<div class="factors">
       <span class="fchip">ML accuracy ${f.accuracy ? pct(f.accuracy, 0) : "—"}</span>
       <span class="fchip">expected move ${pct(f.expected_move_pct, 2)}</span>
+      <span class="fchip">P(up) ${pct(f.p_up, 0)}</span>
       ${Object.entries(f.feature_importance || {})
         .slice(0, 5)
         .map(([k, v]) => `<span class="fchip">${k} ${(v * 100).toFixed(0)}%</span>`)

@@ -105,16 +105,21 @@ def _run_single(symbol: str, df: pd.DataFrame, cfg: AppConfig,
             )
             stop_dist = abs(entry_price - stop)
             initial_units = units
+            bars_held = 0
             partial_taken = False
             entry_at_next_open = None
 
         # ---- manage open position intrabar ----
         if open_trade is not None:
             tr = open_trade
+            bars_held += 1
             long = tr.side == "BUY"
             sign = 1 if long else -1
             hit_stop = (row["low"] <= tr.stop) if long else (row["high"] >= tr.stop)
             hit_target = (row["high"] >= tr.target) if long else (row["low"] <= tr.target)
+            hit_time_stop = (
+                sig_cfg.time_stop_bars > 0 and bars_held >= sig_cfg.time_stop_bars
+            )
 
             if hit_stop:
                 fill = tr.stop - slippage if long else tr.stop + slippage
@@ -155,6 +160,17 @@ def _run_single(symbol: str, df: pd.DataFrame, cfg: AppConfig,
                     new_stop = tr.entry + (1.0 * stop_dist if long else -1.0 * stop_dist)
                     if (long and new_stop > tr.stop) or (not long and new_stop < tr.stop):
                         tr.stop = new_stop
+
+            # time stop: predicted move failed to materialize → close at market
+            if open_trade is not None and hit_time_stop and not hit_stop:
+                fill = float(row["close"])
+                realized = (fill - tr.entry) * tr.units * sign
+                tr.pnl += realized
+                cash += realized
+                tr.exit, tr.exit_time, tr.exit_reason = fill, t, "time_stop"
+                tr.r_multiple = tr.pnl / risk_per if risk_per else 0.0
+                trades.append(tr)
+                open_trade = None
 
         eq_idx.append(t)
         eq_val.append(cash + (0.0 if open_trade is None else

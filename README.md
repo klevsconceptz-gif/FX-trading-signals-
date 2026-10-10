@@ -103,6 +103,19 @@ Trade plan:  entry = next open
              size  = (equity × 0.75%) / |entry − SL|
 ```
 
+## The instruction lifecycle — buy → predict → sell
+
+Every signal is delivered as an imperative 3-stage instruction, not just data:
+
+| Stage | What the system tells you |
+|-------|---------------------------|
+| **① WHEN TO BUY** | `BUY NOW — open a long at market ≈ 1.0850` (or `SELL NOW` to short; or `DO NOT BUY YET` on the watchlist) |
+| **② PREDICTED OUTCOME** | "Model expects EUR/USD to trade higher (+0.42% over the next 8 bars, P(up)=58%). Plan: +0.62% to take-profit vs −0.37% to stop (1:1.67 R:R). Estimated chance take-profit is hit before the stop ≈ 37%; typically resolved in ~6 bars." |
+| **③ WHEN TO SELL / EXIT** | imperative sell steps: take-profit order (sell 50% at +1.5R → stop to breakeven → sell the rest on the trail to 3R) · stop-loss sell-all at the invalidation level · **time stop** (sell after 36 bars if the predicted move never came) · **sell immediately if the signal flips** (the engine tracks prior signals and emits `⛔ SIGNAL FLIPPED — SELL NOW`) |
+
+The backtester enforces the same lifecycle it preaches: partial-profit sells,
+breakeven stops, trailing sells, time-stop exits and flip exits are all simulated.
+
 ## Project layout
 
 ```

@@ -86,3 +86,66 @@ def test_score_range(eurusd):
         assert 0.0 <= plan.confidence <= 1.0
         for v in plan.factors.values():
             assert -1.5 <= v <= 1.5
+
+
+def test_instruction_lifecycle_buy():
+    """A BUY plan must instruct: when to buy, the predicted outcome, when to sell."""
+    idx = pd.date_range("2025-01-01", periods=300, freq="h")
+    close = 1.0 * np.cumprod(1 + np.abs(np.sin(np.arange(300) / 12)) * 0.0012 + 0.0009)
+    df = pd.DataFrame(
+        {
+            "open": np.roll(close, 1),
+            "high": close * 1.0007,
+            "low": close * 0.9993,
+            "close": close,
+        },
+        index=idx,
+    ).iloc[1:]
+    cfg = SignalConfig()
+    plan = build_plan("EURUSD", df, cfg)
+    assert plan.side == "BUY"
+    blob = " ".join(plan.actions).upper()
+    assert "BUY NOW" in blob                      # ① when to buy
+    assert "TAKE-PROFIT" in blob                  # ② sell instruction
+    assert "STOP-LOSS" in blob                    # ③ sell-all protection
+    assert "TIME STOP" in blob                    # ④ time-based exit
+    assert "FLIP" in blob or "CONTRARY" in blob   # ⑤ early exit
+    assert plan.predicted_outcome                 # predicted outcome text
+    assert 0.0 < plan.p_target_first < 1.0
+    assert plan.expected_bars >= 1
+    assert plan.time_stop_bars == cfg.time_stop_bars
+
+
+def test_instruction_lifecycle_sell():
+    """A SELL (short) plan must instruct: sell now, cover at TP/SL."""
+    idx = pd.date_range("2025-01-01", periods=300, freq="h")
+    close = 1.2 * np.cumprod(1 - np.abs(np.sin(np.arange(300) / 12)) * 0.0012 - 0.0009)
+    df = pd.DataFrame(
+        {
+            "open": np.roll(close, 1),
+            "high": close * 1.0007,
+            "low": close * 0.9993,
+            "close": close,
+        },
+        index=idx,
+    ).iloc[1:]
+    cfg = SignalConfig()
+    plan = build_plan("EURUSD", df, cfg)
+    assert plan.side == "SELL"
+    blob = " ".join(plan.actions).upper()
+    assert "SELL NOW" in blob
+    assert "TAKE-PROFIT" in blob
+    assert "STOP-LOSS" in blob
+    assert plan.predicted_outcome
+    assert 0.0 < plan.p_target_first < 1.0
+
+
+def test_wait_plan_says_do_not_buy():
+    idx = pd.date_range("2025-01-01", periods=300, freq="h")
+    flat = pd.DataFrame(
+        {"open": 1.1, "high": 1.1001, "low": 1.0999, "close": 1.1}, index=idx
+    )
+    plan = build_plan("EURUSD", flat, SignalConfig())
+    assert plan.side == "WAIT"
+    blob = " ".join(plan.actions).upper()
+    assert "DO NOT BUY" in blob

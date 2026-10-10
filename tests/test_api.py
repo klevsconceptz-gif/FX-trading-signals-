@@ -40,7 +40,8 @@ def test_scan_report_shape(client):
     assert len(body["insights"]) >= 3
     if body["signals"]:
         s = body["signals"][0]
-        for key in ("side", "entry", "stop", "target", "risk_reward", "confidence"):
+        for key in ("side", "entry", "stop", "target", "risk_reward", "confidence",
+                    "actions", "predicted_outcome", "p_target_first", "time_stop_bars"):
             assert key in s, key
 
 
@@ -53,6 +54,7 @@ def test_pair_detail(client):
     assert len(body["overlays"]["ema20"]) == len(body["candles"])
     assert len(body["rsi"]) == len(body["candles"])
     assert body["plan"]["side"] in ("BUY", "SELL", "WAIT")
+    assert body["plan"]["actions"], "plan must carry explicit instructions"
 
 
 def test_pair_unknown_404(client):

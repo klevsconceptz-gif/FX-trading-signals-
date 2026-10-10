@@ -133,6 +133,12 @@ class TradePlan:
     regime: str
     factors: dict[str, float]
     notes: list[str] = field(default_factory=list)
+    # --- the explicit user-facing instruction lifecycle ---
+    actions: list[str] = field(default_factory=list)   # imperative steps
+    predicted_outcome: str = ""                        # "what the model expects"
+    p_target_first: float = 0.0                        # P(target hit before stop)
+    expected_bars: int = 0                             # typical resolution time
+    time_stop_bars: int = 0                            # exit if unresolved by then
     # position sizing (filled by the risk manager)
     units: float = 0.0
     lots: float = 0.0
@@ -143,8 +149,8 @@ class TradePlan:
         d = asdict(self)
         for k in ("score", "confidence", "price", "entry", "stop", "target",
                   "target2", "risk_reward", "atr", "stop_dist",
-                  "expected_move_pct", "p_up", "units", "lots",
-                  "risk_amount", "position_value"):
+                  "expected_move_pct", "p_up", "p_target_first",
+                  "units", "lots", "risk_amount", "position_value"):
             v = d[k]
             if isinstance(v, float):
                 d[k] = round(v, 6) if abs(v) < 1e6 else v
@@ -164,6 +170,7 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
 
     regime = detect_regime(ind, cfg.adx_trend_threshold)
     trending = regime.name in ("trend_up", "trend_down")
+    display_name = BY_SYMBOL[symbol].display if symbol in BY_SYMBOL else symbol
 
     factors = {
         "trend": _trend_score(ind),
@@ -205,14 +212,27 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
 
     sr = support_resistance(ind.tail(300))
     notes: list[str] = []
+    actions: list[str] = []
 
     if abs(score) < cfg.entry_threshold:
         side = "WAIT"
         stop = target = target2 = close
         rr = 0.0
+        p_target = 0.0
+        expected_bars = 0
         notes.append(
             f"No edge right now — composite score {score:+.2f} below the "
             f"{cfg.entry_threshold} threshold. Keep on the watchlist."
+        )
+        actions = [
+            f"DO NOT BUY YET — the system is not instructing an entry on {display_name}.",
+            f"Trigger to act: composite score crosses +{cfg.entry_threshold} → the system "
+            f"will instruct BUY; crosses −{cfg.entry_threshold} → instructs SELL (short).",
+        ]
+        predicted_outcome = (
+            f"No position predicted to be taken. Model leans "
+            f"{'up' if forecast and forecast.p_up > 0.52 else 'down' if forecast and forecast.p_up < 0.48 else 'neutral'} "
+            f"(P(up)={forecast.p_up:.0%})" if forecast else "No model forecast available."
         )
     else:
         side = "BUY" if score > 0 else "SELL"
@@ -260,7 +280,65 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
             if supports:
                 target2 = min(target2, supports[-1])
 
-        # actionable narrative
+        # ---- outcome prediction -------------------------------------------
+        # P(target before stop) on a driftless walk = 1/(1+R:R), nudged by the
+        # model's directional probability — an estimate, not a guarantee.
+        base_p = 1.0 / (1.0 + rr) if rr > 0 else 0.4
+        edge = (forecast.p_up - 0.5) if forecast else 0.0
+        drift_adj = edge if side == "BUY" else -edge
+        p_target = float(np.clip(base_p + 0.5 * drift_adj, 0.05, 0.92))
+        # expected boundary-resolution time for a random walk: d1*d2 / σ²
+        expected_bars = int(max(4.0, round(abs(close - stop) * abs(target - close) / (atr_v ** 2))))
+
+        dir_word = "higher" if side == "BUY" else "lower"
+        move_pct = abs(target / close - 1.0) * 100.0
+        if forecast:
+            p_side = forecast.p_up if side == "BUY" else 1.0 - forecast.p_up
+            model_line = (
+                f"ML model: {forecast.expected_move_pct * 100:+.2f}% expected over the "
+                f"next few bars (P(up)={forecast.p_up:.0%} → P(this {side.lower()})="
+                f"{p_side:.0%}"
+                + (f", OOS accuracy {forecast.accuracy:.0%}" if forecast.accuracy else "")
+                + ")"
+            )
+        else:
+            model_line = "ML model: not trained on this pair — plan relies on technical factors only"
+        predicted_outcome = (
+            f"Plan targets a move {dir_word} to the take-profit at {target:.5g} "
+            f"(+{move_pct:.2f}%) vs the stop at {stop:.5g} "
+            f"(−{abs(close - stop) / close * 100:.2f}%), risk-reward 1:{rr:.2f}. "
+            f"{model_line}. Estimated chance the take-profit is reached before the "
+            f"stop ≈ {p_target:.0%}; typically resolved in ~{expected_bars} bars."
+        )
+
+        # ---- explicit action sequence --------------------------------------
+        if side == "BUY":
+            actions = [
+                f"① BUY NOW — open a long at market ≈ {close:.5g} (enter on the next candle).",
+                f"② TAKE-PROFIT (sell): sell {cfg.partial_profit_fraction * 100:.0f}% at "
+                f"{target:.5g} (+{cfg.partial_profit_r:.1f}R), then move the stop to breakeven.",
+                f"③ SELL THE REST: trail toward {target2:.5g} (stretch target / structure).",
+                f"④ STOP-LOSS (sell all): {stop:.5g} — if price touches this the prediction "
+                f"is wrong; exit immediately and take the loss.",
+                f"⑤ TIME STOP (sell): if the trade is unresolved after "
+                f"{cfg.time_stop_bars} bars, close at market — the predicted move did not "
+                f"materialize.",
+                f"⑥ SELL EARLY if the system flips to a contrary signal on this pair.",
+            ]
+        else:
+            actions = [
+                f"① SELL NOW — open a short at market ≈ {close:.5g} (enter on the next candle).",
+                f"② TAKE-PROFIT (buy to cover): cover {cfg.partial_profit_fraction * 100:.0f}% at "
+                f"{target:.5g} (+{cfg.partial_profit_r:.1f}R), then move the stop to breakeven.",
+                f"③ COVER THE REST: trail toward {target2:.5g} (stretch target / structure).",
+                f"④ STOP-LOSS (buy to cover all): {stop:.5g} — if price touches this the "
+                f"prediction is wrong; exit immediately and take the loss.",
+                f"⑤ TIME STOP (cover): if the trade is unresolved after "
+                f"{cfg.time_stop_bars} bars, close at market — the predicted move did not "
+                f"materialize.",
+                f"⑥ COVER EARLY if the system flips to a contrary signal on this pair.",
+            ]
+
         notes.append(
             f"Regime: {regime.name.replace('_', ' ')} (ADX {regime.adx:.0f}). "
             f"{'Trend-following' if trending else 'Mean-reversion'} playbook."
@@ -283,7 +361,7 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
 
     return TradePlan(
         symbol=symbol,
-        display=BY_SYMBOL[symbol].display if symbol in BY_SYMBOL else symbol,
+        display=display_name,
         side=side,
         score=float(score),
         confidence=confidence,
@@ -300,4 +378,9 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
         regime=regime.name,
         factors={k: float(v) for k, v in factors.items()},
         notes=notes,
+        actions=actions,
+        predicted_outcome=predicted_outcome,
+        p_target_first=float(p_target),
+        expected_bars=int(expected_bars),
+        time_stop_bars=int(cfg.time_stop_bars),
     )

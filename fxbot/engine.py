@@ -99,7 +99,13 @@ class MarketEngine:
                     corr_lookup[(b, a)] = float(corr.loc[a, b])
 
         # 4. signal engine → trade plans → risk sizing
+        prev_sides: dict[str, str] = {}
+        if self._cache is not None:
+            for p in self._cache.signals + self._cache.watchlist:
+                prev_sides[p["symbol"]] = p["side"]
+
         plans: list[TradePlan] = []
+        flips: list[str] = []
         for symbol, df in history.items():
             try:
                 plan = build_plan(
@@ -109,6 +115,18 @@ class MarketEngine:
                 )
             except (ValueError, IndexError, KeyError):
                 continue
+            # exit instruction when a previous signal has flipped sides
+            prev = prev_sides.get(symbol)
+            if prev in ("BUY", "SELL") and plan.side in ("BUY", "SELL") and prev != plan.side:
+                close_word = "SELL" if prev == "BUY" else "BUY TO COVER"
+                plan.actions.insert(
+                    0,
+                    f"⛔ SIGNAL FLIPPED ({prev} → {plan.side}): if you still hold the "
+                    f"recommended {prev} position — {close_word} NOW and exit at market.",
+                )
+                plan.notes.insert(0, f"Signal flipped from {prev} to {plan.side} — exit the old trade.")
+                flips.append(f"{plan.display}: previous {prev} signal has flipped to {plan.side} — "
+                             f"close the old position NOW and stand aside (or reverse).")
             if plan.side in ("BUY", "SELL"):
                 decision = self.risk.can_open(plan)
                 plan.notes.append(
@@ -140,7 +158,7 @@ class MarketEngine:
             ml=self._ml_payload(forecasts),
         )
         report.summary = self._summary(report, plans)
-        report.insights = self._insights(report, plans, strength)
+        report.insights = flips + self._insights(report, plans, strength)
         report.generated_at = time.time()
         self._cache = report
         return report
@@ -227,15 +245,25 @@ class MarketEngine:
         )
         active = [p for p in plans if p.side != "WAIT"]
         for p in active[:3]:
+            action = "BUY" if p.side == "BUY" else "SELL (short)"
             out.append(
-                f"{p.display} {p.side} — composite edge {p.score:+.2f} "
-                f"(confidence {p.confidence:.0%}, regime {p.regime.replace('_', ' ')}). "
-                f"Invest on strength above {p.entry:.5g}; stop-loss {p.stop:.5g} "
-                f"({p.stop_dist / p.atr:.1f} ATR away); take first profit at "
-                f"{p.target:.5g} ({p.risk_reward:.1f}R) and trail toward {p.target2:.5g}."
+                f"WHEN TO BUY/SELL — {p.display}: the system instructs {action} NOW near "
+                f"{p.entry:.5g} (confidence {p.confidence:.0%}, composite edge {p.score:+.2f}, "
+                f"regime {p.regime.replace('_', ' ')})."
+            )
+            out.append(
+                f"PREDICTED OUTCOME — {p.display}: {p.predicted_outcome}"
+            )
+            out.append(
+                f"WHEN TO SELL/EXIT — {p.display}: take profit (sell) {p.target:.5g} "
+                f"= 1:{p.risk_reward:.2f}R; stop-loss (sell all) {p.stop:.5g} "
+                f"({p.stop_dist / p.atr:.1f} ATR away); sell the rest on the trail to "
+                f"{p.target2:.5g}; time-stop close after {p.time_stop_bars} bars; "
+                f"sell immediately if the signal flips."
             )
         if not active:
-            out.append("No qualified setups right now — capital preservation is a position. Watch the watchlist.")
+            out.append("INSTRUCTION: no qualified setups — DO NOT BUY yet. "
+                       "Capital preservation is a position; watch the watchlist for triggers.")
         vol_hot = [p for p in plans if p.regime == "volatile"]
         if len(vol_hot) > max(2, len(plans) * 0.3):
             out.append(

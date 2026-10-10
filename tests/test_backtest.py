@@ -28,7 +28,7 @@ def test_backtest_deterministic(eurusd, cfg):
 
 def test_trades_have_exit_reason(eurusd, cfg):
     result = run_backtest("EURUSD", eurusd, cfg)
-    valid = {"stop", "end_of_data", "signal", "target"}
+    valid = {"stop", "end_of_data", "signal", "target", "time_stop"}
     for t in result.trades:
         assert t.exit_reason in valid
         assert np.isfinite(t.pnl)
