@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FX Trading Signals — Market Intelligence</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">FX</div>
+    <div>
+      <h1>FX Trading Signals</h1>
+      <div class="sub">Whole-market tracing · prediction · trade plans (entry / TP / SL)</div>
+    </div>
+  </div>
+  <div class="pulse" id="pulse">
+    <div class="chip"><span class="k">Data</span><span class="v" id="chip-source">…</span></div>
+    <div class="chip"><span class="k">DXY</span><span class="v" id="chip-dxy">…</span></div>
+    <div class="chip"><span class="k">Breadth</span><span class="v" id="chip-breadth">…</span></div>
+    <div class="chip"><span class="k">Mood</span><span class="v" id="chip-mood">…</span></div>
+    <div class="chip"><span class="k">Signals</span><span class="v" id="chip-signals">…</span></div>
+    <button class="refresh" id="btn-refresh">↻ Rescan market</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="market">Market &amp; Signals</button>
+  <button class="tab" data-tab="backtest">Backtest Lab</button>
+  <button class="tab" data-tab="about">How it works</button>
+</nav>
+
+<main>
+  <!-- ============ MARKET TAB ============ -->
+  <section id="tab-market" class="tab-panel active">
+    <div class="grid-top">
+      <div class="card">
+        <h2>Currency Strength <span class="hint">cross-sectional · all pairs</span></h2>
+        <div id="strength" class="strength"></div>
+      </div>
+      <div class="card">
+        <h2>Market Insights <span class="hint">when to invest · take profit · stop loss</span></h2>
+        <ul id="insights" class="insights"></ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Trade Signals — All Assets
+        <span class="hint" id="signal-count"></span>
+      </h2>
+      <div class="table-wrap">
+        <table id="signals-table">
+          <thead>
+            <tr>
+              <th data-sort="display">Pair</th>
+              <th data-sort="side">Signal</th>
+              <th data-sort="confidence">Conf.</th>
+              <th data-sort="regime">Regime</th>
+              <th data-sort="price">Price</th>
+              <th data-sort="p_up">P(up)</th>
+              <th data-sort="expected_move_pct">Pred. move</th>
+              <th data-sort="entry">Entry</th>
+              <th data-sort="target">Take profit</th>
+              <th data-sort="stop">Stop loss</th>
+              <th data-sort="risk_reward">R:R</th>
+              <th data-sort="lots">Size (lots)</th>
+              <th data-sort="risk_amount">Risk $</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid-detail">
+      <div class="card">
+        <h2 id="pair-title">Pair Detail <span class="hint">click any row above</span></h2>
+        <div class="pair-meta" id="pair-meta"></div>
+        <canvas id="chart" width="980" height="380"></canvas>
+        <canvas id="rsi-chart" width="980" height="110"></canvas>
+        <div class="plan-box" id="plan-box">
+          <em>Select a pair to see the full trade plan and narrative.</em>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Correlation Matrix <span class="hint">avoid stacking correlated risk</span></h2>
+        <div id="corr" class="corr"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BACKTEST TAB ============ -->
+  <section id="tab-backtest" class="tab-panel">
+    <div class="card">
+      <h2>Backtest Lab <span class="hint">event-driven · spread + slippage · partial profits · trailing stops</span></h2>
+      <div class="bt-controls">
+        <label>Pair
+          <select id="bt-symbol"></select>
+        </label>
+        <label>Equity ($)
+          <input type="number" id="bt-equity" value="10000" min="100" step="100" />
+        </label>
+        <label>Risk / trade (%)
+          <input type="number" id="bt-risk" value="0.75" min="0.05" max="5" step="0.05" />
+        </label>
+        <label>Bars
+          <input type="number" id="bt-bars" value="3000" min="300" max="10000" step="100" />
+        </label>
+        <button class="refresh" id="btn-backtest">▶ Run backtest</button>
+      </div>
+      <div id="bt-metrics" class="bt-metrics"></div>
+      <canvas id="equity-chart" width="980" height="300"></canvas>
+      <div class="table-wrap">
+        <table id="trades-table">
+          <thead>
+            <tr><th>Side</th><th>Entry time</th><th>Entry</th><th>Exit time</th><th>Exit</th><th>Stop</th><th>Target</th><th>R</th><th>P&amp;L $</th><th>Exit reason</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ABOUT TAB ============ -->
+  <section id="tab-about" class="tab-panel">
+    <div class="card">
+      <h2>How this platform works</h2>
+      <div class="about">
+        <h3>1 · Trace — whole-market data engine</h3>
+        <p>Every instrument in the universe (7 majors, 15 crosses, 8 exotics, gold &amp; silver) is
+        loaded through a provider chain (Frankfurter/ECB → exchangerate.host → yfinance). When no
+        live feed is reachable, a <strong>correlated currency-factor simulator</strong> generates a
+        coherent entire market: each currency has a latent factor driven by shared risk &amp;
+        commodity shocks, and every pair is <code>exp(L_base − L_quote)</code> — so crosses are
+        arbitrage-consistent and the strength meter has real structure to extract.</p>
+
+        <h3>2 · Predict — ML + statistical signals</h3>
+        <p>Per pair, a gradient-boosting ensemble (40+ features: multi-horizon returns, RSI, MACD
+        geometry, Bollinger state, ADX regime, candle anatomy, session effects) forecasts direction,
+        expected move and volatility over the next bars — trained strictly time-ordered (walk-forward,
+        no shuffle) and reported with honest out-of-sample accuracy.</p>
+
+        <h3>3 · Act — signal engine &amp; trade plans</h3>
+        <p>Six factors (trend, momentum, mean-reversion, breakout, ML, currency-strength differential)
+        are weighted by regime into a composite score. Beyond threshold it emits a full plan:
+        <strong>entry</strong> (next bar), <strong>stop-loss</strong> at 1.2–1.5×ATR beyond structure
+        (wider when volatility is forecast hot), <strong>take-profit</strong> at 1.8–2.5×ATR with a
+        guaranteed 1.5 minimum R:R, a partial-profit plan (50% at +1.5R → breakeven stop → trail to 3R),
+        and ATR-based position sizing risking a fixed 0.75% of equity per trade.</p>
+
+        <h3>4 · Protect — portfolio risk layer</h3>
+        <p>Max open positions, per-currency exposure caps (no 3× USD stacking), correlation down-sizing,
+        daily loss circuit-breaker and a drawdown throttle. The Kelly fraction is shown as a reference
+        only (half-Kelly, capped).</p>
+
+        <h3>5 · Validate — event-driven backtester</h3>
+        <p>Signals computed on bar t execute at bar t+1's open (no lookahead). Intrabar stop/target
+        fills are conservative (stop wins ties). Costs = instrument spread + slippage. Metrics:
+        win rate, profit factor, expectancy in R, Sharpe, Sortino, max drawdown.</p>
+
+        <p class="disclaimer">⚠ Educational software. Markets involve substantial risk of loss.
+        Nothing here is financial advice; no orders are ever sent to a broker.
+        Past (backtest) performance does not guarantee future results.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  FX Trading Signals &amp; Market Intelligence · analysis &amp; simulation only · not financial advice
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
