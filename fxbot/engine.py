@@ -36,6 +36,7 @@ class MarketReport:
     breadth: float = 0.0
     signals: list[dict[str, Any]] = field(default_factory=list)
     watchlist: list[dict[str, Any]] = field(default_factory=list)
+    instructions: list[dict[str, Any]] = field(default_factory=list)
     insights: list[str] = field(default_factory=list)
     correlation: dict[str, Any] = field(default_factory=dict)
     risk: dict[str, Any] = field(default_factory=dict)
@@ -52,6 +53,7 @@ class MarketReport:
             "breadth": self.breadth,
             "signals": self.signals,
             "watchlist": self.watchlist,
+            "instructions": self.instructions,
             "insights": self.insights,
             "correlation": self.correlation,
             "risk": self.risk,
@@ -140,6 +142,10 @@ class MarketEngine:
         active = [p for p in plans if p.side != "WAIT"]
         watch = [p for p in plans if p.side == "WAIT"][:10]
 
+        # 5. distilled instruction stream: when to buy → predicted outcome →
+        #    when to sell — one command object per instrument
+        instructions = self._build_instructions(active, watch)
+
         # 5. portfolio-level report + insights
         report = MarketReport(
             generated_at=time.time(),
@@ -153,6 +159,7 @@ class MarketEngine:
             breadth=round(strength.breadth, 3),
             signals=[p.to_dict() for p in active],
             watchlist=[p.to_dict() for p in watch],
+            instructions=instructions,
             correlation=_corr_payload(corr),
             risk=self._risk_payload(active, corr_lookup),
             ml=self._ml_payload(forecasts),
@@ -164,6 +171,81 @@ class MarketEngine:
         return report
 
     # ------------------------------------------------------------------
+
+    def _build_instructions(self, active: list[TradePlan],
+                            watch: list[TradePlan]) -> list[dict[str, Any]]:
+        """The user-facing command stream: tells when to buy, predicts the
+        outcome, and instructs exactly when/how to sell."""
+        out: list[dict[str, Any]] = []
+        for p in active:
+            if p.side == "BUY":
+                verdict, action = "BUY NOW", "buy"
+                one_line = (
+                    f"BUY {p.display} NOW @ {p.entry:.5g} → predicted "
+                    f"{p.target / p.entry - 1:+.2%} to {p.target:.5g} "
+                    f"(P≈{p.p_target_first:.0%}) → SELL {p.target:.5g} (50% at +1.5R, "
+                    f"rest trailed to {p.target2:.5g}) / SELL ALL at stop {p.stop:.5g} "
+                    f"/ time stop {p.time_stop_bars} bars"
+                )
+            else:
+                verdict, action = "SELL NOW", "sell"
+                one_line = (
+                    f"SELL {p.display} NOW (short) @ {p.entry:.5g} → predicted "
+                    f"{p.target / p.entry - 1:+.2%} to {p.target:.5g} "
+                    f"(P≈{p.p_target_first:.0%}) → BUY BACK {p.target:.5g} (50% at +1.5R, "
+                    f"rest trailed to {p.target2:.5g}) / BUY BACK ALL at stop {p.stop:.5g} "
+                    f"/ time stop {p.time_stop_bars} bars"
+                )
+            out.append({
+                "uid": p.symbol,
+                "symbol": p.symbol,
+                "display": p.display,
+                "verdict": verdict,
+                "action": action,
+                "confidence": round(p.confidence, 3),
+                "entry": round(p.entry, 6),
+                "prediction": p.predicted_outcome,
+                "p_target_first": round(p.p_target_first, 3),
+                "expected_bars": p.expected_bars,
+                "one_line": one_line,
+                "exit_orders": [
+                    {"label": "take profit", "price": round(p.target, 6),
+                     "instruction": f"sell {self.cfg.signal.partial_profit_fraction * 100:.0f}% at "
+                                    f"{p.target:.5g} (+{self.cfg.signal.partial_profit_r:.1f}R), "
+                                    f"then move the stop to breakeven"},
+                    {"label": "sell the rest", "price": round(p.target2, 6),
+                     "instruction": f"trail the remainder toward {p.target2:.5g}"},
+                    {"label": "stop loss", "price": round(p.stop, 6),
+                     "instruction": f"sell ALL at {p.stop:.5g} if the prediction is wrong"},
+                    {"label": "time stop", "price": None,
+                     "instruction": f"close at market if unresolved after "
+                                    f"{p.time_stop_bars} bars — the predicted move never came"},
+                    {"label": "flip exit", "price": None,
+                     "instruction": "sell immediately if the system flips to a contrary signal"},
+                ],
+                "actions": p.actions,
+            })
+        for p in watch[:5]:
+            out.append({
+                "uid": p.symbol,
+                "symbol": p.symbol,
+                "display": p.display,
+                "verdict": "DO NOT BUY",
+                "action": "wait",
+                "confidence": round(p.confidence, 3),
+                "entry": round(p.entry, 6),
+                "prediction": p.predicted_outcome,
+                "p_target_first": 0.0,
+                "expected_bars": 0,
+                "one_line": (
+                    f"DO NOT BUY {p.display} — no edge (score {p.score:+.2f}). "
+                    f"Trigger: score crosses ±{self.cfg.signal.entry_threshold} → "
+                    f"the system will instruct BUY or SELL."
+                ),
+                "exit_orders": [],
+                "actions": p.actions,
+            })
+        return out
 
     def _risk_payload(self, plans: list[TradePlan],
                       corr_lookup: dict[tuple[str, str], float]) -> dict[str, Any]:

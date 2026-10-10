@@ -219,4 +219,35 @@ footer {
   border-top: 1px solid var(--line); text-align: center;
 }
 
+/* ---------- instruction feed ---------- */
+.instructions { display: flex; flex-direction: column; gap: 10px; }
+.ins {
+  border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px;
+  background: var(--card2);
+}
+.ins-buy { border-left: 4px solid var(--green); }
+.ins-sell { border-left: 4px solid var(--red); }
+.ins-wait { border-left: 4px solid var(--muted); opacity: 0.85; }
+.ins-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 5px; }
+.ins-head strong { font-size: 14px; }
+.ins-conf { color: var(--muted); font-size: 11px; }
+.ins-link {
+  margin-left: auto; background: transparent; color: var(--accent);
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px;
+  cursor: pointer; font-size: 11px;
+}
+.ins-link:hover { background: var(--card); }
+.ins-line {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  font-variant-numeric: tabular-nums; line-height: 1.55;
+}
+.ins-pred { font-size: 11.5px; color: #b9c5d8; margin-top: 5px; line-height: 1.55; }
+.ins-exits { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.exit-chip {
+  font-size: 10.5px; padding: 3px 9px; border-radius: 6px;
+  background: var(--card); border: 1px solid var(--line); color: #cdd8e8;
+  font-variant-numeric: tabular-nums;
+}
+.exit-chip b { color: var(--text); }
+
 .empty { color: var(--muted); padding: 18px; text-align: center; }

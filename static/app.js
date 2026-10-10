@@ -34,6 +34,44 @@ $$(".tab").forEach((btn) =>
   })
 );
 
+/* ---------------- instruction feed (buy → predict → sell) ---------------- */
+
+function renderInstructions(list) {
+  const el = $("#instructions");
+  $("#instruction-time").textContent = SCAN
+    ? `· generated ${new Date(SCAN.generated_at * 1000).toLocaleTimeString()}`
+    : "";
+  if (!list.length) {
+    el.innerHTML = `<div class="empty">No instructions yet — scan in progress.</div>`;
+    return;
+  }
+  el.innerHTML = list
+    .map((ins) => {
+      const cls = ins.action === "buy" ? "ins-buy" : ins.action === "sell" ? "ins-sell" : "ins-wait";
+      const exitLine = (ins.exit_orders || [])
+        .map((o) => `<span class="exit-chip"><b>${o.label}</b>${o.price !== null && o.price !== undefined ? " " + fmt(o.price) : ""} — ${o.instruction}</span>`)
+        .join("");
+      return `<div class="ins ${cls}">
+        <div class="ins-head">
+          <span class="badge ${sideClass(ins.action === "buy" ? "BUY" : ins.action === "sell" ? "SELL" : "WAIT")}">${ins.verdict}</span>
+          <strong>${ins.display}</strong>
+          <span class="ins-conf">confidence ${pct(ins.confidence, 0)} · P(target before stop) ≈ ${pct(ins.p_target_first, 0)}</span>
+          <button class="ins-link" data-symbol="${ins.symbol}">chart &amp; full plan →</button>
+        </div>
+        <div class="ins-line">${ins.one_line}</div>
+        <div class="ins-pred">🔮 ${ins.prediction}</div>
+        ${exitLine ? `<div class="ins-exits">${exitLine}</div>` : ""}
+      </div>`;
+    })
+    .join("");
+  el.querySelectorAll(".ins-link").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      loadPair(btn.dataset.symbol);
+      $("#pair-title").scrollIntoView({ behavior: "smooth", block: "center" });
+    })
+  );
+}
+
 /* ---------------- scan ---------------- */
 
 async function loadScan(refresh = false) {
@@ -61,6 +99,8 @@ function renderScan() {
   $("#chip-mood").textContent = SCAN.summary.market_mood || "—";
   $("#chip-signals").textContent =
     `${SCAN.summary.buy_signals ?? 0}▲ / ${SCAN.summary.sell_signals ?? 0}▼`;
+
+  renderInstructions(SCAN.instructions || []);
 
   // strength bars
   const rows = SCAN.currency_strength || [];
@@ -514,3 +554,5 @@ function drawEquity(canvas, curve) {
 
 $("#btn-refresh").addEventListener("click", () => loadScan(true));
 loadScan();
+// live instruction feed: re-scan every 5 minutes (models are cached, so this is cheap)
+setInterval(() => loadScan(true), 5 * 60 * 1000);

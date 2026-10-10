@@ -77,6 +77,18 @@ def scan(refresh: bool = False) -> dict[str, Any]:
     return report.to_dict()
 
 
+@app.get("/api/instructions")
+def instructions(refresh: bool = False) -> dict[str, Any]:
+    """Distilled command stream: when to buy, predicted outcome, when to sell."""
+    report = _engine.scan(use_cache=not refresh)
+    d = report.to_dict()
+    return {
+        "generated_at": d["generated_at"],
+        "data_source": d["data_source"],
+        "instructions": d["instructions"],
+    }
+
+
 @app.get("/api/pair/{symbol}")
 def pair(symbol: str) -> dict[str, Any]:
     symbol = symbol.upper()

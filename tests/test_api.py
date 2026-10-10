@@ -45,6 +45,25 @@ def test_scan_report_shape(client):
             assert key in s, key
 
 
+def test_instructions_endpoint(client):
+    """The instruction stream must tell when to buy, predict outcome, say when to sell."""
+    r = client.get("/api/instructions")
+    assert r.status_code == 200
+    body = r.json()
+    assert "instructions" in body and isinstance(body["instructions"], list)
+    assert body["instructions"], "expected at least one instruction"
+    ins = body["instructions"][0]
+    for key in ("verdict", "action", "one_line", "prediction", "exit_orders"):
+        assert key in ins, key
+    assert ins["verdict"] in ("BUY NOW", "SELL NOW", "DO NOT BUY")
+    if ins["action"] in ("buy", "sell"):
+        blob = (ins["one_line"] + " " + ins["prediction"]).upper()
+        assert "BUY" in blob and "SELL" in blob
+        labels = {o["label"] for o in ins["exit_orders"]}
+        assert {"take profit", "stop loss", "time stop"} <= labels
+        assert ins["p_target_first"] > 0
+
+
 def test_pair_detail(client):
     r = client.get("/api/pair/EURUSD")
     assert r.status_code == 200

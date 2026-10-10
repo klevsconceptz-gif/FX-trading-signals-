@@ -291,7 +291,8 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
         expected_bars = int(max(4.0, round(abs(close - stop) * abs(target - close) / (atr_v ** 2))))
 
         dir_word = "higher" if side == "BUY" else "lower"
-        move_pct = abs(target / close - 1.0) * 100.0
+        move_pct = (target / close - 1.0) * 100.0
+        stop_pct = (stop / close - 1.0) * 100.0
         if forecast:
             p_side = forecast.p_up if side == "BUY" else 1.0 - forecast.p_up
             model_line = (
@@ -305,8 +306,8 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
             model_line = "ML model: not trained on this pair — plan relies on technical factors only"
         predicted_outcome = (
             f"Plan targets a move {dir_word} to the take-profit at {target:.5g} "
-            f"(+{move_pct:.2f}%) vs the stop at {stop:.5g} "
-            f"(−{abs(close - stop) / close * 100:.2f}%), risk-reward 1:{rr:.2f}. "
+            f"({move_pct:+.2f}%) vs the stop at {stop:.5g} "
+            f"({stop_pct:+.2f}%), risk-reward 1:{rr:.2f}. "
             f"{model_line}. Estimated chance the take-profit is reached before the "
             f"stop ≈ {p_target:.0%}; typically resolved in ~{expected_bars} bars."
         )
