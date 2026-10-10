@@ -52,6 +52,7 @@ class BacktestRequest(BaseModel):
 def health() -> dict[str, Any]:
     return {
         "status": "ok",
+        "app": "klevs FX trading App",
         "version": "1.0.0",
         "data_source": _engine.data.source_label,
         "universe_size": len(UNIVERSE),

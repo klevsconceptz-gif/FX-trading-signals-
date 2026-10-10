@@ -18,6 +18,7 @@ def test_health(client):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
+    assert body["app"] == "klevs FX trading App"
     assert body["universe_size"] > 20
 
 
