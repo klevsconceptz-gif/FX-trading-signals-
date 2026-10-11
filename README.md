@@ -30,10 +30,11 @@ and an event-driven backtester.
 bash setup.sh                # creates .venv and installs everything
 source .venv/bin/activate
 
-# landing page + bot (subscribe monthly → instant access)
+# landing page + bot + operator console
 python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000
-#   → http://localhost:8000      landing page (pricing, subscribe)
-#   → http://localhost:8000/app  the bot (subscriber-gated)
+#   → http://localhost:8000        landing page (plans, account, payment)
+#   → http://localhost:8000/app    the bot (paid access only)
+#   → http://localhost:8000/admin  operator console (verify payments, grant access)
 
 # terminal market scan (all 32 instruments)
 python -m scripts.scan
@@ -45,40 +46,64 @@ python -m scripts.backtest --symbol EURUSD
 python -m scripts.train
 ```
 
-## Landing page & monthly subscriptions
+## Landing page, payments & paid access
 
-`/` is the marketing landing page: hero, features, how-it-works, sample
-instruction feed, **monthly pricing tiers** (Starter $29 · Pro $79 · Elite $199),
-testimonials and FAQ. **Registration is attached to the paywall** — picking a plan
-opens the shared auth form (Register / Log in / Forgot password) and creates your
-account plus an active monthly plan; subsequent logins use the same form.
+Access works like this — there is **no card checkout and no payment processor**:
 
-**Login credentials are limited to four fields**: username, email, phone number
-and password (any of the first three identifies the account). Password policy:
-minimum **10 characters with uppercase, lowercase, number and symbol**, with a
-live checklist + strength meter and a show/hide (👁) toggle. Forgot password uses
-**hashed email auth**: a 7-digit code is issued to the account email, only its
-PBKDF2 hash is stored, it expires in 15 minutes and locks out after 5 wrong
-attempts. (Demo build returns the code in the API response instead of sending
-email — remove `dev_code` when wiring a real email provider.)
+1. The buyer creates an account on the landing page (username, email, phone number, password)
+   and picks a plan: **Starter $29 · Pro $79 · Elite $199**, each for **30 days**.
+2. The buyer pays the operator **directly** by **crypto** (to a wallet address the operator
+   configured, on a network they name) or by **bank wire** (to the operator's account).
+3. The buyer submits the transaction hash or wire reference. The payment waits in the
+   operator queue as `submitted`.
+4. The **operator verifies the payment** in `/admin` (wallet or bank statement) and clicks
+   *Confirm & grant*. Only then is 30 days of access written to the database. A rejection
+   carries a reason that the buyer sees, and the buyer can try again.
+5. Each further confirmed payment adds 30 days, stacked onto any active access. Nothing
+   renews automatically.
 
-| Endpoint | Purpose |
-|----------|---------|
-| `POST /api/register` | create account (username, email, phone, password) + monthly plan → access token |
-| `POST /api/auth/login` | log in with username **or** email **or** phone + password → re-issued token |
-| `POST /api/auth/forgot` | email auth: issue 7-digit reset code (stored hashed only) |
-| `POST /api/auth/reset` | verify code + set a new policy-compliant password → token |
-| `GET /api/auth/password-policy` | password rules for the UI checklist |
-| `POST /api/subscribe` | plan-only demo signup (quick demo access) |
-| `GET /api/subscription/{token}` | subscription status (validates the app gate) |
+The `/app` dashboard is gated on that access: without it, the paywall shows "Choose a plan &
+pay". Market endpoints (`/api/universe`, `/api/scan`, `/api/instructions`, `/api/pair/…`,
+`/api/backtest`) return `401` without a session and `403` without paid access.
 
-Passwords are hashed with **PBKDF2-HMAC-SHA256 (200k iterations)**, per-user
-salt, constant-time comparison. The checkout is a clearly-labelled **demo** (no
-payment is processed). To go live, swap `_checkout()` in `fxbot/server.py` for a
-Stripe Checkout Session + webhook — the register/login/token flow is
-production-shaped already. The dashboard at `/app` is gated: no active
-subscription → paywall overlay with "Create account & subscribe", "Explore the
-demo", "Log in" and "Forgot password".
+**Accounts.** Login credentials are limited to four fields: username, email, phone number and
+password. Login accepts any of the first three as the identifier. Password policy: minimum
+**10 characters with uppercase, lowercase, number and symbol**. Passwords are stored as
+**PBKDF2-HMAC-SHA256 (200k iterations)** with a per-user salt. Forgot password sends a 7-digit
+code to the account email. Only its hash is stored, it expires in 15 minutes and it locks out
+after 5 wrong attempts. The code is never returned in an API response unless the local-only
+flag `KLEVS_DEV_RESET_CODES=1` is set. Set the SMTP variables `KLEVS_SMTP_*` to deliver the
+code by email. Login locks out for 15 minutes after 10 failures. Session tokens are stored
+only as SHA-256 hashes.
+
+**Database.** Accounts, sessions, payments, access grants and the operator's payment details
+live in a database set by `KLEVS_DATABASE_URL`:
+
+- Default: SQLite at `data/klevs.db`, created with owner-only permissions (git-ignored).
+- Production: a PostgreSQL URL, for example
+  `KLEVS_DATABASE_URL='postgresql+psycopg://klevs:…@db-host:5432/klevs?sslmode=require'`
+  (install `psycopg[binary]` alongside the app). The schema is the same; only the URL changes.
+
+| Endpoint | Who | Purpose |
+|----------|-----|---------|
+| `POST /api/register` | public | create account (username, email, phone, password) → session token |
+| `POST /api/auth/login` | public | log in with username **or** email **or** phone + password (wrong password and unknown account both return `401`) |
+| `POST /api/auth/forgot` | public | issue a 7-digit reset code (generic response) |
+| `POST /api/auth/reset` | public | verify the code and set a new policy-compliant password |
+| `GET /api/auth/password-policy` | public | password rules for the UI checklist |
+| `GET /api/me` · `POST /api/auth/logout` | signed-in user | account, access state, own payments |
+| `GET /api/payment-options` | signed-in user | plans, and which payment methods the operator has set up |
+| `POST /api/payments` | signed-in user | create an invoice `KFX-XXXXXX` for `{plan, method, network}` |
+| `GET /api/payments` | signed-in user | the user's own invoices |
+| `POST /api/payments/{id}/reference` | signed-in user | submit the transaction hash / wire reference |
+| `GET /api/admin/payments[?status=]` | operator | payment queue |
+| `POST /api/admin/payments/{id}/confirm` · `…/reject` | operator | verify (grants 30 days) or reject with a reason |
+| `GET /api/admin/users` | operator | accounts and access state |
+| `POST /api/admin/users/{id}/grant` · `…/revoke` | operator | manual grant (note required) or revoke (reason required) |
+| `GET` / `PUT /api/admin/payment-settings` | operator | crypto wallets (network + address) and wire details |
+
+Every decision is audited: the payment or grant records the operator username, the timestamp and
+the note.
 
 Run the test-suite:
 
@@ -86,23 +111,32 @@ Run the test-suite:
 python -m pytest tests/ -q
 ```
 
-### Admin account (unrestricted access)
+### Operator setup (admin account and payment details)
 
-The admin is provisioned by the operator from environment variables — the
-credentials are never written into the code or the repository:
+The operator account is provisioned from environment variables. The credentials are never
+written into the code or the repository:
 
 ```bash
 export KFX_ADMIN_USERNAME='Admin@klev.fx'     # required
 export KFX_ADMIN_PASSWORD='...'               # required, must meet the password policy
 export KFX_ADMIN_EMAIL='admin@klev.fx'        # optional (defaults to the username)
 export KFX_ADMIN_PHONE='+1 555 000 0000'      # optional
+export KLEVS_DATABASE_URL='...'               # optional; defaults to data/klevs.db
 .venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000
 ```
 
-The admin logs in on the paywall ("Log in") with the username, email or phone.
-Their session carries `role: "admin"`, plan `Admin` and `access: "unrestricted"`.
-The Admin plan is never offered at self-service signup or checkout. Accounts
-are held in memory, so the admin is re-provisioned from the environment on every start.
+Then open `http://localhost:8000/admin`, sign in, and go to **Payment details**:
+
+- **Crypto wallets** — one address per network (for example `BTC`, `ETH`, `USDT-TRC20`).
+  Buyers pay these addresses directly.
+- **Bank wire details** — account name, account number, routing/SWIFT, IBAN, and the
+  instructions buyers should follow.
+
+A method with no details stays hidden from buyers and shows "not set up yet". The operator
+enters these values; nothing is pre-filled.
+
+The operator's own session has `role: "admin"`, plan `Admin` and unrestricted access. The
+Admin role cannot be created or bought through self-service registration or payment.
 
 ## Dashboard
 
@@ -210,22 +244,25 @@ Every scan and backtest is deterministic for a given seed — reproducible resea
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/` | marketing landing page (subscribe monthly) |
-| GET | `/app` | the bot dashboard (subscriber-gated) |
+| GET | `/` | marketing landing page (plans, account, payment) |
+| GET | `/app` | the bot dashboard (paid access) |
+| GET | `/admin` | operator console (operator sign-in) |
 | GET | `/api/health` | status + config |
 | GET | `/api/universe` | instrument list |
 | GET | `/api/scan?refresh=true` | full-market report (signals, insights, strength, correlations) |
 | GET | `/api/instructions` | distilled buy → predict → sell command stream |
 | GET | `/api/pair/{symbol}` | candles, indicators, trade plan, forecast |
 | POST | `/api/backtest` | `{symbol, equity, risk_per_trade_pct, bars}` → metrics, equity curve, trades |
-| POST | `/api/subscribe` | monthly subscription signup (demo checkout) |
-| POST | `/api/register` | account + plan signup (see the subscription section) |
-| POST | `/api/auth/login` | log in with username, email or phone + password |
+| POST | `/api/register` · `/api/auth/login` | account creation and sign-in (see the payments section) |
 | POST | `/api/auth/forgot` · `/api/auth/reset` | hashed email reset-code flow |
 | GET | `/api/auth/password-policy` | password rules |
-| GET | `/api/subscription/{token}` | subscription status |
+| GET | `/api/me` | account + access state (bearer token) |
+| GET · POST | `/api/payment-options` · `/api/payments` | plans, methods, invoices (bearer token) |
+| POST | `/api/payments/{id}/reference` | submit a transaction hash / wire reference |
+| GET · POST | `/api/admin/…` | operator queue, verification, grants, payment details (operator only) |
 
-`POST /api/login` (email-only) was retired: it allowed sign-in without a password.
+The market endpoints above require paid access. `POST /api/login` (email-only) and
+`POST /api/subscribe` were retired: they allowed access without verification.
 
 ## Live data
 
@@ -233,8 +270,12 @@ Live mode is **on by default** in the server and CLI. Providers:
 
 | Provider | Data | Needs |
 |----------|------|-------|
-| `yfinance` (Yahoo Finance) | hourly FX + gold/silver (730 days) | `pip install -r requirements-live.txt` |
-| `frankfurter` (ECB reference rates, `api.frankfurter.dev/v2`) | daily fiat FX only | nothing (no key) |
+| `yfinance` (Yahoo Finance) | hourly FX + gold/silver (730 days) | `pip install -r requirements-live.txt` and network access to Yahoo Finance |
+| `frankfurter` (ECB reference rates, `api.frankfurter.dev/v2`) | daily fiat FX only | nothing (no key), network access to frankfurter.dev |
+
+Live data is **optional**. `setup.sh` tries to install `requirements-live.txt` and carries on
+if that fails. If no provider can be reached, the app uses the **synthetic** market and labels
+it `synthetic (live unavailable: …)`. Nothing is presented as live when it is not.
 
 Rules: a provider is used only when its bar size matches the timeframe (daily
 rates are never stretched into hourly bars); live data is all-or-nothing per

@@ -10,7 +10,39 @@ from fxbot.server import app
 
 @pytest.fixture(scope="module")
 def client():
+    """Logged-in client with paid access (market endpoints are gated)."""
+    from fxbot import billing
+    from fxbot.auth import ACCOUNTS, issue_session
+    from fxbot.db import reset_database
+
+    reset_database()
+    user = ACCOUNTS.register("apitrader", "api@example.com", "+15550100001", "Str0ng!Pass99")
+    billing.grant_access(user.id, "pro", 30, "test-operator", "test grant")
+    c = TestClient(app)
+    c.headers.update({"Authorization": f"Bearer {issue_session(user.id)}"})
+    return c
+
+
+@pytest.fixture(scope="module")
+def anon():
     return TestClient(app)
+
+
+def test_market_endpoints_require_login(anon):
+    for path in ("/api/universe", "/api/scan", "/api/instructions", "/api/pair/EURUSD"):
+        assert anon.get(path).status_code == 401, path
+    assert anon.post("/api/backtest", json={"symbol": "EURUSD"}).status_code == 401
+
+
+def test_market_endpoints_require_paid_access(anon):
+    from fxbot.auth import ACCOUNTS, issue_session
+
+    user = ACCOUNTS.register("unpaid_user", "unpaid@example.com", "+15550100002", "Str0ng!Pass99")
+    unpaid = TestClient(app)
+    unpaid.headers.update({"Authorization": f"Bearer {issue_session(user.id)}"})
+    r = unpaid.get("/api/universe")
+    assert r.status_code == 403 and "payment required" in r.json()["detail"]
+    assert unpaid.get("/api/scan").status_code == 403
 
 
 def test_health(client):
@@ -97,56 +129,17 @@ def test_landing_page_served(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "klevs FX trading App" in r.text
-    # monthly-subscription landing: pricing + subscribe CTA must exist
-    assert "Subscribe monthly" in r.text or "Subscribe" in r.text
-    assert "/month" in r.text
+    assert "/30 days" in r.text and "/month" not in r.text
 
 
 def test_app_page_served(client):
     r = client.get("/app")
     assert r.status_code == 200
-    assert "Live Instructions" in r.text          # the bot dashboard
-    assert "paywall" in r.text                    # subscriber gate present
+    assert "Live Instructions" in r.text
+    assert "paywall" in r.text
 
 
-def test_subscription_flow(client):
-    """register -> token works -> credential login re-issues -> unknown user 404."""
-    r = client.post("/api/register", json={
-        "username": "testtrader", "email": "trader@example.com",
-        "phone": "+1 555 123 4567", "password": "Str0ng!Pass99", "plan": "pro"})
+def test_admin_console_served(client):
+    r = client.get("/admin")
     assert r.status_code == 200
-    body = r.json()
-    token = body["token"]
-    assert body["subscription"]["plan"] == "pro"
-    assert body["subscription"]["price_usd"] == 79
-    assert body["subscription"]["interval"] == "month"
-    assert body["access_url"] == "/app"
-
-    r2 = client.get(f"/api/subscription/{token}")
-    assert r2.status_code == 200
-    assert r2.json()["subscription"]["email"] == "trader@example.com"
-
-    # subsequent login after payment: username + password (also email/phone work — see test_auth.py)
-    r3 = client.post("/api/auth/login", json={
-        "identifier": "testtrader", "password": "Str0ng!Pass99"})
-    assert r3.status_code == 200
-    new_token = r3.json()["token"]
-    assert new_token != token
-    assert client.get(f"/api/subscription/{new_token}").status_code == 200
-    # old token invalidated after re-login
-    assert client.get(f"/api/subscription/{token}").status_code == 404
-
-    assert client.post("/api/auth/login", json={
-        "identifier": "nobody", "password": "whatever1A!"}).status_code == 404
-    # insecure email-only login endpoint is gone
-    assert client.post("/api/login", json={"email": "trader@example.com"}).status_code in (404, 405)
-
-
-def test_subscription_validation(client):
-    assert client.post("/api/subscribe",
-                       json={"name": "X", "email": "not-an-email", "plan": "pro"}
-                       ).status_code == 422
-    assert client.post("/api/subscribe",
-                       json={"name": "X", "email": "a@b.co", "plan": "gold"}
-                       ).status_code == 422
-    assert client.get("/api/subscription/made-up-token").status_code == 404
+    assert "Operator console" in r.text

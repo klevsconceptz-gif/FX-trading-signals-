@@ -22,25 +22,25 @@
       <div class="chip"><span class="k">Breadth</span><span class="v" id="chip-breadth">…</span></div>
       <div class="chip"><span class="k">Mood</span><span class="v" id="chip-mood">…</span></div>
       <div class="chip"><span class="k">Signals</span><span class="v" id="chip-signals">…</span></div>
-      <div class="chip sub-chip" id="chip-sub" hidden><span class="k">Subscriber</span><span class="v" id="chip-sub-name">…</span></div>
+      <div class="chip sub-chip" id="chip-sub" hidden><span class="k">Access</span><span class="v" id="chip-sub-name">…</span></div>
       <button class="refresh" id="btn-refresh">↻ Rescan market</button>
       <button class="refresh ghosty" id="btn-logout" hidden>Log out</button>
     </div>
   </header>
 
-  <!-- subscriber paywall overlay -->
+  <!-- paid-access paywall overlay: shown until the operator has verified a payment -->
   <div class="paywall" id="paywall" hidden>
     <div class="paywall-card">
       <div class="logo">KFX</div>
-      <h2>Subscribe to unlock klevs FX trading App</h2>
-      <p>The live instruction feed, predictions, charts and backtest lab are for
-        subscribers. Plans start at <b>$29/month</b> — cancel anytime.</p>
+      <h2>Unlock the klevs FX trading App</h2>
+      <p id="pw-msg">The live instruction feed, predictions, charts and backtest lab are for
+        paid members. Plans are <b>$29 / $79 / $199</b> for 30 days each. Pay the operator by
+        crypto or bank wire; access unlocks once the operator verifies your payment.</p>
       <div class="paywall-actions">
-        <button class="refresh" id="pw-subscribe">Create account &amp; subscribe →</button>
-        <button class="refresh ghosty" id="pw-demo">Explore the demo</button>
+        <button class="refresh" id="pw-pay">Choose a plan &amp; pay →</button>
+        <button class="refresh ghosty" id="pw-status">I have already paid</button>
       </div>
-      <p class="pw-note" id="pw-note">Registering here attaches your monthly plan and creates your
-        login (username, email, phone, password). Already registered?
+      <p class="pw-note">Nothing is charged by this site. Already registered?
         <button class="linkish" id="pw-login">Log in</button>
         · <button class="linkish" id="pw-forgot">Forgot password?</button></p>
     </div>
@@ -158,8 +158,10 @@
       <div class="about">
         <h3>1 · Trace — whole-market data engine</h3>
         <p>Every instrument in the universe (7 majors, 15 crosses, 8 exotics, gold &amp; silver) is
-        loaded live (hourly bars via yfinance; daily ECB rates via Frankfurter). The whole market
-        switches to live only when every instrument is available; otherwise a
+        loaded live when your machine can reach the providers (hourly bars via yfinance, which needs
+        the optional <code>requirements-live.txt</code>; daily ECB rates via Frankfurter). The whole market
+        switches to live only when every instrument is available; otherwise it is labelled
+        <em>synthetic</em> and a
         <strong>correlated currency-factor simulator</strong> generates a
         coherent entire market: each currency has a latent factor driven by shared risk &amp;
         commodity shocks, and every pair is <code>exp(L_base − L_quote)</code> — so crosses are

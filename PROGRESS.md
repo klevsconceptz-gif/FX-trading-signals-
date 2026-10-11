@@ -1,7 +1,7 @@
 # Progress Log — klevs FX trading App
 
 Session save point · branch `arena/641dff05-fx-trading-signals` · 2026-10-10
-Status: **complete & green** — 95/95 tests · ruff clean · 32-instrument stress verified
+Status: **round 11 complete on the branch** — 111/111 pytest · ruff clean · payments via operator verification · Stripe unlinked
 
 ---
 
@@ -40,42 +40,38 @@ half-Kelly reference (edge-case safe).
 
 ### 4. klevs FX trading App (dashboard + API)
 - **Landing page** (`/`): hero, features, how-it-works, instruction showcase,
-  **monthly pricing** (Starter $29 · Pro $79 · Elite $199), testimonials, FAQ,
-  demo-checkout subscribe modal (Stripe-ready `_checkout()` hook)
-- **Registration attached to the paywall**: plan CTA / paywall "Create account &
-  subscribe" opens the shared auth modal (Register / Log in / Forgot password) in
-  both `/` and `/app`; registering creates the account AND activates the plan
+  30-day plan cards (Starter $29 · Pro $79 · Elite $199), FAQ. Plan buttons open the
+  shared account + payment modal (see round 11)
 - **Auth** (`fxbot/auth.py` + `static/auth.{js,css}`): credentials limited to
   username, email, phone number, password (any of the first 3 identifies login);
   PBKDF2-HMAC-SHA256 200k-iters hashing + constant-time verify; password policy
   ≥10 chars with upper/lower/number/symbol — live checklist, strength meter and
   show/hide 👁 toggle; forgot password = hashed email auth (7-digit code, hash-only
-  storage, 15-min TTL, 5-attempt lockout, code delivered via email in production,
-  `dev_code` in demo response)
-- **Subscriber gate**: `/app` checks the subscription token and shows a paywall
-  overlay (Create account & subscribe / Explore demo / Log in / Forgot password)
+  storage, 15-min TTL, 5-attempt lockout, delivered by SMTP, never returned in an
+  API response unless `KLEVS_DEV_RESET_CODES=1`)
+- **Paywall**: `/app` requires paid access; market endpoints return 401/403 without it
+- API (current): `/api/health` · `/api/universe` · `/api/scan` · `/api/instructions` ·
+  `/api/pair/{symbol}` · `POST /api/backtest` · `POST /api/register` ·
+  `POST /api/auth/login` · `POST /api/auth/forgot` · `POST /api/auth/reset` ·
+  `GET /api/auth/password-policy` · payment and operator routes (round 11).
+  Retired: `POST /api/login` (email-only), `POST /api/subscribe`,
+  `GET /api/subscription/{token}`, the demo checkout and `dev_code` in responses
 - Dark trading terminal: live **instruction feed** (auto-refresh 5 min), market
   pulse (DXY/breadth/mood), currency-strength grid, sortable signals table,
   canvas candle charts with plan levels + RSI, correlation heatmap, backtest lab
-- API: `/api/health` · `/api/universe` · `/api/scan` · `/api/instructions` ·
-  `/api/pair/{symbol}` · `POST /api/backtest` · `POST /api/register` ·
-  `POST /api/auth/login` · `POST /api/auth/forgot` · `POST /api/auth/reset` ·
-  `GET /api/auth/password-policy` · `POST /api/subscribe` ·
-  `GET /api/subscription/{token}` — all validated (insecure email-only
-  `POST /api/login` retired)
 - Branding: exact name **klevs FX trading App** (title, header KFX, footer, API)
 - Thread-safe engine (lock), no-store headers, self-contained (no CDN)
 
 ### 5. Tooling & quality
 - CLIs: `scripts/scan.py` · `scripts/backtest.py` · `scripts/train.py`
 - **95 tests** (indicators, signals & instruction lifecycle, risk, backtest
-  invariants/no-lookahead, ML, API, subscription, **auth/register/reset**) — all passing
+  invariants/no-lookahead, ML, API, **auth/register/reset** (round 9); payments (round 11)) — all passing
 - `ruff.toml` (F,E9,I,B,SIM,C4,RUF) — All checks passed
 - `RESOURCES.md` — GitHub/paper/data-source research survey with design mapping
 
 ### 6. Admin account
 - Operator-provisioned admin (`KFX_ADMIN_USERNAME` / `KFX_ADMIN_PASSWORD` [+ `_EMAIL`, `_PHONE`]) seeded at server start via `_bootstrap_admin_from_env()` → `AccountStore.seed_admin()`. No credentials in code or git.
-- Admin role/plan (`role: admin`, plan `admin`, `access: unrestricted`) never selectable at register/subscribe (422).
+- Admin role/plan (`role: admin`, plan `admin`, `access: unrestricted`) never selectable at register or at payment (422).
 - Admin username `Admin@klev.fx` is accepted through the admin path only (user usernames stay `[A-Za-z0-9_.-]`).
 - Tests: 95/95 (10 new admin tests). Ruff clean. Live check: username + email login 200, wrong password 401, admin plan self-select 422. Server stopped after.
 
@@ -87,6 +83,8 @@ half-Kelly reference (edge-case safe).
 - Known: first `/api/scan` after a cold boot takes ~34 s (trains 32 ML models); cached afterwards (ms). Candidate fix: warm the cache in a background thread at startup.
 
 ### 8. Live market data (round 10)
+- Status: implemented and unit-tested; **not verified against live providers from this sandbox** (they are unreachable here). Run `KFX_LIVE_DATA=1 .venv/bin/python -m scripts.scan --live` on a machine with internet access to confirm live output.
+- Optional install: `requirements-live.txt` (yfinance), attempted by `setup.sh`; the app falls back to the labelled synthetic market if it is missing or unreachable.
 - Sandbox check: Frankfurter, exchangerate.host and Yahoo Finance are **unreachable** from this sandbox (TLS fails); PyPI, npm and GitHub work. No live FX data can be fetched here, so this session's data is synthetic — labelled as such everywhere.
 - Bugs fixed:
   - Server never tried live data (engine built with `prefer_live=False`) → now on by default, `KFX_LIVE_DATA=0` to disable.
@@ -100,6 +98,39 @@ half-Kelly reference (edge-case safe).
 - Tests: `tests/test_live_data.py` (16 offline tests: parsing, native-bar gating, all-or-nothing, tz/dedupe/trim, breaker, server refresh).
 - Offline behaviour verified live: fallback in <1 s with reason shown in `data_source`.
 - Known: the synthetic market is deterministic per seed and bar count, so it does not move in real time between refreshes.
+
+### 9. Payments, operator console and database (round 11)
+- **Stripe unlinked.** The demo checkout, `_checkout()` hook and `/api/subscribe` are removed.
+  No payment path can grant access without an operator decision.
+- **Payment methods**: crypto (operator-supplied wallet address per network) or bank wire
+  (operator-supplied account details). Each invoice snapshots the pay-to details it was
+  created with. The operator enters the values in `/admin` → Payment details; nothing is
+  pre-filled, and a method with no details is hidden from buyers.
+- **Lifecycle**: `awaiting_payment` → `submitted` (hash or wire reference) → `confirmed`
+  (grants 30 days, stacked onto any active access) or `rejected` (reason shown to the buyer).
+  Superseded unpaid invoices become `cancelled`.
+- **Operator console** (`/admin`, `static/admin.{html,js}`): sign-in gate for the operator
+  only; payment queue with confirm/reject; accounts and access with manual grant and revoke
+  (note required); payment details. Every write is server-enforced and audited.
+- **Database** (`fxbot/db.py`, SQLAlchemy 2): tables `users`, `user_sessions`, `payments`,
+  `access_grants`, `settings`. `KLEVS_DATABASE_URL` selects SQLite (default
+  `data/klevs.db`, owner-only, git-ignored) or PostgreSQL. Accounts are no longer held
+  in memory and no longer re-created from environment variables on each start (the operator
+  account is still provisioned from `KFX_ADMIN_*`). Session tokens are stored as SHA-256 hashes.
+- **Auth routes**: `/api/me`, `/api/auth/logout`, bearer-token dependencies `current_user`,
+  `require_access` (paid), `require_admin`. Login with a wrong password and an unknown account
+  return the same `401`.
+- **Tests**: `tests/test_billing.py` (14: full crypto and wire lifecycles, reject and retry,
+  stacking and expiry, invoice isolation, operator-only routes, audit identity),
+  `tests/test_api.py` (gating 401/403, page routes), `tests/test_auth.py` (30). Suite total: 111 passed.
+- **Browser check** (not stored in the repo): a jsdom run against a live server drove the
+  landing page, buyer registration, invoice, reference submission, operator confirm and
+  reject, the paid and unpaid app, and the operator sign-in gate. 35/35 checks passed.
+- **Open items (product decisions and inputs needed)**: the operator must provide the wallet
+  addresses and bank details; crypto amounts are fixed USD prices, so the operator must
+  convert and verify the amount received by hand; no automatic on-chain or bank verification
+  exists; the Pro/Elite feature list still names items that are not built (for example
+  webhooks and multi-account profiles).
 
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)
@@ -118,11 +149,11 @@ half-Kelly reference (edge-case safe).
 ## ▶️ Resume commands
 ```bash
 bash setup.sh                               # rebuild .venv (not stored in git)
-.venv/bin/python -m pytest tests/ -q        # 95 tests
+.venv/bin/python -m pytest tests/ -q        # full battery (see round 11 for counts)
 .venv/bin/python -m scripts.scan            # whole-market scan
 .venv/bin/python -m scripts.backtest --symbol EURUSD
 .venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000
-#   → /  landing page (subscribe monthly)   → /app  the bot
+#   → /  landing page (plans & payment)   → /app  the bot   → /admin  operator console
 ```
 
 ## ⚠ Disclaimer

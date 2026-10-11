@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -13,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # the suite never touches the network: the server defaults to live data, so pin it off
 os.environ.setdefault("KFX_LIVE_DATA", "0")
+# and it never touches the operator's database: each run gets a throw-away SQLite file
+os.environ.setdefault("KLEVS_DATABASE_URL", "sqlite:///" + tempfile.mkdtemp(prefix="klevs-test-") + "/test.db")
 
 from fxbot.config import AppConfig
 from fxbot.data import MarketData, SyntheticMarket

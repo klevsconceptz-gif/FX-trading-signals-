@@ -1,0 +1,180 @@
+"""Database layer (SQLAlchemy 2.x).
+
+* Development / single-server: SQLite file at ``data/klevs.db`` (created with
+  owner-only permissions, git-ignored).
+* Production: set ``KLEVS_DATABASE_URL`` to a PostgreSQL URL, e.g.
+  ``postgresql+psycopg://klevs:***@db-host:5432/klevs?sslmode=require``.
+  The schema is portable; only the URL changes.
+
+Tables
+------
+users          accounts (password stored as PBKDF2 hash, never plain text)
+user_sessions  bearer tokens — only the SHA-256 of each token is stored
+payments       invoices: crypto or wire, awaiting → submitted → confirmed/rejected
+access_grants  paid access windows (30 days per confirmed payment) and manual grants
+settings       operator-managed key/value config (crypto wallets, wire details)
+"""
+
+from __future__ import annotations
+
+import os
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Optional
+
+from sqlalchemy import Float, ForeignKey, Integer, String, Text, create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_SQLITE_PATH = ROOT / "data" / "klevs.db"
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True)
+    username_key: Mapped[str] = mapped_column(String(64), unique=True)   # lowercase, for lookups
+    email: Mapped[str] = mapped_column(String(200), unique=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(32), unique=True, nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(300))
+    role: Mapped[str] = mapped_column(String(16), default="user")       # user | admin
+    created_at: Mapped[float] = mapped_column(Float)
+    reset_hash: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    reset_expires: Mapped[float] = mapped_column(Float, default=0.0)
+    reset_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[float] = mapped_column(Float)
+    expires_at: Mapped[float] = mapped_column(Float)
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    invoice: Mapped[str] = mapped_column(String(16), unique=True)
+    plan: Mapped[str] = mapped_column(String(16))
+    amount_usd: Mapped[float] = mapped_column(Float)
+    method: Mapped[str] = mapped_column(String(8))                        # crypto | wire
+    network: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    pay_to: Mapped[str] = mapped_column(Text)                            # snapshot of wallet / bank details
+    # awaiting_payment -> submitted -> confirmed | rejected ; or cancelled
+    status: Mapped[str] = mapped_column(String(24), index=True)
+    reference: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)   # tx hash / wire ref
+    sender_note: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[float] = mapped_column(Float)
+    submitted_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    decided_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    decided_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    decision_note: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+
+
+class AccessGrant(Base):
+    __tablename__ = "access_grants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    plan: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16), default="active")    # active | revoked
+    starts_at: Mapped[float] = mapped_column(Float)
+    expires_at: Mapped[float] = mapped_column(Float, index=True)
+    granted_by: Mapped[str] = mapped_column(String(64))
+    payment_id: Mapped[Optional[int]] = mapped_column(ForeignKey("payments.id"), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+
+
+# ---------------------------------------------------------------------------
+# engine / sessions
+# ---------------------------------------------------------------------------
+
+_lock = threading.Lock()
+_engine: Optional[Engine] = None
+_factory: Optional[sessionmaker] = None
+
+
+def database_url() -> str:
+    url = os.environ.get("KLEVS_DATABASE_URL", "").strip()
+    if url:
+        return url
+    DEFAULT_SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{DEFAULT_SQLITE_PATH}"
+
+
+def init_engine(url: Optional[str] = None) -> Engine:
+    """(Re)configure the global engine and create any missing tables."""
+    global _engine, _factory
+    with _lock:
+        url = url or database_url()
+        sqlite = url.startswith("sqlite")
+        engine = create_engine(
+            url,
+            connect_args={"check_same_thread": False} if sqlite else {},
+            pool_pre_ping=not sqlite,
+        )
+        if sqlite:
+            @event.listens_for(engine, "connect")
+            def _sqlite_pragmas(dbapi_conn, _record):  # pragma: no cover - trivial
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA foreign_keys=ON")
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.close()
+
+        Base.metadata.create_all(engine)
+        if sqlite and ":memory:" not in url:
+            path = url.split("sqlite:///", 1)[-1]
+            if path and Path(path).exists():
+                os.chmod(path, 0o600)            # owner-only: it holds password hashes
+        _engine = engine
+        _factory = sessionmaker(bind=engine, expire_on_commit=False)
+        return engine
+
+
+def get_engine() -> Engine:
+    if _engine is None:
+        init_engine()
+    return _engine
+
+
+@contextmanager
+def db_session() -> Iterator[Session]:
+    """Transaction scope: commits on success, rolls back on any exception."""
+    if _factory is None:
+        init_engine()
+    session = _factory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def reset_database() -> None:
+    """Drop and recreate every table (tests and explicit operator resets only)."""
+    Base.metadata.drop_all(get_engine())
+    Base.metadata.create_all(get_engine())

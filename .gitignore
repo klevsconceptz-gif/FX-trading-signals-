@@ -28,3 +28,7 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Operator database (accounts, payments, access) — never commit
+data/*.db
+data/*.db-*

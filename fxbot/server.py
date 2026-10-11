@@ -1,43 +1,66 @@
-"""FastAPI application: JSON API + landing page + subscriber dashboard.
+"""FastAPI application: JSON API, landing page, paid-access dashboard, operator admin.
 
-Endpoints
----------
-GET  /                      marketing landing page (subscribe monthly)
-GET  /app                   the bot dashboard (subscriber-gated in the UI)
-GET  /api/health            liveness + config summary
-GET  /api/scan              full-market scan report (signals, insights, strength)
-GET  /api/instructions      distilled buy → predict → sell command stream
-GET  /api/pair/{symbol}     deep-dive: candles, indicators, plan, forecast
-POST /api/backtest          run a backtest for a symbol
-GET  /api/universe          instrument list
-POST /api/subscribe         monthly subscription signup (demo checkout)
-POST /api/login             re-issue access token for a subscribed email
-GET  /api/subscription/{token}  subscription status
+Public
+------
+GET  /                         landing page
+GET  /app                      dashboard shell (data endpoints need paid access)
+GET  /admin                    operator console (admin role required)
+GET  /api/health               liveness + config summary
+POST /api/register             create account (username, email, phone, password)
+POST /api/auth/login           log in with username, email or phone + password
+POST /api/auth/forgot          e-mail a reset code (never returned in the response)
+POST /api/auth/reset           verify the code, set a new password, log in
+GET  /api/auth/password-policy password rules for the UI
+
+Logged in (bearer token)
+------------------------
+GET  /api/me                   account, access status, my payments
+POST /api/auth/logout          end the session
+GET  /api/payment-options      plans, prices and which payment methods are set up
+POST /api/payments             create an invoice (crypto or wire)
+GET  /api/payments             my invoices
+POST /api/payments/{id}/reference  submit the transaction hash / wire reference
+
+Paid access (active subscription or admin)
+------------------------------------------
+GET  /api/scan, /api/instructions, /api/pair/{symbol}, /api/universe, POST /api/backtest
+
+Admin
+-----
+GET  /api/admin/payments, POST /api/admin/payments/{id}/confirm|reject
+GET  /api/admin/users, POST /api/admin/users/{id}/grant|revoke
+GET|PUT /api/admin/payment-settings   crypto wallets and wire bank details
 """
 
 from __future__ import annotations
 
 import os
-import re
-import secrets
 import threading
-import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import billing
 from .auth import (  # noqa: F401  (re-exported for tests)
     ACCOUNTS,
+    LockedError,
+    deliver_reset_code,
+    dev_reset_codes_enabled,
+    issue_session,
     password_policy,
     password_strength,
     policy_error,
+    resolve_session,
+    revoke_session,
 )
 from .backtest import run_backtest
 from .config import AppConfig
+from .db import User
 from .engine import MarketEngine
 from .universe import BY_SYMBOL, UNIVERSE
 
@@ -67,38 +90,21 @@ _engine_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
-# subscriptions (demo checkout — replace _checkout with Stripe/Paddle in prod)
+# request models
 # ---------------------------------------------------------------------------
 
-PLANS: dict[str, dict[str, Any]] = {
-    "starter": {"name": "Starter", "price_usd": 29, "interval": "month"},
-    "pro": {"name": "Pro", "price_usd": 79, "interval": "month"},
-    "elite": {"name": "Elite", "price_usd": 199, "interval": "month"},
-    "demo": {"name": "Demo", "price_usd": 0, "interval": "month"},
-    # operator-only: granted to the admin account, never offered at checkout
-    "admin": {"name": "Admin", "price_usd": 0, "interval": "month", "access": "unrestricted"},
-}
-SELF_SERVE_PLANS = ("starter", "pro", "elite", "demo")
-
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_SUBSCRIPTIONS: dict[str, dict[str, Any]] = {}   # token -> record
-_EMAIL_INDEX: dict[str, str] = {}                # lowercase email -> token
-_SUB_LOCK = threading.Lock()
-
-
-class SubscribeRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=120)
-    email: str = Field(..., min_length=5, max_length=200)
-    plan: str = Field("pro", description="starter | pro | elite | demo")
+class BacktestRequest(BaseModel):
+    symbol: str = Field(..., description="e.g. EURUSD")
+    equity: Optional[float] = Field(None, gt=0)
+    risk_per_trade_pct: Optional[float] = Field(None, gt=0, le=5)
+    bars: Optional[int] = Field(None, ge=250, le=20000)
 
 
 class RegisterRequest(BaseModel):
-    """Full registration: the four allowed credentials + chosen plan."""
     username: str = Field(..., min_length=3, max_length=32)
     email: str = Field(..., min_length=5, max_length=200)
     phone: str = Field(..., min_length=7, max_length=20)
     password: str = Field(..., min_length=1, max_length=128)
-    plan: str = Field("pro", description="starter | pro | elite | demo")
 
 
 class AuthLoginRequest(BaseModel):
@@ -117,22 +123,290 @@ class ResetRequest(BaseModel):
     new_password: str = Field(..., min_length=1, max_length=128)
 
 
-def _checkout(record: dict[str, Any]) -> dict[str, Any]:
-    """Demo checkout: marks the subscription active without charging anything.
-
-    Production: create a Stripe Checkout Session (or Paddle transaction) here,
-    return its hosted URL, and mark the subscription active from the webhook.
-    """
-    record["status"] = "active"
-    record["billing"] = "demo-checkout (no payment processed)"
-    return record
+class PaymentRequest(BaseModel):
+    plan: str = Field(..., description="starter | pro | elite")
+    method: Literal["crypto", "wire"]
+    network: Optional[str] = Field(None, max_length=16, description="crypto only, e.g. BTC")
 
 
-class BacktestRequest(BaseModel):
-    symbol: str = Field(..., description="e.g. EURUSD")
-    equity: Optional[float] = Field(None, gt=0)
-    risk_per_trade_pct: Optional[float] = Field(None, gt=0, le=5)
-    bars: Optional[int] = Field(None, ge=250, le=20000)
+class ReferenceRequest(BaseModel):
+    reference: str = Field(..., min_length=4, max_length=200,
+                           description="transaction hash (crypto) or wire reference")
+    sender_note: str = Field("", max_length=300)
+
+
+class DecisionRequest(BaseModel):
+    note: str = Field("", max_length=300)
+
+
+class RejectRequest(BaseModel):
+    note: str = Field(..., min_length=3, max_length=300, description="reason shown to the buyer")
+
+
+class GrantRequest(BaseModel):
+    plan: str = Field(..., description="starter | pro | elite")
+    days: int = Field(billing.ACCESS_DAYS, ge=1, le=366)
+    note: str = Field(..., min_length=3, max_length=300)
+
+
+class CryptoEntry(BaseModel):
+    network: str = Field("", max_length=16)
+    address: str = Field("", max_length=120)
+
+
+class WireDetails(BaseModel):
+    bank_name: str = Field("", max_length=300)
+    account_name: str = Field("", max_length=300)
+    account_number: str = Field("", max_length=300)
+    routing_or_swift: str = Field("", max_length=300)
+    iban: str = Field("", max_length=300)
+    instructions: str = Field("", max_length=300)
+
+
+class PaymentSettingsRequest(BaseModel):
+    crypto: list[CryptoEntry] = Field(default_factory=list)
+    wire: WireDetails = Field(default_factory=WireDetails)
+
+
+# ---------------------------------------------------------------------------
+# auth dependencies
+# ---------------------------------------------------------------------------
+
+_bearer = HTTPBearer(auto_error=False)
+
+
+def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer)) -> User:
+    user = resolve_session(creds.credentials if creds else None)
+    if user is None:
+        raise HTTPException(status_code=401, detail="log in to continue")
+    return user
+
+
+def require_access(user: User = Depends(current_user)) -> User:
+    """Paid access: an active subscription window, or the admin role."""
+    if user.role == "admin" or billing.access_status(user.id)["active"]:
+        return user
+    raise HTTPException(status_code=403, detail="payment required — complete payment to unlock the bot")
+
+
+def require_admin(user: User = Depends(current_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="admin only")
+    return user
+
+
+def _user_public(user: User) -> dict[str, Any]:
+    return {"id": user.id, "username": user.username, "email": user.email,
+            "phone": user.phone or "", "role": user.role}
+
+
+def _session_payload(user: User) -> dict[str, Any]:
+    return {
+        "user": _user_public(user),
+        "access": billing.access_status(user.id),
+    }
+
+
+# ---------------------------------------------------------------------------
+# accounts
+# ---------------------------------------------------------------------------
+
+@app.post("/api/register")
+def register(req: RegisterRequest) -> dict[str, Any]:
+    """Create an account.  Access is granted only after a confirmed payment."""
+    try:
+        user = ACCOUNTS.register(req.username, req.email, req.phone, req.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    token = issue_session(user.id)
+    return {
+        "ok": True,
+        "token": token,
+        **_session_payload(user),
+        "message": "Account created. Choose a plan and complete payment to unlock the bot.",
+    }
+
+
+@app.post("/api/auth/login")
+def auth_login(req: AuthLoginRequest) -> dict[str, Any]:
+    try:
+        user = ACCOUNTS.authenticate(req.identifier, req.password)
+    except LockedError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except (PermissionError, ValueError) as exc:
+        # same answer for unknown account and wrong password: no account enumeration
+        raise HTTPException(status_code=401,
+                            detail="incorrect username, email, phone or password") from exc
+    token = issue_session(user.id)
+    return {"ok": True, "token": token, **_session_payload(user), "access_url": "/app"}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer)) -> dict[str, Any]:
+    revoke_session(creds.credentials if creds else None)
+    return {"ok": True}
+
+
+@app.post("/api/auth/forgot")
+def auth_forgot(req: ForgotRequest) -> dict[str, Any]:
+    """Always answers the same way, so it cannot be used to discover accounts."""
+    message = "If an account exists for that email, a reset code has been sent. It expires in 15 minutes."
+    try:
+        code = ACCOUNTS.issue_reset(req.email)
+    except KeyError:
+        return {"ok": True, "message": message}
+    delivered = deliver_reset_code(req.email.strip().lower(), code)
+    payload: dict[str, Any] = {"ok": True, "message": message, "delivered": delivered}
+    if dev_reset_codes_enabled():
+        payload["dev_code"] = code          # local development only (KLEVS_DEV_RESET_CODES=1)
+    return payload
+
+
+@app.post("/api/auth/reset")
+def auth_reset(req: ResetRequest) -> dict[str, Any]:
+    try:
+        user = ACCOUNTS.reset_password(req.email, req.code, req.new_password)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    token = issue_session(user.id)
+    return {"ok": True, "message": "Password updated. You are logged in with the new password.",
+            "token": token, **_session_payload(user), "access_url": "/app"}
+
+
+@app.get("/api/auth/password-policy")
+def auth_password_policy() -> dict[str, Any]:
+    return {
+        "min_length": 10,
+        "rules": ["length_10", "uppercase", "lowercase", "number", "symbol"],
+        "labels": {
+            "length_10": "At least 10 characters",
+            "uppercase": "An uppercase letter (A-Z)",
+            "lowercase": "A lowercase letter (a-z)",
+            "number": "A number (0-9)",
+            "symbol": "A symbol (!@#$%…)",
+        },
+    }
+
+
+@app.get("/api/me")
+def me(user: User = Depends(current_user)) -> dict[str, Any]:
+    return {**_session_payload(user),
+            "payments": billing.my_payments(user.id)[:10],
+            "methods": billing.available_methods()}
+
+
+# ---------------------------------------------------------------------------
+# payments (user side)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/payment-options")
+def payment_options(_user: User = Depends(current_user)) -> dict[str, Any]:
+    return {
+        "plans": {k: {"name": v["name"], "price_usd": v["price_usd"], "days": billing.ACCESS_DAYS}
+                  for k, v in billing.PLANS.items()},
+        "methods": billing.available_methods(),
+        "access_days": billing.ACCESS_DAYS,
+    }
+
+
+@app.post("/api/payments")
+def create_payment(req: PaymentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+    try:
+        payment = billing.create_payment(user.id, req.plan, req.method, req.network)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, "payment": payment}
+
+
+@app.get("/api/payments")
+def list_my_payments(user: User = Depends(current_user)) -> dict[str, Any]:
+    return {"payments": billing.my_payments(user.id)}
+
+
+@app.post("/api/payments/{payment_id}/reference")
+def submit_reference(payment_id: int, req: ReferenceRequest,
+                     user: User = Depends(current_user)) -> dict[str, Any]:
+    try:
+        payment = billing.submit_reference(user.id, payment_id, req.reference, req.sender_note)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, "payment": payment,
+            "message": "Submitted. The operator will verify the payment and unlock your access."}
+
+
+# ---------------------------------------------------------------------------
+# admin (operator console)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/payments")
+def admin_payments(status: Optional[str] = None, _admin: User = Depends(require_admin)) -> dict[str, Any]:
+    return {"payments": billing.list_payments(status)}
+
+
+@app.post("/api/admin/payments/{payment_id}/confirm")
+def admin_confirm(payment_id: int, req: Optional[DecisionRequest] = None,
+                  admin: User = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        payment = billing.confirm_payment(payment_id, admin.username, req.note if req else "")
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, "payment": payment}
+
+
+@app.post("/api/admin/payments/{payment_id}/reject")
+def admin_reject(payment_id: int, req: RejectRequest, admin: User = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        payment = billing.reject_payment(payment_id, admin.username, req.note)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, "payment": payment}
+
+
+@app.get("/api/admin/users")
+def admin_users(_admin: User = Depends(require_admin)) -> dict[str, Any]:
+    return {"users": billing.list_users()}
+
+
+@app.post("/api/admin/users/{user_id}/grant")
+def admin_grant(user_id: int, req: GrantRequest, admin: User = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        grant = billing.grant_access(user_id, req.plan, req.days, admin.username, req.note)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, "grant": grant}
+
+
+@app.post("/api/admin/users/{user_id}/revoke")
+def admin_revoke(user_id: int, req: RejectRequest, admin: User = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        count = billing.revoke_access(user_id, admin.username, req.note)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, "revoked": count}
+
+
+@app.get("/api/admin/payment-settings")
+def admin_get_settings(_admin: User = Depends(require_admin)) -> dict[str, Any]:
+    return billing.get_settings()
+
+
+@app.put("/api/admin/payment-settings")
+def admin_put_settings(req: PaymentSettingsRequest, _admin: User = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        data = billing.update_settings(req.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, "settings": data}
 
 
 @app.get("/api/health")
@@ -148,7 +422,7 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/api/universe")
-def universe() -> list[dict[str, Any]]:
+def universe(_user: User = Depends(require_access)) -> list[dict[str, Any]]:
     return [
         {
             "symbol": i.symbol,
@@ -163,14 +437,14 @@ def universe() -> list[dict[str, Any]]:
 
 
 @app.get("/api/scan")
-def scan(refresh: bool = False) -> dict[str, Any]:
+def scan(refresh: bool = False, _user: User = Depends(require_access)) -> dict[str, Any]:
     with _engine_lock:
         report = _engine.scan(use_cache=not refresh, reload=refresh)
     return report.to_dict()
 
 
 @app.get("/api/instructions")
-def instructions(refresh: bool = False) -> dict[str, Any]:
+def instructions(refresh: bool = False, _user: User = Depends(require_access)) -> dict[str, Any]:
     """Distilled command stream: when to buy, predicted outcome, when to sell."""
     with _engine_lock:
         report = _engine.scan(use_cache=not refresh, reload=refresh)
@@ -183,7 +457,7 @@ def instructions(refresh: bool = False) -> dict[str, Any]:
 
 
 @app.get("/api/pair/{symbol}")
-def pair(symbol: str) -> dict[str, Any]:
+def pair(symbol: str, _user: User = Depends(require_access)) -> dict[str, Any]:
     symbol = symbol.upper()
     if symbol not in BY_SYMBOL:
         raise HTTPException(status_code=404, detail=f"unknown symbol {symbol}")
@@ -195,7 +469,7 @@ def pair(symbol: str) -> dict[str, Any]:
 
 
 @app.post("/api/backtest")
-def backtest(req: BacktestRequest) -> dict[str, Any]:
+def backtest(req: BacktestRequest, _user: User = Depends(require_access)) -> dict[str, Any]:
     symbol = req.symbol.upper()
     if symbol not in BY_SYMBOL:
         raise HTTPException(status_code=404, detail=f"unknown symbol {symbol}")
@@ -242,185 +516,6 @@ def backtest(req: BacktestRequest) -> dict[str, Any]:
     }
 
 
-# -- subscriptions ------------------------------------------------------------
-
-@app.post("/api/subscribe")
-def subscribe(req: SubscribeRequest) -> dict[str, Any]:
-    email = req.email.strip().lower()
-    if not _EMAIL_RE.match(email):
-        raise HTTPException(status_code=422, detail="invalid email address")
-    plan = PLANS.get(req.plan) if req.plan in SELF_SERVE_PLANS else None
-    if plan is None:
-        raise HTTPException(status_code=422, detail=f"unknown plan '{req.plan}' — choose starter, pro or elite")
-
-    with _SUB_LOCK:
-        token = secrets.token_urlsafe(24)
-        record = {
-            "token": token,
-            "name": req.name.strip(),
-            "email": email,
-            "plan": req.plan,
-            "plan_name": plan["name"],
-            "price_usd": plan["price_usd"],
-            "interval": plan["interval"],
-            "created_at": time.time(),
-            "renews_at": time.time() + 30 * 86400,
-        }
-        record = _checkout(record)
-        _SUBSCRIPTIONS[token] = record
-        _EMAIL_INDEX[email] = token
-    return {
-        "ok": True,
-        "token": token,
-        "subscription": _public_record(record),
-        "message": "Subscription active — welcome to klevs FX trading App. "
-                   "Demo checkout: no payment was processed; wire Stripe Checkout into "
-                   "fxbot/server.py::_checkout for live billing.",
-        "access_url": "/app",
-    }
-
-
-def _issue_session(email: str, username: str, phone: str, plan_key: str,
-                   created_at: Optional[float] = None, role: str = "user") -> dict[str, Any]:
-    """Create / refresh a subscription session for an account and return its token."""
-    plan = PLANS.get(plan_key) or PLANS["demo"]
-    if role == "admin":
-        plan_key = "admin"
-        plan = PLANS["admin"]
-    with _SUB_LOCK:
-        # retire any previous session for this account
-        old = _EMAIL_INDEX.get(email)
-        if old is not None:
-            _SUBSCRIPTIONS.pop(old, None)
-        token = secrets.token_urlsafe(24)
-        record = {
-            "token": token,
-            "name": username,
-            "username": username,
-            "email": email,
-            "phone": phone,
-            "plan": plan_key,
-            "plan_name": plan["name"],
-            "price_usd": plan["price_usd"],
-            "interval": plan["interval"],
-            "role": role,
-            "created_at": created_at or time.time(),
-            "renews_at": time.time() + 30 * 86400,
-        }
-        if plan.get("access"):
-            record["access"] = plan["access"]
-        record = _checkout(record)
-        _SUBSCRIPTIONS[token] = record
-        _EMAIL_INDEX[email] = token
-        return {"token": token, "record": record}
-
-
-@app.post("/api/register")
-def register(req: RegisterRequest) -> dict[str, Any]:
-    """Registration attached to the paywall: creates the account (username,
-    email, phone, password) and activates the chosen monthly plan."""
-    plan = PLANS.get(req.plan) if req.plan in SELF_SERVE_PLANS else None
-    if plan is None:
-        raise HTTPException(status_code=422, detail=f"unknown plan '{req.plan}' — choose starter, pro or elite")
-    try:
-        acc = ACCOUNTS.register(req.username, req.email, req.phone, req.password, plan=req.plan)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    session = _issue_session(acc.email, acc.username, acc.phone, req.plan, acc.created_at, acc.role)
-    return {
-        "ok": True,
-        "token": session["token"],
-        "subscription": _public_record(session["record"]),
-        "message": f"Account created and {plan['name']} plan active — welcome to klevs FX trading App. "
-                   "Demo checkout: no payment was processed; wire Stripe Checkout into "
-                   "fxbot/server.py::_checkout for live billing.",
-        "access_url": "/app",
-    }
-
-
-@app.post("/api/auth/login")
-def auth_login(req: AuthLoginRequest) -> dict[str, Any]:
-    """Log in with any credential — username, email or phone number — + password."""
-    try:
-        acc = ACCOUNTS.authenticate(req.identifier, req.password)
-    except PermissionError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    session = _issue_session(acc.email, acc.username, acc.phone, acc.plan, acc.created_at, acc.role)
-    return {
-        "ok": True,
-        "token": session["token"],
-        "subscription": _public_record(session["record"]),
-        "access_url": "/app",
-    }
-
-
-@app.post("/api/auth/forgot")
-def auth_forgot(req: ForgotRequest) -> dict[str, Any]:
-    """Email auth: issue a one-time reset code. Only the code's hash is stored;
-    in production the raw code is emailed to the account owner."""
-    try:
-        code = ACCOUNTS.issue_reset(req.email)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="no account found for that email") from None
-    return {
-        "ok": True,
-        "message": f"A 7-digit reset code has been sent to {req.email}. "
-                   "It expires in 15 minutes. (Demo build: no real email is sent — "
-                   "use the dev_code below to complete the flow; production delivers "
-                   "it via your email provider only.)",
-        "dev_code": code,          # demo-only delivery channel; remove in production
-        "expires_in_seconds": 900,
-    }
-
-
-@app.post("/api/auth/reset")
-def auth_reset(req: ResetRequest) -> dict[str, Any]:
-    """Complete forgot-password: verify the emailed code and set a new strong password."""
-    try:
-        acc = ACCOUNTS.reset_password(req.email, req.code, req.new_password)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="no reset was requested for that email") from None
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    session = _issue_session(acc.email, acc.username, acc.phone, acc.plan, acc.created_at, acc.role)
-    return {
-        "ok": True,
-        "message": "Password updated. You are logged in with the new password.",
-        "token": session["token"],
-        "subscription": _public_record(session["record"]),
-        "access_url": "/app",
-    }
-
-
-@app.get("/api/auth/password-policy")
-def auth_password_policy() -> dict[str, Any]:
-    """Static policy description for the UI checklist/strength meter."""
-    return {
-        "min_length": 10,
-        "rules": ["length_10", "uppercase", "lowercase", "number", "symbol"],
-        "labels": {
-            "length_10": "At least 10 characters",
-            "uppercase": "An uppercase letter (A-Z)",
-            "lowercase": "A lowercase letter (a-z)",
-            "number": "A number (0-9)",
-            "symbol": "A symbol (!@#$%…)",
-        },
-    }
-
-
-@app.get("/api/subscription/{token}")
-def subscription(token: str) -> dict[str, Any]:
-    with _SUB_LOCK:
-        record = _SUBSCRIPTIONS.get(token)
-        if record is None or record.get("status") != "active":
-            raise HTTPException(status_code=404, detail="no active subscription")
-        return {"ok": True, "subscription": _public_record(record)}
-
 
 def _bootstrap_admin_from_env() -> Optional[str]:
     """Provision the admin account from the environment (no credentials in code).
@@ -454,10 +549,6 @@ def _bootstrap_admin_from_env() -> Optional[str]:
 _bootstrap_admin_from_env()
 
 
-def _public_record(record: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in record.items() if k != "token"}
-
-
 # -- pages --------------------------------------------------------------------
 
 @app.get("/")
@@ -476,6 +567,14 @@ def dashboard() -> FileResponse:
     )
 
 
+@app.get("/admin")
+def admin_console() -> FileResponse:
+    return FileResponse(
+        STATIC_DIR / "admin.html",
+        headers={"Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache"},
+    )
+
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -486,3 +585,4 @@ def main() -> None:  # pragma: no cover
 
 if __name__ == "__main__":  # pragma: no cover
     main()
+

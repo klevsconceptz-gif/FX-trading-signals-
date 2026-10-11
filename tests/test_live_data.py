@@ -221,6 +221,8 @@ def test_server_refresh_requests_reload(monkeypatch):
     from fxbot import server
 
     seen = []
+    # the scan endpoint is paid-only; bypass the access check to test refresh semantics
+    monkeypatch.setitem(server.app.dependency_overrides, server.require_access, lambda: None)
 
     class Stub:
         def scan(self, use_cache=False, reload=False):

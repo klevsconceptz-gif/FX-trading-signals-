@@ -1,20 +1,72 @@
-/* klevs FX trading App — shared auth component (register / login / forgot password).
-   Injects one modal into the page; used by the landing page and the app paywall. */
+/* klevs FX trading App — shared auth + payment component.
+   Injects one modal into the page; used by the landing page, the app paywall and
+   the operator console.  Flow: create account -> choose plan -> pay by crypto or wire
+   -> submit the transaction hash / wire reference -> operator verifies -> access.
+   No card is taken; nothing is charged by this page. */
 "use strict";
 
 (function () {
+  const KEY = "kfx_sub";
+
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[c]);
+
+  function authHeaders() {
+    const s = readSession();
+    return s && s.token ? { Authorization: `Bearer ${s.token}` } : {};
+  }
+
   const API = {
-    async post(url, payload) {
-      const r = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    async send(method, url, payload) {
+      const opts = { method, headers: { ...authHeaders() } };
+      if (payload !== undefined) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(payload);
+      }
+      const r = await fetch(url, opts);
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : "request failed");
+      if (!r.ok) {
+        const err = new Error(typeof body.detail === "string" ? body.detail : "request failed");
+        err.status = r.status;
+        throw err;
+      }
       return body;
     },
+    post(url, payload) { return this.send("POST", url, payload || {}); },
+    put(url, payload) { return this.send("PUT", url, payload); },
+    get(url) { return this.send("GET", url); },
   };
+
+  function readSession() {
+    try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch (_) { return null; }
+  }
+
+  function writeSession(s) {
+    if (s) localStorage.setItem(KEY, JSON.stringify(s));
+    else localStorage.removeItem(KEY);
+  }
+
+  /* stores the account + access state returned by /api/me or a login/register response */
+  function saveFromPayload(data) {
+    const user = data.user || {};
+    const access = data.access || {};
+    const prev = readSession() || {};
+    const s = {
+      token: data.token || prev.token,
+      username: user.username || prev.username || "",
+      email: user.email || prev.email || "",
+      phone: user.phone || prev.phone || "",
+      role: user.role || prev.role || "user",
+      access_active: !!access.active,
+      plan: access.plan || null,
+      plan_name: access.plan_name || null,
+      expires_at: access.expires_at || null,
+      access: access.access || null,
+    };
+    writeSession(s);
+    return s;
+  }
 
   const POLICY = [
     { key: "length_10", label: "At least 10 characters", test: (p) => p.length >= 10 },
@@ -93,165 +145,344 @@
   /* ---------- modal shell ---------- */
   function buildModal() {
     const el = document.createElement("div");
-    el.className = "auth-modal";
     el.id = "auth-modal";
+    el.className = "auth-modal";
     el.hidden = true;
     el.innerHTML = `
-      <div class="auth-card">
-        <button class="auth-close" id="auth-close">✕</button>
-        <div class="auth-tabs">
+      <div class="auth-card" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+        <button class="auth-close" id="auth-close" aria-label="Close">×</button>
+        <div class="auth-tabs" id="auth-tabs">
           <button class="auth-tab" data-view="register">Create account</button>
           <button class="auth-tab" data-view="login">Log in</button>
           <button class="auth-tab" data-view="forgot">Forgot password</button>
         </div>
 
-        <!-- REGISTER -->
-        <form class="auth-view" id="view-register">
-          <h3>Create your account</h3>
-          <p class="auth-sub">Username, email, phone number and password — then choose your monthly plan.</p>
+        <form class="auth-view" id="view-register" hidden>
+          <h3 id="auth-title">Create your account</h3>
+          <p class="auth-sub">Username, email, phone number and password. Access to the bot is unlocked after you pay and the operator verifies the payment.</p>
           <label class="auth-field"><span class="auth-label">Username</span>
             <input type="text" id="reg-username" required minlength="3" maxlength="32"
-                   pattern="[A-Za-z0-9_.\\-]{3,32}" placeholder="fxtrader24"
-                   title="3-32 characters: letters, numbers, _ . - only" autocomplete="username" />
+                   pattern="[A-Za-z0-9_.\\-]{3,32}" placeholder="fxtrader24" autocomplete="username" />
           </label>
           <label class="auth-field"><span class="auth-label">Email</span>
-            <input type="email" id="reg-email" required maxlength="200"
-                   placeholder="you@example.com" autocomplete="email" />
+            <input type="email" id="reg-email" required maxlength="200" placeholder="you@example.com" autocomplete="email" />
           </label>
           <label class="auth-field"><span class="auth-label">Phone number</span>
-            <input type="tel" id="reg-phone" required minlength="7" maxlength="20"
-                   placeholder="+1 555 123 4567" autocomplete="tel"
-                   pattern="\\+?[0-9][0-9\\s\\-().]{6,19}" />
+            <input type="tel" id="reg-phone" required maxlength="20" placeholder="+1 555 123 4567" autocomplete="tel" />
           </label>
           <div id="reg-password-slot"></div>
-          <label class="auth-field"><span class="auth-label">Monthly plan (billed after checkout)</span>
-            <select id="reg-plan">
-              <option value="starter">Starter — $29/month</option>
-              <option value="pro" selected>Pro — $79/month</option>
-              <option value="elite">Elite — $199/month</option>
-            </select>
-          </label>
-          <div class="auth-note">Demo checkout — no card is charged. In production this
-            connects to secure Stripe Checkout; your account works exactly the same.</div>
-          <button class="auth-submit" type="submit" id="reg-submit">Create account &amp; subscribe →</button>
+          <button class="auth-submit" type="submit" id="reg-submit">Create account →</button>
         </form>
 
-        <!-- LOGIN -->
         <form class="auth-view" id="view-login" hidden>
           <h3>Welcome back</h3>
           <p class="auth-sub">Log in with your username, email or phone number.</p>
           <label class="auth-field"><span class="auth-label">Username, email or phone</span>
             <input type="text" id="log-ident" required maxlength="200"
-                   placeholder="fxtrader24 / you@example.com / +1 555 123 4567"
-                   autocomplete="username" />
+                   placeholder="fxtrader24 / you@example.com / +1 555 123 4567" autocomplete="username" />
           </label>
           <div id="log-password-slot"></div>
           <button class="auth-submit" type="submit" id="log-submit">Log in →</button>
           <button class="auth-link" type="button" data-view="forgot">Forgot your password?</button>
         </form>
 
-        <!-- FORGOT -->
         <form class="auth-view" id="view-forgot" hidden>
           <h3>Reset your password</h3>
-          <p class="auth-sub">Enter your account email — we'll send a 7-digit reset code (email auth).
-            The code is stored hashed and expires in 15 minutes.</p>
-          <label class="auth-field"><span class="auth-label">Account email</span>
+          <p class="auth-sub">We e-mail a 7-digit code to the address on your account. It expires in 15 minutes.</p>
+          <label class="auth-field"><span class="auth-label">Email</span>
             <input type="email" id="fg-email" required maxlength="200" placeholder="you@example.com" />
           </label>
           <button class="auth-submit" type="submit" id="fg-submit">Send reset code →</button>
         </form>
 
-        <!-- RESET (code entry) -->
         <form class="auth-view" id="view-reset" hidden>
           <h3>Enter your reset code</h3>
-          <p class="auth-sub">We sent a code to <b id="reset-email-label"></b>.</p>
-          <div class="auth-note" id="reset-dev-note" hidden></div>
+          <p class="auth-sub">Code sent to <b id="reset-email-label"></b>.</p>
           <label class="auth-field"><span class="auth-label">7-digit code</span>
-            <input type="text" id="rst-code" required minlength="6" maxlength="10"
-                   inputmode="numeric" placeholder="0000000" />
+            <input type="text" id="rst-code" required inputmode="numeric" maxlength="10" autocomplete="one-time-code" />
           </label>
           <div id="rst-password-slot"></div>
           <button class="auth-submit" type="submit" id="rst-submit">Set new password →</button>
         </form>
 
-        <div class="auth-success" id="auth-success" hidden>
-          <div class="auth-check">✓</div>
+        <section class="auth-view" id="view-plan" hidden>
+          <h3>Choose your plan</h3>
+          <p class="auth-sub">Pay with crypto or a direct bank transfer. Nothing is charged by this site: you pay the operator's wallet or account directly, then the operator unlocks your access.</p>
+          <div class="pay-plans" id="pay-plans"></div>
+          <div class="pay-methods" id="pay-methods"></div>
+          <div class="auth-note" id="pay-unavailable" hidden></div>
+          <button class="auth-submit" type="button" id="pay-create">Create invoice →</button>
+        </section>
+
+        <section class="auth-view" id="view-invoice" hidden>
+          <h3>Pay invoice <span id="inv-code" class="inv-code"></span></h3>
+          <p class="auth-sub" id="inv-summary"></p>
+          <div class="pay-box" id="inv-payto"></div>
+          <p class="auth-note" id="inv-instruction"></p>
+          <form id="inv-submit-form">
+            <label class="auth-field"><span class="auth-label" id="inv-ref-label">Transaction hash</span>
+              <input type="text" id="inv-ref" required minlength="4" maxlength="200" autocomplete="off" />
+            </label>
+            <label class="auth-field"><span class="auth-label">Note for the operator (optional)</span>
+              <input type="text" id="inv-note" maxlength="300" />
+            </label>
+            <button class="auth-submit" type="submit" id="inv-submit">I have paid — submit for verification →</button>
+          </form>
+          <button class="auth-link" type="button" id="inv-back">Choose another method</button>
+        </section>
+
+        <section class="auth-view" id="view-status" hidden>
+          <h3 id="status-title">Waiting for verification</h3>
+          <p class="auth-sub" id="status-msg"></p>
+          <button class="auth-submit" type="button" id="status-refresh">Check status</button>
+          <button class="auth-link" type="button" id="status-new">Start a new payment</button>
+        </section>
+
+        <section class="auth-view" id="view-success" hidden>
           <h3 id="auth-success-title">You're in!</h3>
-          <p id="auth-success-msg"></p>
-          <button class="auth-submit" id="auth-open-app">Open klevs FX trading App →</button>
-        </div>
-      </div>
-    `;
+          <p class="auth-sub" id="auth-success-msg"></p>
+          <button class="auth-submit" type="button" id="auth-open-app">Open the bot →</button>
+        </section>
+      </div>`;
     document.body.appendChild(el);
 
-    // mount password fields
-    el.querySelector("#reg-password-slot").replaceWith(
-      passwordField("reg-password", "Password")
-    );
-    el.querySelector("#log-password-slot").replaceWith(
-      passwordField("log-password", "Password", { checklist: false })
-    );
-    el.querySelector("#rst-password-slot").replaceWith(
-      passwordField("rst-password", "New password")
-    );
+    el.querySelector("#reg-password-slot").appendChild(passwordField("reg-password", "Password"));
+    el.querySelector("#log-password-slot").appendChild(passwordField("log-password", "Password", { checklist: false }));
+    el.querySelector("#rst-password-slot").appendChild(passwordField("rst-password", "New password"));
     return el;
   }
 
-  const state = { onAuth: null, plan: "pro" };
+  const state = { onAuth: null, plan: "pro", methods: null, plans: null, invoice: null, poll: null };
+
+  function $(el, sel) { return el.querySelector(sel); }
+
+  function modal() {
+    let el = document.getElementById("auth-modal");
+    if (!el) el = buildModal();
+    return el;
+  }
+
+  const VIEWS = ["register", "login", "forgot", "reset", "plan", "invoice", "status", "success"];
 
   function showView(view) {
-    const el = document.getElementById("auth-modal");
-    ["register", "login", "forgot", "reset", "success"].forEach((v) => {
-      const node = el.querySelector(`#view-${v}`) || (v === "success" ? el.querySelector("#auth-success") : null);
+    const el = modal();
+    VIEWS.forEach((v) => {
+      const node = el.querySelector(`#view-${v}`);
       if (node) node.hidden = v !== view;
     });
-    el.querySelectorAll(".auth-tab").forEach((t) =>
-      t.classList.toggle("active", t.dataset.view === view ||
-        (view === "reset" && t.dataset.view === "forgot"))
-    );
+    $(el, "#auth-tabs").hidden = !["register", "login", "forgot"].includes(view);
+    el.querySelectorAll(".auth-tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
+    stopPolling();
   }
 
   function open(view = "register", opts = {}) {
-    const el = document.getElementById("auth-modal") || buildModal();
-    bindOnce(el);
+    const el = modal();
+    if (opts.plan) state.plan = opts.plan;
     el.hidden = false;
     document.body.style.overflow = "hidden";
-    if (opts.plan) {
-      state.plan = opts.plan;
-      const sel = el.querySelector("#reg-plan");
-      if (sel) sel.value = opts.plan;
-    }
     showView(view);
+    if (view === "plan") loadPlanView();
   }
 
   function close() {
     const el = document.getElementById("auth-modal");
     if (el) el.hidden = true;
     document.body.style.overflow = "";
+    stopPolling();
   }
 
-  function succeed(data, title) {
-    const session = {
-      token: data.token,
-      name: data.subscription.name || data.subscription.username || "",
-      username: data.subscription.username || "",
-      email: data.subscription.email,
-      phone: data.subscription.phone || "",
-      plan: data.subscription.plan,
-      plan_name: data.subscription.plan_name,
-      price_usd: data.subscription.price_usd,
-      role: data.subscription.role || "user",
-      access: data.subscription.access || "",
-    };
-    localStorage.setItem("kfx_sub", JSON.stringify(session));
-    const el = document.getElementById("auth-modal");
-    el.querySelector("#auth-success-title").textContent = title || "You're in!";
+  function stopPolling() {
+    if (state.poll) { clearInterval(state.poll); state.poll = null; }
+  }
+
+  function alertBox(el, view, msg) {
+    // inline error line inside the active view (no browser alert())
+    let box = el.querySelector(`#view-${view} .auth-error`);
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "auth-error";
+      el.querySelector(`#view-${view}`).prepend(box);
+    }
+    box.textContent = msg || "";
+    box.hidden = !msg;
+  }
+
+  /* after any login / register / reset: decide where the buyer goes next */
+  async function routeAfterAuth(payload, title) {
+    const s = saveFromPayload(payload);
+    if (s.access_active) return finishSuccess(s, title || "You're in!");
+    const me = await API.get("/api/me");
+    saveFromPayload(me);
+    const latest = (me.payments || [])[0];
+    if (latest && latest.status === "awaiting_payment") return showInvoice(latest);
+    if (latest && latest.status === "submitted") return showStatus(latest);
+    return open("plan");
+  }
+
+  function finishSuccess(s, title) {
+    const el = modal();
+    el.querySelector("#auth-success-title").textContent = title;
+    const until = s.expires_at ? ` · access until ${new Date(s.expires_at * 1000).toLocaleDateString()}` : "";
     el.querySelector("#auth-success-msg").textContent =
-      (session.access === "unrestricted"
-        ? `Admin · unrestricted access · signed in as ${session.username || session.email}`
-        : `${session.plan_name} plan · ${session.price_usd === 0 ? "free demo" : "$" + session.price_usd + "/month"} · signed in as ${session.username || session.email}`);
+      s.role === "admin"
+        ? `Admin · unrestricted access · signed in as ${s.username || s.email}`
+        : `${s.plan_name || "Paid"} plan${until} · signed in as ${s.username || s.email}`;
     showView("success");
-    if (state.onAuth) state.onAuth(session);
+    if (state.onAuth) state.onAuth(s);
+  }
+
+  /* ---------- payment: plan + method ---------- */
+  async function loadPlanView() {
+    const el = modal();
+    const box = $(el, "#pay-plans");
+    box.innerHTML = "<p class=\"auth-sub\">Loading plans…</p>";
+    try {
+      const opts = await API.get("/api/payment-options");
+      state.plans = opts.plans;
+      state.methods = opts.methods;
+    } catch (err) {
+      box.textContent = err.message;
+      return;
+    }
+    const plans = state.plans;
+    if (!plans[state.plan]) state.plan = "pro";
+    box.innerHTML = Object.entries(plans).map(([key, p]) => `
+      <label class="pay-opt ${state.plan === key ? "selected" : ""}">
+        <input type="radio" name="pay-plan" value="${esc(key)}" ${state.plan === key ? "checked" : ""} />
+        <b>${esc(p.name)}</b> <span>$${esc(p.price_usd)} / ${esc(p.days)} days</span>
+      </label>`).join("");
+
+    const m = state.methods;
+    const cryptoOk = m.crypto.available, wireOk = m.wire.available;
+    const netOptions = (m.crypto.networks || []).map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+    $(el, "#pay-methods").innerHTML = `
+      <label class="pay-opt ${cryptoOk ? "" : "disabled"}">
+        <input type="radio" name="pay-method" value="crypto" ${cryptoOk ? "checked" : "disabled"} />
+        <b>Crypto</b> <span>${cryptoOk ? "" : "not set up yet"}</span>
+      </label>
+      <label class="auth-field ${cryptoOk ? "" : "hidden"}" id="pay-network-wrap">
+        <span class="auth-label">Network</span>
+        <select id="pay-network">${netOptions}</select>
+      </label>
+      <label class="pay-opt ${wireOk ? "" : "disabled"}">
+        <input type="radio" name="pay-method" value="wire" ${!cryptoOk && wireOk ? "checked" : ""} ${wireOk ? "" : "disabled"} />
+        <b>Bank wire</b> <span>${wireOk ? "" : "not set up yet"}</span>
+      </label>`;
+    const none = !cryptoOk && !wireOk;
+    const note = $(el, "#pay-unavailable");
+    note.hidden = !none;
+    note.textContent = "Payments are not set up yet — the operator has not added a wallet or bank details. Check back shortly.";
+    $(el, "#pay-create").disabled = none;
+    syncNetworkVisibility();
+  }
+
+  function syncNetworkVisibility() {
+    const el = modal();
+    const method = el.querySelector("input[name=pay-method]:checked");
+    const wrap = $(el, "#pay-network-wrap");
+    if (wrap) wrap.hidden = !method || method.value !== "crypto";
+  }
+
+  async function createInvoice() {
+    const el = modal();
+    const plan = el.querySelector("input[name=pay-plan]:checked")?.value || state.plan;
+    const method = el.querySelector("input[name=pay-method]:checked")?.value;
+    const network = $(el, "#pay-network")?.value;
+    if (!method) return alertBox(el, "plan", "Choose a payment method.");
+    const btn = $(el, "#pay-create");
+    btn.disabled = true; btn.textContent = "Creating invoice…";
+    try {
+      const data = await API.post("/api/payments", { plan, method, network: method === "crypto" ? network : undefined });
+      showInvoice(data.payment);
+    } catch (err) {
+      alertBox(el, "plan", err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = "Create invoice →";
+    }
+  }
+
+  /* ---------- payment: invoice + reference ---------- */
+  function payToHtml(p) {
+    const pt = p.pay_to || {};
+    if (p.method === "crypto") {
+      return `<div class="pay-line"><span>Network</span><b>${esc(pt.network)}</b></div>
+              <div class="pay-line"><span>Send to</span><code class="pay-addr">${esc(pt.address)}</code></div>`;
+    }
+    const labels = { bank_name: "Bank", account_name: "Account name", account_number: "Account number",
+                     routing_or_swift: "Routing / SWIFT", iban: "IBAN" };
+    return Object.entries(labels).filter(([k]) => pt[k])
+      .map(([k, label]) => `<div class="pay-line"><span>${label}</span><code>${esc(pt[k])}</code></div>`).join("")
+      + `<div class="pay-line"><span>Payment reference</span><code class="inv-code">${esc(p.invoice)}</code></div>`;
+  }
+
+  function showInvoice(p) {
+    const el = modal();
+    state.invoice = p;
+    el.querySelector("#inv-code").textContent = p.invoice;
+    $(el, "#inv-summary").textContent =
+      `${p.plan_name} plan · $${p.amount_usd} for 30 days · ${p.method === "crypto" ? `crypto (${p.network})` : "bank wire"}`;
+    $(el, "#inv-payto").innerHTML = payToHtml(p);
+    $(el, "#inv-instruction").textContent = p.payment_instruction;
+    $(el, "#inv-ref-label").textContent = p.method === "crypto" ? "Transaction hash" : "Wire reference / transfer ID";
+    $(el, "#inv-ref").value = "";
+    showView("invoice");
+    $(el, "#inv-ref").focus();
+  }
+
+  async function submitReference(e) {
+    e.preventDefault();
+    const el = modal();
+    const p = state.invoice;
+    const btn = $(el, "#inv-submit");
+    btn.disabled = true; btn.textContent = "Submitting…";
+    try {
+      const data = await API.post(`/api/payments/${p.id}/reference`, {
+        reference: $(el, "#inv-ref").value.trim(),
+        sender_note: $(el, "#inv-note").value.trim(),
+      });
+      showStatus(data.payment);
+    } catch (err) {
+      alertBox(el, "invoice", err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = "I have paid — submit for verification →";
+    }
+  }
+
+  function showStatus(p) {
+    const el = modal();
+    state.invoice = p;
+    $(el, "#status-title").textContent = "Waiting for verification";
+    $(el, "#status-msg").textContent =
+      `Invoice ${p.invoice} (${p.plan_name}, $${p.amount_usd}) is with the operator. ` +
+      "Your access unlocks as soon as the payment is confirmed. This page checks automatically.";
+    showView("status");
+    stopPolling();
+    state.poll = setInterval(checkStatus, 20000);
+  }
+
+  async function checkStatus() {
+    const el = modal();
+    try {
+      const me = await API.get("/api/me");
+      const s = saveFromPayload(me);
+      if (s.access_active) {
+        stopPolling();
+        return finishSuccess(s, "Payment verified — access unlocked");
+      }
+      const latest = (me.payments || [])[0];
+      if (latest && latest.status === "rejected") {
+        stopPolling();
+        $(el, "#status-title").textContent = "Payment not verified";
+        $(el, "#status-msg").textContent =
+          `The operator could not verify invoice ${latest.invoice}: ${latest.decision_note || "no reason given"}. ` +
+          "You can start a new payment.";
+      } else if (latest && latest.status === "confirmed") {
+        // confirmed but access has not synced yet — refresh again on the next tick
+        $(el, "#status-msg").textContent = "Payment confirmed. Unlocking your access…";
+      }
+    } catch (err) {
+      alertBox(el, "status", err.message);
+    }
   }
 
   /* ---------- wiring ---------- */
@@ -263,7 +494,7 @@
     el.addEventListener("click", (e) => {
       if (e.target === el) close();
       const tab = e.target.closest("[data-view]");
-      if (tab) {
+      if (tab && !tab.disabled) {
         const v = tab.dataset.view;
         if (["register", "login", "forgot"].includes(v)) showView(v);
       }
@@ -271,107 +502,140 @@
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !document.getElementById("auth-modal")?.hidden) close();
     });
-    el.querySelector("#auth-close").addEventListener("click", close);
-    el.querySelector("#auth-open-app").addEventListener("click", () => {
-      window.location.href = "/app";
+    $(el, "#auth-close").addEventListener("click", close);
+    $(el, "#auth-open-app").addEventListener("click", () => { window.location.href = "/app"; });
+
+    /* plan + method controls */
+    el.addEventListener("change", (e) => {
+      if (e.target.name === "pay-method") syncNetworkVisibility();
+      if (e.target.name === "pay-plan") state.plan = e.target.value;
     });
+    $(el, "#pay-create").addEventListener("click", createInvoice);
+    $(el, "#inv-submit-form").addEventListener("submit", submitReference);
+    $(el, "#inv-back").addEventListener("click", () => open("plan"));
+    $(el, "#status-new").addEventListener("click", () => open("plan"));
+    $(el, "#status-refresh").addEventListener("click", checkStatus);
 
     /* register */
-    el.querySelector("#view-register").addEventListener("submit", async (e) => {
+    $(el, "#view-register").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const pw = el.querySelector("#reg-password").value;
-      if (!policyValid(pw)) {
-        alert("Password does not meet the policy: minimum 10 characters with uppercase, lowercase, number and symbol.");
-        return;
-      }
-      const btn = el.querySelector("#reg-submit");
+      const pw = $(el, "#reg-password").value;
+      if (!policyValid(pw)) return alertBox(el, "register", "Password does not meet the policy: at least 10 characters with uppercase, lowercase, a number and a symbol.");
+      const btn = $(el, "#reg-submit");
       btn.disabled = true; btn.textContent = "Creating account…";
       try {
         const data = await API.post("/api/register", {
-          username: el.querySelector("#reg-username").value.trim(),
-          email: el.querySelector("#reg-email").value.trim(),
-          phone: el.querySelector("#reg-phone").value.trim(),
+          username: $(el, "#reg-username").value.trim(),
+          email: $(el, "#reg-email").value.trim(),
+          phone: $(el, "#reg-phone").value.trim(),
           password: pw,
-          plan: el.querySelector("#reg-plan").value,
         });
-        succeed(data, "Account created — subscription active");
+        await routeAfterAuth(data, "Account created");
       } catch (err) {
-        alert(err.message);
+        alertBox(el, "register", err.message);
       } finally {
-        btn.disabled = false; btn.textContent = "Create account & subscribe →";
+        btn.disabled = false; btn.textContent = "Create account →";
       }
     });
 
     /* login */
-    el.querySelector("#view-login").addEventListener("submit", async (e) => {
+    $(el, "#view-login").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const btn = el.querySelector("#log-submit");
+      const btn = $(el, "#log-submit");
       btn.disabled = true; btn.textContent = "Logging in…";
       try {
         const data = await API.post("/api/auth/login", {
-          identifier: el.querySelector("#log-ident").value.trim(),
-          password: el.querySelector("#log-password").value,
+          identifier: $(el, "#log-ident").value.trim(),
+          password: $(el, "#log-password").value,
         });
-        succeed(data, "Welcome back");
+        await routeAfterAuth(data, "Welcome back");
       } catch (err) {
-        alert(err.message);
+        alertBox(el, "login", err.message);
       } finally {
         btn.disabled = false; btn.textContent = "Log in →";
       }
     });
 
-    /* forgot -> request code */
-    el.querySelector("#view-forgot").addEventListener("submit", async (e) => {
+    /* forgot -> e-mail a code */
+    $(el, "#view-forgot").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const btn = el.querySelector("#fg-submit");
-      const email = el.querySelector("#fg-email").value.trim();
+      const email = $(el, "#fg-email").value.trim();
+      const btn = $(el, "#fg-submit");
       btn.disabled = true; btn.textContent = "Sending…";
       try {
-        const data = await API.post("/api/auth/forgot", { email });
-        el.querySelector("#reset-email-label").textContent = email;
-        const note = el.querySelector("#reset-dev-note");
-        if (data.dev_code) {
-          note.hidden = false;
-          note.innerHTML = `<b>Demo build</b> — in production this code is emailed to you only.
-            Dev code: <b style="letter-spacing:2px">${data.dev_code}</b>`;
-        }
+        await API.post("/api/auth/forgot", { email });
+        $(el, "#reset-email-label").textContent = email;
         showView("reset");
       } catch (err) {
-        alert(err.message);
+        alertBox(el, "forgot", err.message);
       } finally {
         btn.disabled = false; btn.textContent = "Send reset code →";
       }
     });
 
-    /* reset -> new password */
-    el.querySelector("#view-reset").addEventListener("submit", async (e) => {
+    /* reset -> new password -> logged in */
+    $(el, "#view-reset").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const pw = el.querySelector("#rst-password").value;
-      if (!policyValid(pw)) {
-        alert("New password does not meet the policy: minimum 10 characters with uppercase, lowercase, number and symbol.");
-        return;
-      }
-      const btn = el.querySelector("#rst-submit");
+      const pw = $(el, "#rst-password").value;
+      if (!policyValid(pw)) return alertBox(el, "reset", "New password does not meet the policy.");
+      const btn = $(el, "#rst-submit");
       btn.disabled = true; btn.textContent = "Updating…";
       try {
         const data = await API.post("/api/auth/reset", {
-          email: el.querySelector("#fg-email").value.trim(),
-          code: el.querySelector("#rst-code").value.trim(),
+          email: $(el, "#reset-email-label").textContent,
+          code: $(el, "#rst-code").value.trim(),
           new_password: pw,
         });
-        succeed(data, "Password updated");
+        await routeAfterAuth(data, "Password updated");
       } catch (err) {
-        alert(err.message);
+        alertBox(el, "reset", err.message);
       } finally {
         btn.disabled = false; btn.textContent = "Set new password →";
       }
     });
   }
 
+  /* ---------- public API ---------- */
+  async function refresh() {
+    const s = readSession();
+    if (!s || !s.token) return null;
+    try {
+      const me = await API.get("/api/me");
+      return saveFromPayload(me);
+    } catch (err) {
+      if (err.status === 401) writeSession(null);
+      return null;
+    }
+  }
+
+  async function logout() {
+    try { await API.post("/api/auth/logout", {}); } catch (_) { /* already gone */ }
+    writeSession(null);
+    window.location.href = "/";
+  }
+
   window.Auth = {
     open,
     close,
+    logout,
+    refresh,
+    session: readSession,
+    headers: authHeaders,
+    api: API,
     onAuth(cb) { state.onAuth = cb; },
     policy: POLICY,
+    ensure() { bindOnce(modal()); },
   };
+
+  /* bind as soon as the DOM exists so buttons work immediately */
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => bindOnce(modal()));
+  } else {
+    bindOnce(modal());
+  }
+
+  /* policy check used by the forms */
+  function policyValid(pw) {
+    return POLICY.every((r) => r.test(pw));
+  }
 })();

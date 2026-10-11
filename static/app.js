@@ -74,12 +74,27 @@ function renderInstructions(list) {
 
 /* ---------------- scan ---------------- */
 
+/* ---------------- authenticated API access ---------------- */
+
+// every market request carries the session token; 401/403 drop the user back to the paywall
+async function apiFetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}), ...(window.Auth ? window.Auth.headers() : {}) };
+  const res = await fetch(url, { ...opts, headers });
+  if (res.status === 401) {
+    lockPaywall("Your session has ended. Log in again to continue.", true);
+  } else if (res.status === 403) {
+    lockPaywall("Paid access is required. Choose a plan and pay; access unlocks once the operator verifies your payment.");
+  }
+  return res;
+}
+
 async function loadScan(refresh = false) {
   const btn = $("#btn-refresh");
   btn.disabled = true;
   btn.textContent = "Scanning…";
   try {
-    const res = await fetch(`/api/scan${refresh ? "?refresh=true" : ""}`);
+    const res = await apiFetch(`/api/scan${refresh ? "?refresh=true" : ""}`);
+    if (!res.ok) return;                       // paywall already shown for 401/403
     SCAN = await res.json();
     renderScan();
   } catch (e) {
@@ -184,7 +199,8 @@ $$("#signals-table th").forEach((th) =>
 async function loadPair(symbol) {
   $("#pair-title").innerHTML = `${symbol} <span class="hint">loading…</span>`;
   try {
-    const res = await fetch(`/api/pair/${symbol}`);
+    const res = await apiFetch(`/api/pair/${symbol}`);
+    if (!res.ok) { $("#pair-title").innerHTML = `${symbol} <span class="hint">locked — paid access required</span>`; return; }
     PAIR = await res.json();
     renderPair();
   } catch (e) {
@@ -444,7 +460,7 @@ $("#btn-backtest").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = "Running…";
   try {
-    const res = await fetch("/api/backtest", {
+    const res = await apiFetch("/api/backtest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -455,6 +471,7 @@ $("#btn-backtest").addEventListener("click", async () => {
       }),
     });
     const out = await res.json();
+    if (!res.ok) throw new Error(out.detail || "backtest unavailable");
     renderBacktest(out);
   } catch (e) {
     $("#bt-metrics").innerHTML = `<div class="metric"><div class="k">Error</div><div class="v">${e}</div></div>`;
@@ -550,106 +567,55 @@ function drawEquity(canvas, curve) {
   ctx.fillText("Equity curve", padL + 6, padT + 10);
 }
 
-/* ---------------- subscriber gate (monthly subscription access) ---------------- */
+/* ---------------- paid-access gate ---------------- */
+
+function showChip(s) {
+  const chip = $("#chip-sub");
+  chip.hidden = false;
+  const label = s.role === "admin" ? "Admin" : (s.plan_name || "Paid");
+  $("#chip-sub-name").textContent = `${label} · ${s.username || s.email}`;
+  $("#btn-logout").hidden = false;
+}
+
+function unlockApp(s) {
+  $("#paywall").hidden = true;
+  document.body.style.overflow = "";
+  showChip(s);
+  loadScan();   // market data is only requested once access is verified
+}
+
+function lockPaywall(message, clearSession = false) {
+  if (clearSession) localStorage.removeItem("kfx_sub");
+  $("#paywall").hidden = false;
+  $("#pw-msg").textContent = message || $("#pw-msg").dataset.default;
+  document.body.style.overflow = "hidden";
+  $("#chip-sub").hidden = true;
+  $("#btn-logout").hidden = !localStorage.getItem("kfx_sub");
+}
 
 async function initSubscriberGate() {
-  const raw = localStorage.getItem("kfx_sub");
-  let session = null;
-  try { session = raw ? JSON.parse(raw) : null; } catch (_) { /* corrupted */ }
-
-  const unlock = (s) => {
-    $("#paywall").hidden = true;
-    document.body.style.overflow = "";
-    const chip = $("#chip-sub");
-    chip.hidden = false;
-    $("#chip-sub-name").textContent = `${s.plan_name} · ${s.name || s.email}`;
-    $("#btn-logout").hidden = false;
-    loadScan();   // only load market data once unlocked
-  };
-
-  if (session && session.token) {
-    try {
-      const r = await fetch(`/api/subscription/${encodeURIComponent(session.token)}`);
-      if (r.ok) {
-        const body = await r.json();
-        session = { ...session, ...body.subscription };
-        localStorage.setItem("kfx_sub", JSON.stringify(session));
-        unlock(session);
-        return;
-      }
-    } catch (_) { /* fall through to paywall */ }
-    localStorage.removeItem("kfx_sub");
-  }
-
-  // locked: show paywall instead of market data
-  $("#paywall").hidden = false;
-  document.body.style.overflow = "hidden";
+  const s = window.Auth ? await window.Auth.refresh() : null;
+  if (s && s.access_active) return unlockApp(s);
+  if (s) return lockPaywall("Your account has no active access yet. Choose a plan and pay; access unlocks once the operator verifies your payment.");
+  return lockPaywall();
 }
 
-/* auth modal (register / login / forgot password) is attached to the paywall */
+/* a verified login/registration that carries access unlocks the app without a reload */
 if (window.Auth) {
-  window.Auth.onAuth(() => {
-    const raw = localStorage.getItem("kfx_sub");
-    let s = null;
-    try { s = raw ? JSON.parse(raw) : null; } catch (_) { /* ignore */ }
-    if (s) {
-      $("#paywall").hidden = true;
-      document.body.style.overflow = "";
-      const chip = $("#chip-sub");
-      chip.hidden = false;
-      $("#chip-sub-name").textContent = `${s.plan_name} · ${s.name || s.username || s.email}`;
-      $("#btn-logout").hidden = false;
-      loadScan();
-    }
-  });
+  window.Auth.onAuth((s) => { if (s && s.access_active) unlockApp(s); });
 }
 
-$("#btn-logout").addEventListener("click", () => {
-  localStorage.removeItem("kfx_sub");
-  window.location.href = "/";
+$("#pw-msg").dataset.default = $("#pw-msg").textContent;
+
+$("#btn-logout").addEventListener("click", () => { window.Auth.logout(); });
+$("#pw-pay").addEventListener("click", () => window.Auth.open("plan"));
+$("#pw-status").addEventListener("click", async () => {
+  const s = await window.Auth.refresh();
+  if (s && s.access_active) return unlockApp(s);
+  window.Auth.open(s ? "status" : "login");
 });
-$("#pw-subscribe").addEventListener("click", () => {
-  if (window.Auth) window.Auth.open("register", { plan: "pro" });
-  else window.location.href = "/#pricing";
-});
-$("#pw-login").addEventListener("click", () => {
-  if (window.Auth) window.Auth.open("login");
-  else window.location.href = "/";
-});
-$("#pw-forgot")?.addEventListener("click", () => {
-  if (window.Auth) window.Auth.open("forgot");
-});
-$("#pw-demo").addEventListener("click", async () => {
-  const btn = $("#pw-demo");
-  btn.disabled = true;
-  btn.textContent = "Preparing demo…";
-  try {
-    const r = await fetch("/api/subscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: "Demo Trader",
-        email: `demo-${Math.random().toString(36).slice(2, 8)}@klevsfx.demo`,
-        plan: "demo",
-      }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || "demo failed");
-    localStorage.setItem("kfx_sub", JSON.stringify({
-      token: data.token,
-      name: data.subscription.name,
-      email: data.subscription.email,
-      plan: data.subscription.plan,
-      plan_name: data.subscription.plan_name,
-      price_usd: data.subscription.price_usd,
-    }));
-    window.location.reload();
-  } catch (e) {
-    alert(e.message);
-    btn.disabled = false;
-    btn.textContent = "Explore the demo";
-  }
-});
+$("#pw-login").addEventListener("click", () => window.Auth.open("login"));
+$("#pw-forgot").addEventListener("click", () => window.Auth.open("forgot"));
 
 /* ---------------- boot ---------------- */
 

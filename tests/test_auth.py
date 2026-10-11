@@ -1,18 +1,28 @@
-"""Registration, credential login and forgot-password (hashed email auth) tests."""
+"""Accounts, sessions, lockout and forgot-password (database-backed)."""
 
+import smtplib
 import time
+from typing import ClassVar
 
 import pytest
+from sqlalchemy import select
 
+from fxbot import auth as auth_mod
 from fxbot.auth import (
     ACCOUNTS,
     hash_password,
+    issue_session,
     password_policy,
     password_strength,
     policy_error,
     verify_password,
 )
+from fxbot.db import User, UserSession, db_session, reset_database
 from fxbot.server import app
+
+ADMIN_USER = "Admin@test.fx"
+ADMIN_PW = "Test-Admin#2026"
+PW = "Str0ng!Pass99"
 
 
 @pytest.fixture()
@@ -23,25 +33,22 @@ def client():
 
 
 @pytest.fixture(autouse=True)
-def fresh_accounts():
-    """Isolate account store between tests."""
-    for store in (ACCOUNTS._by_username, ACCOUNTS._by_email, ACCOUNTS._by_phone):
-        store.clear()
+def fresh_database(monkeypatch):
+    """Every test starts with an empty database and no dev reset codes."""
+    monkeypatch.delenv("KLEVS_DEV_RESET_CODES", raising=False)
+    monkeypatch.delenv("KLEVS_SMTP_HOST", raising=False)
+    reset_database()
     yield
-    for store in (ACCOUNTS._by_username, ACCOUNTS._by_email, ACCOUNTS._by_phone):
-        store.clear()
 
 
-REG = {
-    "username": "ada_fx",
-    "email": "ada@example.com",
-    "phone": "+1 555 123 4567",
-    "password": "Str0ng!Pass99",
-    "plan": "pro",
-}
+def _register(client, username="trader_one", email="trader@example.com", phone="+15550002222", pw=PW):
+    return client.post("/api/register", json={
+        "username": username, "email": email, "phone": phone, "password": pw})
 
 
-# ---------------------------------------------------------------- password policy
+def _bearer(token):
+    return {"Authorization": f"Bearer {token}"}
+
 
 def test_password_hash_roundtrip():
     digest = hash_password("Str0ng!Pass99")
@@ -80,222 +87,223 @@ def test_password_strength_meter():
 
 # ---------------------------------------------------------------- registration
 
-def test_register_creates_account_and_session(client):
-    r = client.post("/api/register", json=REG)
+
+# -- registration ---------------------------------------------------------------
+
+def test_register_creates_pending_user_and_session(client):
+    r = _register(client)
     assert r.status_code == 200
     body = r.json()
     assert body["token"]
-    assert body["subscription"]["plan"] == "pro"
-    assert body["subscription"]["username"] == "ada_fx"
-    assert client.get(f"/api/subscription/{body['token']}").status_code == 200
+    assert body["user"]["role"] == "user"
+    assert body["access"]["active"] is False            # no access until payment confirmed
+    with db_session() as s:
+        stored = s.scalar(select(User).where(User.username == "trader_one"))
+        assert stored.password_hash != PW and verify_password(PW, stored.password_hash)
+
+
+def test_session_token_is_stored_only_as_hash(client):
+    token = _register(client).json()["token"]
+    with db_session() as s:
+        hashes = [row.token_hash for row in s.scalars(select(UserSession))]
+    assert hashes and token not in hashes
+    assert all(len(h) == 64 for h in hashes)
 
 
 def test_register_rejects_weak_password(client):
-    bad = dict(REG, password="weakpass")
-    r = client.post("/api/register", json=bad)
-    assert r.status_code == 422
-    assert "password" in str(r.json()["detail"]).lower()
+    r = _register(client, pw="Sh0rt!Xy")
+    assert r.status_code == 422 and "at least 10" in r.json()["detail"]
 
 
-def test_register_rejects_duplicate_credentials(client):
-    assert client.post("/api/register", json=REG).status_code == 200
-    assert client.post("/api/register", json=dict(REG)).status_code == 422
-    assert client.post("/api/register", json=dict(
-        REG, username="other_user")).status_code == 422          # email taken
-    assert client.post("/api/register", json=dict(
-        REG, username="other_user", email="o@e.com")).status_code == 422  # phone taken
+def test_register_rejects_duplicates_and_bad_fields(client):
+    assert _register(client).status_code == 200
+    assert _register(client, username="trader_one", email="other@example.com",
+                     phone="+15550003333").status_code == 422          # username taken
+    assert _register(client, username="other_user", email="trader@example.com",
+                     phone="+15550004444").status_code == 422          # email taken
+    assert _register(client, username="third_user", email="third@example.com",
+                     phone="+15550002222").status_code == 422          # phone taken
+    assert _register(client, username="ab").status_code == 422
+    assert _register(client, username="bad_mail", email="nope").status_code == 422
+    assert _register(client, username="bad_phone", phone="abc").status_code == 422
 
 
-def test_register_rejects_bad_identity_fields(client):
-    assert client.post("/api/register", json=dict(REG, username="x!")).status_code in (404, 422)
-    assert client.post("/api/register", json=dict(
-        REG, username="has space")).status_code in (404, 422)
-    assert client.post("/api/register", json=dict(REG, phone="12")).status_code == 422
-    assert client.post("/api/register", json=dict(REG, plan="gold")).status_code == 422
-
-
-# ---------------------------------------------------------------- login
+# -- login ----------------------------------------------------------------------
 
 def test_login_with_all_three_identifiers(client):
-    assert client.post("/api/register", json=REG).status_code == 200
-    for ident in ("ada_fx", "ada@example.com", "+1 555 123 4567", "+15551234567"):
-        r = client.post("/api/auth/login",
-                        json={"identifier": ident, "password": "Str0ng!Pass99"})
+    _register(client)
+    for ident in ("trader_one", "trader@example.com", "+1 555 000 2222", "+15550002222"):
+        r = client.post("/api/auth/login", json={"identifier": ident, "password": PW})
         assert r.status_code == 200, ident
-        assert r.json()["token"]
+        assert r.json()["user"]["username"] == "trader_one"
 
 
-def test_login_wrong_password_401(client):
-    client.post("/api/register", json=REG)
-    r = client.post("/api/auth/login",
-                    json={"identifier": "ada_fx", "password": "Wrong!Pass99"})
-    assert r.status_code == 401
+def test_login_failures_are_indistinguishable(client):
+    _register(client)
+    wrong_pw = client.post("/api/auth/login", json={"identifier": "trader_one", "password": "Wrong!Pass99"})
+    unknown = client.post("/api/auth/login", json={"identifier": "nobody_here", "password": "Wrong!Pass99"})
+    assert wrong_pw.status_code == 401 and unknown.status_code == 401
+    assert wrong_pw.json()["detail"] == unknown.json()["detail"]    # no account enumeration
 
 
-def test_login_unknown_identifier_404(client):
-    r = client.post("/api/auth/login",
-                    json={"identifier": "ghost", "password": "Str0ng!Pass99"})
-    assert r.status_code == 404
+def test_repeated_wrong_passwords_lock_the_account(client):
+    _register(client)
+    for _ in range(auth_mod.LOGIN_MAX_FAILURES):
+        client.post("/api/auth/login", json={"identifier": "trader_one", "password": "Wrong!Pass99"})
+    r = client.post("/api/auth/login", json={"identifier": "trader_one", "password": PW})
+    assert r.status_code == 429                                     # correct password, still locked
+    with db_session() as s:
+        user = s.scalar(select(User).where(User.username == "trader_one"))
+        user.locked_until = time.time() - 1                         # lock window has passed
+    assert client.post("/api/auth/login", json={"identifier": "trader_one", "password": PW}).status_code == 200
 
 
-def test_login_reissues_token_and_retires_old(client):
-    tok1 = client.post("/api/register", json=REG).json()["token"]
-    r = client.post("/api/auth/login",
-                    json={"identifier": "ada_fx", "password": "Str0ng!Pass99"})
-    tok2 = r.json()["token"]
-    assert tok1 != tok2
-    assert client.get(f"/api/subscription/{tok2}").status_code == 200
-    assert client.get(f"/api/subscription/{tok1}").status_code == 404
+def test_logout_revokes_the_token(client):
+    token = _register(client).json()["token"]
+    assert client.get("/api/me", headers=_bearer(token)).status_code == 200
+    assert client.post("/api/auth/logout", headers=_bearer(token)).status_code == 200
+    assert client.get("/api/me", headers=_bearer(token)).status_code == 401
 
 
-# ---------------------------------------------------------------- forgot / reset
-
-def test_forgot_password_returns_code_and_hides_it_in_store(client):
-    client.post("/api/register", json=REG)
-    r = client.post("/api/auth/forgot", json={"email": "ada@example.com"})
-    assert r.status_code == 200
-    code = r.json()["dev_code"]
-    assert len(code) == 7 and code.isdigit()
-    # only a hash of the code is stored on the account
-    acc = ACCOUNTS._by_email["ada@example.com"]
-    assert acc.reset_hash and ":" in acc.reset_hash
-    assert code not in acc.reset_hash
+def test_protected_routes_need_a_valid_token(client):
+    assert client.get("/api/me").status_code == 401
+    assert client.get("/api/me", headers=_bearer("made-up-token")).status_code == 401
 
 
-def test_forgot_unknown_email_404(client):
-    assert client.post("/api/auth/forgot",
-                       json={"email": "ghost@example.com"}).status_code == 404
+def test_expired_session_is_rejected(client):
+    _register(client)
+    with db_session() as s:
+        user = s.scalar(select(User).where(User.username == "trader_one"))
+        token = issue_session(user.id)
+    with db_session() as s:
+        row = s.get(UserSession, auth_mod._token_hash(token))
+        row.expires_at = time.time() - 1
+    assert client.get("/api/me", headers=_bearer(token)).status_code == 401
 
 
-def test_reset_password_full_chain(client):
-    client.post("/api/register", json=REG)
-    code = client.post("/api/auth/forgot", json={"email": "ada@example.com"}).json()["dev_code"]
+# -- forgot / reset -------------------------------------------------------------
 
-    # wrong code first
-    r = client.post("/api/auth/reset", json={
-        "email": "ada@example.com", "code": "0000000", "new_password": "N3w!Passw0rd"})
-    assert r.status_code == 422
-
-    # correct code + policy-compliant new password
-    r = client.post("/api/auth/reset", json={
-        "email": "ada@example.com", "code": code, "new_password": "N3w!Passw0rd"})
-    assert r.status_code == 200
-    assert r.json()["token"]
-
-    # old password no longer works; new one logs in
-    assert client.post("/api/auth/login", json={
-        "identifier": "ada_fx", "password": "Str0ng!Pass99"}).status_code == 401
-    assert client.post("/api/auth/login", json={
-        "identifier": "ada@example.com", "password": "N3w!Passw0rd"}).status_code == 200
+def test_forgot_never_reveals_whether_an_account_exists(client):
+    _register(client)
+    known = client.post("/api/auth/forgot", json={"email": "trader@example.com"})
+    unknown = client.post("/api/auth/forgot", json={"email": "nobody@none.co"})
+    assert known.status_code == 200 and unknown.status_code == 200
+    assert known.json()["message"] == unknown.json()["message"]
 
 
-def test_reset_rejects_weak_new_password(client):
-    client.post("/api/register", json=REG)
-    code = client.post("/api/auth/forgot", json={"email": "ada@example.com"}).json()["dev_code"]
-    r = client.post("/api/auth/reset", json={
-        "email": "ada@example.com", "code": code, "new_password": "weakpass"})
-    assert r.status_code == 422
+def test_reset_code_is_never_returned_by_default(client):
+    _register(client)
+    body = client.post("/api/auth/forgot", json={"email": "trader@example.com"}).json()
+    assert "dev_code" not in body
+    assert body["delivered"] is False                              # no SMTP configured here
 
 
-def test_reset_code_expires(client):
-    client.post("/api/register", json=REG)
-    code = client.post("/api/auth/forgot", json={"email": "ada@example.com"}).json()["dev_code"]
-    ACCOUNTS._by_email["ada@example.com"].reset_expires = time.time() - 1   # 15-min TTL passed
-    r = client.post("/api/auth/reset", json={
-        "email": "ada@example.com", "code": code, "new_password": "N3w!Passw0rd"})
-    assert r.status_code == 422
-    assert "expired" in str(r.json()["detail"]).lower()
+def test_reset_code_stored_only_as_hash(client, monkeypatch):
+    _register(client)
+    monkeypatch.setenv("KLEVS_DEV_RESET_CODES", "1")
+    code = client.post("/api/auth/forgot", json={"email": "trader@example.com"}).json()["dev_code"]
+    with db_session() as s:
+        user = s.scalar(select(User).where(User.username == "trader_one"))
+        assert user.reset_hash and code not in user.reset_hash
 
 
-def test_reset_code_lockout_after_five_attempts(client):
-    client.post("/api/register", json=REG)
-    code = client.post("/api/auth/forgot", json={"email": "ada@example.com"}).json()["dev_code"]
-    for _ in range(5):
-        r = client.post("/api/auth/reset", json={
-            "email": "ada@example.com", "code": "1111111", "new_password": "N3w!Passw0rd"})
+def test_forgot_then_reset_full_chain(client, monkeypatch):
+    _register(client)
+    monkeypatch.setenv("KLEVS_DEV_RESET_CODES", "1")
+    code = client.post("/api/auth/forgot", json={"email": "trader@example.com"}).json()["dev_code"]
+    new_pw = "Brand-New9Pass"
+    r = client.post("/api/auth/reset", json={"email": "trader@example.com", "code": code, "new_password": new_pw})
+    assert r.status_code == 200 and r.json()["token"]
+    assert client.post("/api/auth/login", json={"identifier": "trader_one", "password": PW}).status_code == 401
+    assert client.post("/api/auth/login", json={"identifier": "trader_one", "password": new_pw}).status_code == 200
+
+
+def test_reset_rejects_wrong_code_and_locks_after_five(client, monkeypatch):
+    _register(client)
+    monkeypatch.setenv("KLEVS_DEV_RESET_CODES", "1")
+    real = client.post("/api/auth/forgot", json={"email": "trader@example.com"}).json()["dev_code"]
+    wrong = "0000000" if real != "0000000" else "1111111"
+    for _ in range(auth_mod.RESET_MAX_ATTEMPTS):
+        r = client.post("/api/auth/reset", json={"email": "trader@example.com", "code": wrong,
+                                                 "new_password": "Brand-New9Pass"})
         assert r.status_code == 422
-    # even the right code is now refused
-    r = client.post("/api/auth/reset", json={
-        "email": "ada@example.com", "code": code, "new_password": "N3w!Passw0rd"})
+    r = client.post("/api/auth/reset", json={"email": "trader@example.com", "code": real,
+                                             "new_password": "Brand-New9Pass"})
+    assert r.status_code == 422 and "too many" in r.json()["detail"]
+
+
+def test_reset_code_expires(client, monkeypatch):
+    _register(client)
+    monkeypatch.setenv("KLEVS_DEV_RESET_CODES", "1")
+    code = client.post("/api/auth/forgot", json={"email": "trader@example.com"}).json()["dev_code"]
+    with db_session() as s:
+        user = s.scalar(select(User).where(User.username == "trader_one"))
+        user.reset_expires = time.time() - 1
+    r = client.post("/api/auth/reset", json={"email": "trader@example.com", "code": code,
+                                             "new_password": "Brand-New9Pass"})
+    assert r.status_code == 422 and "expired" in r.json()["detail"]
+
+
+def test_reset_rejects_weak_new_password(client, monkeypatch):
+    _register(client)
+    monkeypatch.setenv("KLEVS_DEV_RESET_CODES", "1")
+    code = client.post("/api/auth/forgot", json={"email": "trader@example.com"}).json()["dev_code"]
+    r = client.post("/api/auth/reset", json={"email": "trader@example.com", "code": code, "new_password": "weak"})
     assert r.status_code == 422
-    assert "attempt" in str(r.json()["detail"]).lower() or "expired" in str(r.json()["detail"]).lower()
 
 
-def test_password_policy_endpoint(client):
-    r = client.get("/api/auth/password-policy")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["min_length"] == 10
-    assert set(body["rules"]) == {"length_10", "uppercase", "lowercase", "number", "symbol"}
+class _FakeSMTP:
+    sent: ClassVar[list] = []
+
+    def __init__(self, host, port, timeout=None):
+        self.host, self.port = host, port
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def starttls(self):
+        pass
+
+    def login(self, user, password):
+        pass
+
+    def send_message(self, msg):
+        _FakeSMTP.sent.append(msg)
 
 
-# ---------------------------------------------------------------------------
-# admin account (operator-provisioned, unrestricted access)
-# ---------------------------------------------------------------------------
+def test_reset_code_is_emailed_over_smtp(client, monkeypatch):
+    _register(client)
+    _FakeSMTP.sent = []
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    monkeypatch.setenv("KLEVS_SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("KLEVS_SMTP_FROM", "noreply@klevsfx.example")
+    body = client.post("/api/auth/forgot", json={"email": "trader@example.com"}).json()
+    assert body["delivered"] is True and "dev_code" not in body
+    assert len(_FakeSMTP.sent) == 1
+    msg = _FakeSMTP.sent[0]
+    assert msg["To"] == "trader@example.com"
+    assert "reset code is " in msg.get_content()
 
-# test-only credentials (the real admin password is supplied via KFX_ADMIN_* env vars)
-ADMIN_USER = "Admin@test.fx"
-ADMIN_PW = "Test-Admin#2026"
 
+# -- admin account --------------------------------------------------------------
 
 def test_admin_password_meets_policy():
     assert password_policy(ADMIN_PW)["valid"] is True
 
 
-def test_seed_admin_creates_unrestricted_admin_and_hashes_password():
+def test_seed_admin_creates_admin_and_rotates_password():
     acc = ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
-    assert acc.role == "admin" and acc.plan == "admin"
-    assert acc.email == "admin@test.fx"          # defaults to the address username
-    assert ADMIN_PW not in acc.password_hash     # never stored in plain text
+    assert acc.role == "admin" and acc.email == "admin@test.fx"
     assert ACCOUNTS.authenticate(ADMIN_USER, ADMIN_PW).role == "admin"
     assert ACCOUNTS.authenticate("admin@test.fx", ADMIN_PW).role == "admin"
-
-
-def test_admin_login_grants_unrestricted_session(client):
-    ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
-    r = client.post("/api/auth/login", json={"identifier": ADMIN_USER, "password": ADMIN_PW})
-    assert r.status_code == 200
-    sub = r.json()["subscription"]
-    assert sub["role"] == "admin"
-    assert sub["plan"] == "admin" and sub["plan_name"] == "Admin"
-    assert sub["access"] == "unrestricted"
-    assert sub["status"] == "active" and sub["price_usd"] == 0
-    # the session token unlocks the same subscription check the paywall uses
-    token = r.json()["token"]
-    assert client.get(f"/api/subscription/{token}").status_code == 200
-
-
-def test_admin_wrong_password_rejected(client):
-    ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
-    r = client.post("/api/auth/login", json={"identifier": ADMIN_USER, "password": "wrong-Pass1!"})
-    assert r.status_code == 401
-
-
-def test_admin_plan_cannot_be_self_selected(client):
-    r = client.post("/api/register", json={
-        "username": "sneaky_user", "email": "sneaky@example.com", "phone": "+15550001111",
-        "password": ADMIN_PW, "plan": "admin"})
-    assert r.status_code == 422
-    r = client.post("/api/subscribe", json={"name": "x", "email": "x@example.com", "plan": "admin"})
-    assert r.status_code == 422
-
-
-def test_normal_registration_is_never_admin(client):
-    r = client.post("/api/register", json={
-        "username": "trader_one", "email": "trader@example.com", "phone": "+15550002222",
-        "password": ADMIN_PW, "plan": "pro"})
-    assert r.status_code == 200
-    sub = r.json()["subscription"]
-    assert sub["role"] == "user" and "access" not in sub
-
-
-def test_seed_admin_rotates_password_in_place():
-    ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
     ACCOUNTS.seed_admin(ADMIN_USER, "Rotated-Pass9#")
-    assert ACCOUNTS.authenticate(ADMIN_USER, "Rotated-Pass9#").role == "admin"
     with pytest.raises(PermissionError):
         ACCOUNTS.authenticate(ADMIN_USER, ADMIN_PW)
-    assert len(ACCOUNTS._by_username) == 1
+    with db_session() as s:
+        assert len(s.scalars(select(User).where(User.role == "admin")).all()) == 1
 
 
 def test_seed_admin_rejects_weak_password_and_bad_fields():
@@ -304,7 +312,7 @@ def test_seed_admin_rejects_weak_password_and_bad_fields():
     with pytest.raises(ValueError):
         ACCOUNTS.seed_admin("has space@klev.fx", ADMIN_PW)
     with pytest.raises(ValueError):
-        ACCOUNTS.seed_admin("notanemail", ADMIN_PW)   # no email derivable
+        ACCOUNTS.seed_admin("notanemail", ADMIN_PW)
 
 
 def test_seed_admin_refuses_to_take_over_a_user_account():
@@ -313,19 +321,38 @@ def test_seed_admin_refuses_to_take_over_a_user_account():
         ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
 
 
+def test_admin_login_is_unrestricted(client):
+    ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
+    r = client.post("/api/auth/login", json={"identifier": ADMIN_USER, "password": ADMIN_PW})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["user"]["role"] == "admin"
+    assert body["access"]["active"] is True and body["access"]["access"] == "unrestricted"
+    assert client.get("/api/universe", headers=_bearer(body["token"])).status_code == 200
+
+
 def test_bootstrap_from_env(monkeypatch):
     from fxbot import server
 
     monkeypatch.delenv("KFX_ADMIN_USERNAME", raising=False)
     monkeypatch.delenv("KFX_ADMIN_PASSWORD", raising=False)
-    assert server._bootstrap_admin_from_env() is None          # no-op when unset
-
+    assert server._bootstrap_admin_from_env() is None
     monkeypatch.setenv("KFX_ADMIN_USERNAME", ADMIN_USER)
     monkeypatch.setenv("KFX_ADMIN_PASSWORD", ADMIN_PW)
     monkeypatch.setenv("KFX_ADMIN_PHONE", "+15559990000")
     assert server._bootstrap_admin_from_env() == ADMIN_USER
     assert ACCOUNTS.authenticate("+1 555 999 0000", ADMIN_PW).role == "admin"
-
     monkeypatch.delenv("KFX_ADMIN_PASSWORD")
-    with pytest.raises(RuntimeError):                           # half-configured -> refuse
+    with pytest.raises(RuntimeError):
         server._bootstrap_admin_from_env()
+
+
+def test_password_policy_endpoint(client):
+    body = client.get("/api/auth/password-policy").json()
+    assert body["min_length"] == 10
+    assert set(body["rules"]) == {"length_10", "uppercase", "lowercase", "number", "symbol"}
+
+
+def test_removed_insecure_routes(client):
+    assert client.post("/api/login", json={"email": "trader@example.com"}).status_code in (404, 405)
+    assert client.post("/api/subscribe", json={"name": "x", "email": "a@b.co", "plan": "pro"}).status_code in (404, 405)
