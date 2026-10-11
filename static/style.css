@@ -251,3 +251,32 @@ footer {
 .exit-chip b { color: var(--text); }
 
 .empty { color: var(--muted); padding: 18px; text-align: center; }
+
+/* ---------- subscriber gate ---------- */
+.refresh.ghosty {
+  background: transparent; color: var(--text); border: 1px solid var(--line);
+}
+.sub-chip .v { color: var(--accent); font-size: 11.5px; }
+
+.paywall {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(8, 11, 18, 0.82); backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.paywall[hidden] { display: none; }
+.paywall-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+  padding: 42px 38px; max-width: 480px; text-align: center;
+}
+.paywall-card .logo {
+  width: 56px; height: 56px; font-size: 20px; margin: 0 auto 18px;
+}
+.paywall-card h2 { font-size: 21px; margin-bottom: 12px; }
+.paywall-card p { color: var(--muted); font-size: 13px; margin-bottom: 22px; line-height: 1.7; }
+.paywall-card b { color: var(--text); }
+.paywall-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.pw-note { margin: 18px 0 0 !important; font-size: 12px !important; }
+.linkish {
+  background: none; border: 0; color: var(--accent); cursor: pointer;
+  font-size: 12px; text-decoration: underline; font-family: inherit;
+}

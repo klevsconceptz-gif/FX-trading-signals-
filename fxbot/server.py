@@ -1,18 +1,26 @@
-"""FastAPI application: JSON API + self-contained web dashboard.
+"""FastAPI application: JSON API + landing page + subscriber dashboard.
 
 Endpoints
 ---------
-GET  /                      dashboard (static single-page app)
+GET  /                      marketing landing page (subscribe monthly)
+GET  /app                   the bot dashboard (subscriber-gated in the UI)
 GET  /api/health            liveness + config summary
 GET  /api/scan              full-market scan report (signals, insights, strength)
+GET  /api/instructions      distilled buy → predict → sell command stream
 GET  /api/pair/{symbol}     deep-dive: candles, indicators, plan, forecast
 POST /api/backtest          run a backtest for a symbol
 GET  /api/universe          instrument list
+POST /api/subscribe         monthly subscription signup (demo checkout)
+POST /api/login             re-issue access token for a subscribed email
+GET  /api/subscription/{token}  subscription status
 """
 
 from __future__ import annotations
 
+import re
+import secrets
 import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -39,6 +47,44 @@ app = FastAPI(
 # FastAPI's threadpool, so all engine access is serialized with this lock.
 _engine = MarketEngine(AppConfig())
 _engine_lock = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# subscriptions (demo checkout — replace _checkout with Stripe/Paddle in prod)
+# ---------------------------------------------------------------------------
+
+PLANS: dict[str, dict[str, Any]] = {
+    "starter": {"name": "Starter", "price_usd": 29, "interval": "month"},
+    "pro": {"name": "Pro", "price_usd": 79, "interval": "month"},
+    "elite": {"name": "Elite", "price_usd": 199, "interval": "month"},
+    "demo": {"name": "Demo", "price_usd": 0, "interval": "month"},
+}
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_SUBSCRIPTIONS: dict[str, dict[str, Any]] = {}   # token -> record
+_EMAIL_INDEX: dict[str, str] = {}                # lowercase email -> token
+_SUB_LOCK = threading.Lock()
+
+
+class SubscribeRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    email: str = Field(..., min_length=5, max_length=200)
+    plan: str = Field("pro", description="starter | pro | elite | demo")
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=200)
+
+
+def _checkout(record: dict[str, Any]) -> dict[str, Any]:
+    """Demo checkout: marks the subscription active without charging anything.
+
+    Production: create a Stripe Checkout Session (or Paddle transaction) here,
+    return its hosted URL, and mark the subscription active from the webhook.
+    """
+    record["status"] = "active"
+    record["billing"] = "demo-checkout (no payment processed)"
+    return record
 
 
 class BacktestRequest(BaseModel):
@@ -155,10 +201,90 @@ def backtest(req: BacktestRequest) -> dict[str, Any]:
     }
 
 
-# -- static dashboard --------------------------------------------------------
+# -- subscriptions ------------------------------------------------------------
+
+@app.post("/api/subscribe")
+def subscribe(req: SubscribeRequest) -> dict[str, Any]:
+    email = req.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="invalid email address")
+    plan = PLANS.get(req.plan)
+    if plan is None:
+        raise HTTPException(status_code=422, detail=f"unknown plan '{req.plan}' — choose starter, pro or elite")
+
+    with _SUB_LOCK:
+        token = secrets.token_urlsafe(24)
+        record = {
+            "token": token,
+            "name": req.name.strip(),
+            "email": email,
+            "plan": req.plan,
+            "plan_name": plan["name"],
+            "price_usd": plan["price_usd"],
+            "interval": plan["interval"],
+            "created_at": time.time(),
+            "renews_at": time.time() + 30 * 86400,
+        }
+        record = _checkout(record)
+        _SUBSCRIPTIONS[token] = record
+        _EMAIL_INDEX[email] = token
+    return {
+        "ok": True,
+        "token": token,
+        "subscription": _public_record(record),
+        "message": "Subscription active — welcome to klevs FX trading App. "
+                   "Demo checkout: no payment was processed; wire Stripe Checkout into "
+                   "fxbot/server.py::_checkout for live billing.",
+        "access_url": "/app",
+    }
+
+
+@app.post("/api/login")
+def login(req: LoginRequest) -> dict[str, Any]:
+    email = req.email.strip().lower()
+    with _SUB_LOCK:
+        old_token = _EMAIL_INDEX.get(email)
+        record = _SUBSCRIPTIONS.get(old_token) if old_token else None
+        if record is None:
+            raise HTTPException(status_code=404, detail="no subscription found for that email")
+        new_token = secrets.token_urlsafe(24)   # re-issue a session token
+        record["token"] = new_token
+        _SUBSCRIPTIONS.pop(old_token, None)
+        _SUBSCRIPTIONS[new_token] = record
+        _EMAIL_INDEX[email] = new_token
+    return {
+        "ok": True,
+        "token": new_token,
+        "subscription": _public_record(record),
+        "access_url": "/app",
+    }
+
+
+@app.get("/api/subscription/{token}")
+def subscription(token: str) -> dict[str, Any]:
+    with _SUB_LOCK:
+        record = _SUBSCRIPTIONS.get(token)
+        if record is None or record.get("status") != "active":
+            raise HTTPException(status_code=404, detail="no active subscription")
+        return {"ok": True, "subscription": _public_record(record)}
+
+
+def _public_record(record: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in record.items() if k != "token"}
+
+
+# -- pages --------------------------------------------------------------------
 
 @app.get("/")
-def index() -> FileResponse:
+def landing() -> FileResponse:
+    return FileResponse(
+        STATIC_DIR / "landing.html",
+        headers={"Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache"},
+    )
+
+
+@app.get("/app")
+def dashboard() -> FileResponse:
     return FileResponse(
         STATIC_DIR / "index.html",
         headers={"Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache"},

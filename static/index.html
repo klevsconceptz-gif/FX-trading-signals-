@@ -15,15 +15,32 @@
       <div class="sub">Whole-market tracing · prediction · trade plans (entry / TP / SL)</div>
     </div>
   </div>
-  <div class="pulse" id="pulse">
-    <div class="chip"><span class="k">Data</span><span class="v" id="chip-source">…</span></div>
-    <div class="chip"><span class="k">DXY</span><span class="v" id="chip-dxy">…</span></div>
-    <div class="chip"><span class="k">Breadth</span><span class="v" id="chip-breadth">…</span></div>
-    <div class="chip"><span class="k">Mood</span><span class="v" id="chip-mood">…</span></div>
-    <div class="chip"><span class="k">Signals</span><span class="v" id="chip-signals">…</span></div>
-    <button class="refresh" id="btn-refresh">↻ Rescan market</button>
+    <div class="pulse" id="pulse">
+      <div class="chip"><span class="k">Data</span><span class="v" id="chip-source">…</span></div>
+      <div class="chip"><span class="k">DXY</span><span class="v" id="chip-dxy">…</span></div>
+      <div class="chip"><span class="k">Breadth</span><span class="v" id="chip-breadth">…</span></div>
+      <div class="chip"><span class="k">Mood</span><span class="v" id="chip-mood">…</span></div>
+      <div class="chip"><span class="k">Signals</span><span class="v" id="chip-signals">…</span></div>
+      <div class="chip sub-chip" id="chip-sub" hidden><span class="k">Subscriber</span><span class="v" id="chip-sub-name">…</span></div>
+      <button class="refresh" id="btn-refresh">↻ Rescan market</button>
+      <button class="refresh ghosty" id="btn-logout" hidden>Log out</button>
+    </div>
+  </header>
+
+  <!-- subscriber paywall overlay -->
+  <div class="paywall" id="paywall" hidden>
+    <div class="paywall-card">
+      <div class="logo">KFX</div>
+      <h2>Subscribe to unlock klevs FX trading App</h2>
+      <p>The live instruction feed, predictions, charts and backtest lab are for
+        subscribers. Plans start at <b>$29/month</b> — cancel anytime.</p>
+      <div class="paywall-actions">
+        <button class="refresh" id="pw-subscribe">View monthly plans →</button>
+        <button class="refresh ghosty" id="pw-demo">Explore the demo</button>
+      </div>
+      <p class="pw-note" id="pw-note">Already subscribed? <button class="linkish" id="pw-login">Log in</button></p>
+    </div>
   </div>
-</header>
 
 <nav class="tabs">
   <button class="tab active" data-tab="market">Market &amp; Signals</button>

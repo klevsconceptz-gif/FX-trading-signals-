@@ -550,9 +550,83 @@ function drawEquity(canvas, curve) {
   ctx.fillText("Equity curve", padL + 6, padT + 10);
 }
 
+/* ---------------- subscriber gate (monthly subscription access) ---------------- */
+
+async function initSubscriberGate() {
+  const raw = localStorage.getItem("kfx_sub");
+  let session = null;
+  try { session = raw ? JSON.parse(raw) : null; } catch (_) { /* corrupted */ }
+
+  const unlock = (s) => {
+    $("#paywall").hidden = true;
+    document.body.style.overflow = "";
+    const chip = $("#chip-sub");
+    chip.hidden = false;
+    $("#chip-sub-name").textContent = `${s.plan_name} · ${s.name || s.email}`;
+    $("#btn-logout").hidden = false;
+    loadScan();   // only load market data once unlocked
+  };
+
+  if (session && session.token) {
+    try {
+      const r = await fetch(`/api/subscription/${encodeURIComponent(session.token)}`);
+      if (r.ok) {
+        const body = await r.json();
+        session = { ...session, ...body.subscription };
+        localStorage.setItem("kfx_sub", JSON.stringify(session));
+        unlock(session);
+        return;
+      }
+    } catch (_) { /* fall through to paywall */ }
+    localStorage.removeItem("kfx_sub");
+  }
+
+  // locked: show paywall instead of market data
+  $("#paywall").hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+$("#btn-logout").addEventListener("click", () => {
+  localStorage.removeItem("kfx_sub");
+  window.location.href = "/";
+});
+$("#pw-subscribe").addEventListener("click", () => { window.location.href = "/#pricing"; });
+$("#pw-login").addEventListener("click", () => { window.location.href = "/"; });
+$("#pw-demo").addEventListener("click", async () => {
+  const btn = $("#pw-demo");
+  btn.disabled = true;
+  btn.textContent = "Preparing demo…";
+  try {
+    const r = await fetch("/api/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Demo Trader",
+        email: `demo-${Math.random().toString(36).slice(2, 8)}@klevsfx.demo`,
+        plan: "demo",
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "demo failed");
+    localStorage.setItem("kfx_sub", JSON.stringify({
+      token: data.token,
+      name: data.subscription.name,
+      email: data.subscription.email,
+      plan: data.subscription.plan,
+      plan_name: data.subscription.plan_name,
+      price_usd: data.subscription.price_usd,
+    }));
+    window.location.reload();
+  } catch (e) {
+    alert(e.message);
+    btn.disabled = false;
+    btn.textContent = "Explore the demo";
+  }
+});
+
 /* ---------------- boot ---------------- */
 
 $("#btn-refresh").addEventListener("click", () => loadScan(true));
-loadScan();
+initSubscriberGate();
 // live instruction feed: re-scan every 5 minutes (models are cached, so this is cheap)
-setInterval(() => loadScan(true), 5 * 60 * 1000);
+setInterval(() => { if ($("#paywall").hidden) loadScan(true); }, 5 * 60 * 1000);

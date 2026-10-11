@@ -93,7 +93,54 @@ def test_backtest_endpoint(client):
         assert {"side", "entry", "exit", "r_multiple", "pnl"} <= set(t)
 
 
-def test_index_served(client):
+def test_landing_page_served(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "klevs FX trading App" in r.text
+    # monthly-subscription landing: pricing + subscribe CTA must exist
+    assert "Subscribe monthly" in r.text or "Subscribe" in r.text
+    assert "/month" in r.text
+
+
+def test_app_page_served(client):
+    r = client.get("/app")
+    assert r.status_code == 200
+    assert "Live Instructions" in r.text          # the bot dashboard
+    assert "paywall" in r.text                    # subscriber gate present
+
+
+def test_subscription_flow(client):
+    """subscribe -> token works -> login re-issues -> unknown email 404."""
+    r = client.post("/api/subscribe", json={
+        "name": "Test Trader", "email": "trader@example.com", "plan": "pro"})
+    assert r.status_code == 200
+    body = r.json()
+    token = body["token"]
+    assert body["subscription"]["plan"] == "pro"
+    assert body["subscription"]["price_usd"] == 79
+    assert body["subscription"]["interval"] == "month"
+    assert body["access_url"] == "/app"
+
+    r2 = client.get(f"/api/subscription/{token}")
+    assert r2.status_code == 200
+    assert r2.json()["subscription"]["email"] == "trader@example.com"
+
+    r3 = client.post("/api/login", json={"email": "trader@example.com"})
+    assert r3.status_code == 200
+    new_token = r3.json()["token"]
+    assert new_token != token
+    assert client.get(f"/api/subscription/{new_token}").status_code == 200
+    # old token invalidated after re-login
+    assert client.get(f"/api/subscription/{token}").status_code == 404
+
+    assert client.post("/api/login", json={"email": "nobody@example.com"}).status_code == 404
+
+
+def test_subscription_validation(client):
+    assert client.post("/api/subscribe",
+                       json={"name": "X", "email": "not-an-email", "plan": "pro"}
+                       ).status_code == 422
+    assert client.post("/api/subscribe",
+                       json={"name": "X", "email": "a@b.co", "plan": "gold"}
+                       ).status_code == 422
+    assert client.get("/api/subscription/made-up-token").status_code == 404

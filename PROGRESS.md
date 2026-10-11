@@ -39,11 +39,17 @@ correlation down-sizing, daily-loss circuit breaker, drawdown throttle,
 half-Kelly reference (edge-case safe).
 
 ### 4. klevs FX trading App (dashboard + API)
+- **Landing page** (`/`): hero, features, how-it-works, instruction showcase,
+  **monthly pricing** (Starter $29 · Pro $79 · Elite $199), testimonials, FAQ,
+  demo-checkout subscribe modal (Stripe-ready `_checkout()` hook), login flow
+- **Subscriber gate**: `/app` checks the subscription token and shows a paywall
+  overlay (View plans / Explore demo / Log in) until subscribed
 - Dark trading terminal: live **instruction feed** (auto-refresh 5 min), market
   pulse (DXY/breadth/mood), currency-strength grid, sortable signals table,
   canvas candle charts with plan levels + RSI, correlation heatmap, backtest lab
 - API: `/api/health` · `/api/universe` · `/api/scan` · `/api/instructions` ·
-  `/api/pair/{symbol}` · `POST /api/backtest` — all validated, JSON errors only
+  `/api/pair/{symbol}` · `POST /api/backtest` · `POST /api/subscribe` ·
+  `POST /api/login` · `GET /api/subscription/{token}` — all validated
 - Branding: exact name **klevs FX trading App** (title, header KFX, footer, API)
 - Thread-safe engine (lock), no-store headers, self-contained (no CDN)
 
@@ -70,11 +76,12 @@ half-Kelly reference (edge-case safe).
 
 ## ▶️ Resume commands
 ```bash
-source .venv/bin/activate
-python -m pytest tests/ -q                  # 47 tests
-python -m scripts.scan                      # whole-market scan
-python -m scripts.backtest --symbol EURUSD  # backtest lab
-python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000   # the app
+bash setup.sh                               # rebuild .venv (not stored in git)
+.venv/bin/python -m pytest tests/ -q        # 50 tests
+.venv/bin/python -m scripts.scan            # whole-market scan
+.venv/bin/python -m scripts.backtest --symbol EURUSD
+.venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000
+#   → /  landing page (subscribe monthly)   → /app  the bot
 ```
 
 ## ⚠ Disclaimer

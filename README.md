@@ -27,8 +27,13 @@ and an event-driven backtester.
 ## Quick start
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+bash setup.sh                # creates .venv and installs everything
+source .venv/bin/activate
+
+# landing page + bot (subscribe monthly → instant access)
+python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000
+#   → http://localhost:8000      landing page (pricing, subscribe)
+#   → http://localhost:8000/app  the bot (subscriber-gated)
 
 # terminal market scan (all 32 instruments)
 python -m scripts.scan
@@ -38,10 +43,25 @@ python -m scripts.backtest --symbol EURUSD
 
 # train the ML forecasters and report out-of-sample accuracy
 python -m scripts.train
-
-# launch the dashboard (http://localhost:8000)
-python -m fxbot.server
 ```
+
+## Landing page & monthly subscriptions
+
+`/` is the marketing landing page: hero, features, how-it-works, sample
+instruction feed, **monthly pricing tiers** (Starter $29 · Pro $79 · Elite $199),
+testimonials and FAQ. The subscribe flow creates an account and unlocks the bot:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/subscribe` | monthly signup (`name`, `email`, `plan`) → access token |
+| `POST /api/login` | re-issue a token for a subscribed email |
+| `GET /api/subscription/{token}` | subscription status (validates the app gate) |
+
+The checkout is a clearly-labelled **demo** (no payment is processed). To go live,
+swap `_checkout()` in `fxbot/server.py` for a Stripe Checkout Session + webhook —
+the signup/login/token flow is production-shaped already. The dashboard at `/app`
+is gated: no active subscription → paywall overlay with "View monthly plans" and
+"Explore the demo" options.
 
 Run the test-suite:
 
@@ -155,11 +175,17 @@ Every scan and backtest is deterministic for a given seed — reproducible resea
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/` | marketing landing page (subscribe monthly) |
+| GET | `/app` | the bot dashboard (subscriber-gated) |
 | GET | `/api/health` | status + config |
 | GET | `/api/universe` | instrument list |
 | GET | `/api/scan?refresh=true` | full-market report (signals, insights, strength, correlations) |
+| GET | `/api/instructions` | distilled buy → predict → sell command stream |
 | GET | `/api/pair/{symbol}` | candles, indicators, trade plan, forecast |
 | POST | `/api/backtest` | `{symbol, equity, risk_per_trade_pct, bars}` → metrics, equity curve, trades |
+| POST | `/api/subscribe` | monthly subscription signup (demo checkout) |
+| POST | `/api/login` | re-issue access token for a subscribed email |
+| GET | `/api/subscription/{token}` | subscription status |
 
 ## Live data
 
