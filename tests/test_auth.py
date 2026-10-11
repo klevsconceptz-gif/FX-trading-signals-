@@ -233,8 +233,9 @@ def test_password_policy_endpoint(client):
 # admin account (operator-provisioned, unrestricted access)
 # ---------------------------------------------------------------------------
 
-ADMIN_USER = "Admin@klev.fx"
-ADMIN_PW = "@Klevfx123*"
+# test-only credentials (the real admin password is supplied via KFX_ADMIN_* env vars)
+ADMIN_USER = "Admin@test.fx"
+ADMIN_PW = "Test-Admin#2026"
 
 
 def test_admin_password_meets_policy():
@@ -244,10 +245,10 @@ def test_admin_password_meets_policy():
 def test_seed_admin_creates_unrestricted_admin_and_hashes_password():
     acc = ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
     assert acc.role == "admin" and acc.plan == "admin"
-    assert acc.email == "admin@klev.fx"          # defaults to the address username
+    assert acc.email == "admin@test.fx"          # defaults to the address username
     assert ADMIN_PW not in acc.password_hash     # never stored in plain text
     assert ACCOUNTS.authenticate(ADMIN_USER, ADMIN_PW).role == "admin"
-    assert ACCOUNTS.authenticate("admin@klev.fx", ADMIN_PW).role == "admin"
+    assert ACCOUNTS.authenticate("admin@test.fx", ADMIN_PW).role == "admin"
 
 
 def test_admin_login_grants_unrestricted_session(client):
@@ -307,7 +308,7 @@ def test_seed_admin_rejects_weak_password_and_bad_fields():
 
 
 def test_seed_admin_refuses_to_take_over_a_user_account():
-    ACCOUNTS.register("victim_user", "admin@klev.fx", "+15550003333", ADMIN_PW)
+    ACCOUNTS.register("victim_user", "admin@test.fx", "+15550003333", ADMIN_PW)
     with pytest.raises(ValueError):
         ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
 
