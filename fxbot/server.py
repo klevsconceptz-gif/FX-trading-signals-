@@ -17,6 +17,7 @@ GET  /api/subscription/{token}  subscription status
 
 from __future__ import annotations
 
+import os
 import re
 import secrets
 import threading
@@ -51,7 +52,17 @@ app = FastAPI(
 
 # one shared engine — scan is cached until `refresh`.  Sync endpoints run in
 # FastAPI's threadpool, so all engine access is serialized with this lock.
-_engine = MarketEngine(AppConfig())
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+# live market data is on by default; KFX_LIVE_DATA=0 forces the synthetic market.
+# When live data is unreachable the engine falls back to synthetic automatically
+# and the dashboard shows the reason.
+_engine = MarketEngine(AppConfig(), prefer_live=_env_flag("KFX_LIVE_DATA", True))
 _engine_lock = threading.Lock()
 
 
@@ -154,7 +165,7 @@ def universe() -> list[dict[str, Any]]:
 @app.get("/api/scan")
 def scan(refresh: bool = False) -> dict[str, Any]:
     with _engine_lock:
-        report = _engine.scan(use_cache=not refresh)
+        report = _engine.scan(use_cache=not refresh, reload=refresh)
     return report.to_dict()
 
 
@@ -162,7 +173,7 @@ def scan(refresh: bool = False) -> dict[str, Any]:
 def instructions(refresh: bool = False) -> dict[str, Any]:
     """Distilled command stream: when to buy, predicted outcome, when to sell."""
     with _engine_lock:
-        report = _engine.scan(use_cache=not refresh)
+        report = _engine.scan(use_cache=not refresh, reload=refresh)
     d = report.to_dict()
     return {
         "generated_at": d["generated_at"],

@@ -1,7 +1,7 @@
 # Progress Log — klevs FX trading App
 
 Session save point · branch `arena/641dff05-fx-trading-signals` · 2026-10-10
-Status: **complete & green** — 79/79 tests · ruff clean · 32-instrument stress verified
+Status: **complete & green** — 95/95 tests · ruff clean · 32-instrument stress verified
 
 ---
 
@@ -68,7 +68,7 @@ half-Kelly reference (edge-case safe).
 
 ### 5. Tooling & quality
 - CLIs: `scripts/scan.py` · `scripts/backtest.py` · `scripts/train.py`
-- **79 tests** (indicators, signals & instruction lifecycle, risk, backtest
+- **95 tests** (indicators, signals & instruction lifecycle, risk, backtest
   invariants/no-lookahead, ML, API, subscription, **auth/register/reset**) — all passing
 - `ruff.toml` (F,E9,I,B,SIM,C4,RUF) — All checks passed
 - `RESOURCES.md` — GitHub/paper/data-source research survey with design mapping
@@ -77,14 +77,29 @@ half-Kelly reference (edge-case safe).
 - Operator-provisioned admin (`KFX_ADMIN_USERNAME` / `KFX_ADMIN_PASSWORD` [+ `_EMAIL`, `_PHONE`]) seeded at server start via `_bootstrap_admin_from_env()` → `AccountStore.seed_admin()`. No credentials in code or git.
 - Admin role/plan (`role: admin`, plan `admin`, `access: unrestricted`) never selectable at register/subscribe (422).
 - Admin username `Admin@klev.fx` is accepted through the admin path only (user usernames stay `[A-Za-z0-9_.-]`).
-- Tests: 79/79 (10 new admin tests). Ruff clean. Live check: username + email login 200, wrong password 401, admin plan self-select 422. Server stopped after.
+- Tests: 95/95 (10 new admin tests). Ruff clean. Live check: username + email login 200, wrong password 401, admin plan self-select 422. Server stopped after.
 
 ### 7. Full system check (round 9)
-- Tests 79/79 in the working venv **and** in a fresh venv built from `requirements.txt` (pandas 3.0, sklearn 1.9, fastapi 0.143). Ruff clean. Compileall + `node --check` on all static JS OK.
+- Tests 95/95 in the working venv **and** in a fresh venv built from `requirements.txt` (pandas 3.0, sklearn 1.9, fastapi 0.143). Ruff clean. Compileall + `node --check` on all static JS OK.
 - API sweep (TestClient, 52 s): all 32 instruments → 200; backtest bounds (249→422, 250→200, 20001→422, unknown symbol→404); auth edge cases (SQL-like identifiers, 129-char passwords, wrong types, duplicate usernames, weak passwords, retired `/api/login`); 96/96 concurrent requests → 200. Zero 500s.
 - Live boot (default config): all pages, static assets and API routes return expected codes. Server stopped afterwards.
 - Fixed docs: README API table listed the retired `/api/login` (now lists the auth routes); PROGRESS test count 69 → 79.
 - Known: first `/api/scan` after a cold boot takes ~34 s (trains 32 ML models); cached afterwards (ms). Candidate fix: warm the cache in a background thread at startup.
+
+### 8. Live market data (round 10)
+- Sandbox check: Frankfurter, exchangerate.host and Yahoo Finance are **unreachable** from this sandbox (TLS fails); PyPI, npm and GitHub work. No live FX data can be fetched here, so this session's data is synthetic — labelled as such everywhere.
+- Bugs fixed:
+  - Server never tried live data (engine built with `prefer_live=False`) → now on by default, `KFX_LIVE_DATA=0` to disable.
+  - `scan(refresh=true)` never reloaded data → now reloads.
+  - Frankfurter used a retired URL/shape → now `api.frankfurter.dev/v2/rates`.
+  - Daily ECB rates were upsampled into hourly bars → providers gated by native bar size.
+  - Mixed live/synthetic series possible → all-or-nothing per refresh.
+  - exchangerate.host requires a paid key and its response format is undocumented → removed.
+  - No backoff on dead hosts → per-provider circuit breaker (3 failures → 10 min pause).
+- Provider chain: `yfinance` (hourly, `requirements-live.txt`) → `frankfurter` (daily only).
+- Tests: `tests/test_live_data.py` (16 offline tests: parsing, native-bar gating, all-or-nothing, tz/dedupe/trim, breaker, server refresh).
+- Offline behaviour verified live: fallback in <1 s with reason shown in `data_source`.
+- Known: the synthetic market is deterministic per seed and bar count, so it does not move in real time between refreshes.
 
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)
@@ -103,7 +118,7 @@ half-Kelly reference (edge-case safe).
 ## ▶️ Resume commands
 ```bash
 bash setup.sh                               # rebuild .venv (not stored in git)
-.venv/bin/python -m pytest tests/ -q        # 79 tests
+.venv/bin/python -m pytest tests/ -q        # 95 tests
 .venv/bin/python -m scripts.scan            # whole-market scan
 .venv/bin/python -m scripts.backtest --symbol EURUSD
 .venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000

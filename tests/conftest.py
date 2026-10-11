@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -9,6 +10,9 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# the suite never touches the network: the server defaults to live data, so pin it off
+os.environ.setdefault("KFX_LIVE_DATA", "0")
 
 from fxbot.config import AppConfig
 from fxbot.data import MarketData, SyntheticMarket

@@ -7,6 +7,8 @@ cd "$(dirname "$0")"
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt ruff
+# optional live market data (Yahoo Finance hourly bars); the app works without it
+.venv/bin/pip install -r requirements-live.txt || echo "warning: live data package not installed — synthetic market will be used"
 
 echo ""
 echo "Environment ready. Try:"

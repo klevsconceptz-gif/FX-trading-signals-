@@ -16,7 +16,7 @@ and an event-driven backtester.
 
 | Stage | Module | Output |
 |-------|--------|--------|
-| **1 · Trace** | `fxbot/data.py` | OHLC history for the whole universe via a live provider chain (Frankfurter/ECB → exchangerate.host → yfinance), falling back to a deterministic **correlated currency-factor simulator** so the entire market stays coherent and the pipeline works offline |
+| **1 · Trace** | `fxbot/data.py` | OHLC history for the whole universe: live hourly bars (yfinance) or daily ECB rates (Frankfurter), with a deterministic **correlated currency-factor simulator** as the fallback so the entire market stays coherent and the pipeline works offline |
 | **2 · Measure** | `fxbot/indicators.py`, `fxbot/strength.py` | 20+ indicators (EMA/SMA/RSI/MACD/Bollinger/ATR/ADX/Stochastic/CCI/Donchian/Ichimoku…), cross-sectional **currency strength** ranking, regime detection (trend / range / volatile), correlation matrix |
 | **3 · Predict** | `fxbot/features.py`, `fxbot/ml.py` | Per-pair gradient-boosting ensembles forecasting **direction P(up), expected move and volatility** over the next bars — walk-forward, time-ordered, honest OOS accuracy |
 | **4 · Decide** | `fxbot/signals.py` | Six weighted factors (trend, momentum, mean-reversion, breakout, ML, strength differential) → composite score → full **trade plan**: entry, stop-loss, take-profit, stretch target, R:R, partial-profit schedule, narrative |
@@ -229,11 +229,30 @@ Every scan and backtest is deterministic for a given seed — reproducible resea
 
 ## Live data
 
-The platform tries live providers automatically (`--live` in `scripts.scan`):
-Frankfurter (ECB, no key) → exchangerate.host (no key) → yfinance. When none are
-reachable (or for reproducible work), the correlated synthetic market engages and
-is labelled as such in the UI. Swap in broker-grade feeds (OANDA v20, MetaTrader 5)
-by implementing the small provider interface in `fxbot/data.py`.
+Live mode is **on by default** in the server and CLI. Providers:
+
+| Provider | Data | Needs |
+|----------|------|-------|
+| `yfinance` (Yahoo Finance) | hourly FX + gold/silver (730 days) | `pip install -r requirements-live.txt` |
+| `frankfurter` (ECB reference rates, `api.frankfurter.dev/v2`) | daily fiat FX only | nothing (no key) |
+
+Rules: a provider is used only when its bar size matches the timeframe (daily
+rates are never stretched into hourly bars); live data is all-or-nothing per
+refresh so real and simulated series are never mixed; repeated failures pause a
+provider for 10 minutes. `Refresh` (or `/api/scan?refresh=true`) reloads the data.
+The dashboard chip and `data_source` field show `live (…)` or
+`synthetic (live unavailable: <reason>)`.
+
+```bash
+pip install -r requirements-live.txt   # once
+KFX_LIVE_DATA=1 .venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000
+.venv/bin/python -m scripts.scan --live   # CLI
+```
+
+Set `KFX_LIVE_DATA=0` to force the reproducible synthetic market (used by the test-suite).
+The former `exchangerate.host` provider was removed: its API now requires a paid access key.
+Swap in broker-grade feeds (OANDA v20, MetaTrader 5) by implementing the provider
+interface in `fxbot/data.py`.
 
 ## Research
 

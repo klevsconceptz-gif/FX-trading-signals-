@@ -78,10 +78,15 @@ class MarketEngine:
         self._history = self.data.load(prefer_live=self.prefer_live)
         return self._history
 
-    def scan(self, use_cache: bool = False) -> MarketReport:
-        if use_cache and self._cache is not None:
+    def scan(self, use_cache: bool = False, reload: bool = False) -> MarketReport:
+        """Run the full-market scan.
+
+        ``reload=True`` re-fetches market data first (live providers, or a
+        fresh synthetic pass); without it the last loaded history is reused.
+        """
+        if use_cache and not reload and self._cache is not None:
             return self._cache
-        history = self._history or self.load_data()
+        history = self.load_data() if reload or not self._history else self._history
 
         # 1. cross-sectional currency strength over the whole market
         strength = compute_strength(history)

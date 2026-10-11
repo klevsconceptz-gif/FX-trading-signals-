@@ -158,8 +158,9 @@
       <div class="about">
         <h3>1 · Trace — whole-market data engine</h3>
         <p>Every instrument in the universe (7 majors, 15 crosses, 8 exotics, gold &amp; silver) is
-        loaded through a provider chain (Frankfurter/ECB → exchangerate.host → yfinance). When no
-        live feed is reachable, a <strong>correlated currency-factor simulator</strong> generates a
+        loaded live (hourly bars via yfinance; daily ECB rates via Frankfurter). The whole market
+        switches to live only when every instrument is available; otherwise a
+        <strong>correlated currency-factor simulator</strong> generates a
         coherent entire market: each currency has a latent factor driven by shared risk &amp;
         commodity shocks, and every pair is <code>exp(L_base − L_quote)</code> — so crosses are
         arbitrage-consistent and the strength meter has real structure to extract.</p>
