@@ -68,7 +68,7 @@ half-Kelly reference (edge-case safe).
 
 ### 5. Tooling & quality
 - CLIs: `scripts/scan.py` · `scripts/backtest.py` · `scripts/train.py`
-- **69 tests** (indicators, signals & instruction lifecycle, risk, backtest
+- **79 tests** (indicators, signals & instruction lifecycle, risk, backtest
   invariants/no-lookahead, ML, API, subscription, **auth/register/reset**) — all passing
 - `ruff.toml` (F,E9,I,B,SIM,C4,RUF) — All checks passed
 - `RESOURCES.md` — GitHub/paper/data-source research survey with design mapping
@@ -78,6 +78,13 @@ half-Kelly reference (edge-case safe).
 - Admin role/plan (`role: admin`, plan `admin`, `access: unrestricted`) never selectable at register/subscribe (422).
 - Admin username `Admin@klev.fx` is accepted through the admin path only (user usernames stay `[A-Za-z0-9_.-]`).
 - Tests: 79/79 (10 new admin tests). Ruff clean. Live check: username + email login 200, wrong password 401, admin plan self-select 422. Server stopped after.
+
+### 7. Full system check (round 9)
+- Tests 79/79 in the working venv **and** in a fresh venv built from `requirements.txt` (pandas 3.0, sklearn 1.9, fastapi 0.143). Ruff clean. Compileall + `node --check` on all static JS OK.
+- API sweep (TestClient, 52 s): all 32 instruments → 200; backtest bounds (249→422, 250→200, 20001→422, unknown symbol→404); auth edge cases (SQL-like identifiers, 129-char passwords, wrong types, duplicate usernames, weak passwords, retired `/api/login`); 96/96 concurrent requests → 200. Zero 500s.
+- Live boot (default config): all pages, static assets and API routes return expected codes. Server stopped afterwards.
+- Fixed docs: README API table listed the retired `/api/login` (now lists the auth routes); PROGRESS test count 69 → 79.
+- Known: first `/api/scan` after a cold boot takes ~34 s (trains 32 ML models); cached afterwards (ms). Candidate fix: warm the cache in a background thread at startup.
 
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)
@@ -96,7 +103,7 @@ half-Kelly reference (edge-case safe).
 ## ▶️ Resume commands
 ```bash
 bash setup.sh                               # rebuild .venv (not stored in git)
-.venv/bin/python -m pytest tests/ -q        # 69 tests
+.venv/bin/python -m pytest tests/ -q        # 79 tests
 .venv/bin/python -m scripts.scan            # whole-market scan
 .venv/bin/python -m scripts.backtest --symbol EURUSD
 .venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000

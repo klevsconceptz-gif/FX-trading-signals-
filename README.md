@@ -219,8 +219,13 @@ Every scan and backtest is deterministic for a given seed — reproducible resea
 | GET | `/api/pair/{symbol}` | candles, indicators, trade plan, forecast |
 | POST | `/api/backtest` | `{symbol, equity, risk_per_trade_pct, bars}` → metrics, equity curve, trades |
 | POST | `/api/subscribe` | monthly subscription signup (demo checkout) |
-| POST | `/api/login` | re-issue access token for a subscribed email |
+| POST | `/api/register` | account + plan signup (see the subscription section) |
+| POST | `/api/auth/login` | log in with username, email or phone + password |
+| POST | `/api/auth/forgot` · `/api/auth/reset` | hashed email reset-code flow |
+| GET | `/api/auth/password-policy` | password rules |
 | GET | `/api/subscription/{token}` | subscription status |
+
+`POST /api/login` (email-only) was retired: it allowed sign-in without a password.
 
 ## Live data
 
