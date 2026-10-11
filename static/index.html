@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>klevs FX trading App — Market Intelligence</title>
 <link rel="stylesheet" href="/static/style.css" />
+<link rel="stylesheet" href="/static/auth.css" />
 </head>
 <body>
 <header class="topbar">
@@ -35,10 +36,13 @@
       <p>The live instruction feed, predictions, charts and backtest lab are for
         subscribers. Plans start at <b>$29/month</b> — cancel anytime.</p>
       <div class="paywall-actions">
-        <button class="refresh" id="pw-subscribe">View monthly plans →</button>
+        <button class="refresh" id="pw-subscribe">Create account &amp; subscribe →</button>
         <button class="refresh ghosty" id="pw-demo">Explore the demo</button>
       </div>
-      <p class="pw-note" id="pw-note">Already subscribed? <button class="linkish" id="pw-login">Log in</button></p>
+      <p class="pw-note" id="pw-note">Registering here attaches your monthly plan and creates your
+        login (username, email, phone, password). Already registered?
+        <button class="linkish" id="pw-login">Log in</button>
+        · <button class="linkish" id="pw-forgot">Forgot password?</button></p>
     </div>
   </div>
 
@@ -196,6 +200,7 @@
   klevs FX trading App · analysis &amp; simulation only · not financial advice
 </footer>
 
+<script src="/static/auth.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

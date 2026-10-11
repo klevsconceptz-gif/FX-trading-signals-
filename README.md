@@ -49,19 +49,36 @@ python -m scripts.train
 
 `/` is the marketing landing page: hero, features, how-it-works, sample
 instruction feed, **monthly pricing tiers** (Starter $29 · Pro $79 · Elite $199),
-testimonials and FAQ. The subscribe flow creates an account and unlocks the bot:
+testimonials and FAQ. **Registration is attached to the paywall** — picking a plan
+opens the shared auth form (Register / Log in / Forgot password) and creates your
+account plus an active monthly plan; subsequent logins use the same form.
+
+**Login credentials are limited to four fields**: username, email, phone number
+and password (any of the first three identifies the account). Password policy:
+minimum **10 characters with uppercase, lowercase, number and symbol**, with a
+live checklist + strength meter and a show/hide (👁) toggle. Forgot password uses
+**hashed email auth**: a 7-digit code is issued to the account email, only its
+PBKDF2 hash is stored, it expires in 15 minutes and locks out after 5 wrong
+attempts. (Demo build returns the code in the API response instead of sending
+email — remove `dev_code` when wiring a real email provider.)
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/subscribe` | monthly signup (`name`, `email`, `plan`) → access token |
-| `POST /api/login` | re-issue a token for a subscribed email |
+| `POST /api/register` | create account (username, email, phone, password) + monthly plan → access token |
+| `POST /api/auth/login` | log in with username **or** email **or** phone + password → re-issued token |
+| `POST /api/auth/forgot` | email auth: issue 7-digit reset code (stored hashed only) |
+| `POST /api/auth/reset` | verify code + set a new policy-compliant password → token |
+| `GET /api/auth/password-policy` | password rules for the UI checklist |
+| `POST /api/subscribe` | plan-only demo signup (quick demo access) |
 | `GET /api/subscription/{token}` | subscription status (validates the app gate) |
 
-The checkout is a clearly-labelled **demo** (no payment is processed). To go live,
-swap `_checkout()` in `fxbot/server.py` for a Stripe Checkout Session + webhook —
-the signup/login/token flow is production-shaped already. The dashboard at `/app`
-is gated: no active subscription → paywall overlay with "View monthly plans" and
-"Explore the demo" options.
+Passwords are hashed with **PBKDF2-HMAC-SHA256 (200k iterations)**, per-user
+salt, constant-time comparison. The checkout is a clearly-labelled **demo** (no
+payment is processed). To go live, swap `_checkout()` in `fxbot/server.py` for a
+Stripe Checkout Session + webhook — the register/login/token flow is
+production-shaped already. The dashboard at `/app` is gated: no active
+subscription → paywall overlay with "Create account & subscribe", "Explore the
+demo", "Log in" and "Forgot password".
 
 Run the test-suite:
 

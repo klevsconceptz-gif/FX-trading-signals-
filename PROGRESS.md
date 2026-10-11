@@ -1,7 +1,7 @@
 # Progress Log — klevs FX trading App
 
 Session save point · branch `arena/641dff05-fx-trading-signals` · 2026-10-10
-Status: **complete & green** — 47/47 tests · ruff clean · 32-instrument stress verified
+Status: **complete & green** — 69/69 tests · ruff clean · 32-instrument stress verified
 
 ---
 
@@ -41,22 +41,35 @@ half-Kelly reference (edge-case safe).
 ### 4. klevs FX trading App (dashboard + API)
 - **Landing page** (`/`): hero, features, how-it-works, instruction showcase,
   **monthly pricing** (Starter $29 · Pro $79 · Elite $199), testimonials, FAQ,
-  demo-checkout subscribe modal (Stripe-ready `_checkout()` hook), login flow
+  demo-checkout subscribe modal (Stripe-ready `_checkout()` hook)
+- **Registration attached to the paywall**: plan CTA / paywall "Create account &
+  subscribe" opens the shared auth modal (Register / Log in / Forgot password) in
+  both `/` and `/app`; registering creates the account AND activates the plan
+- **Auth** (`fxbot/auth.py` + `static/auth.{js,css}`): credentials limited to
+  username, email, phone number, password (any of the first 3 identifies login);
+  PBKDF2-HMAC-SHA256 200k-iters hashing + constant-time verify; password policy
+  ≥10 chars with upper/lower/number/symbol — live checklist, strength meter and
+  show/hide 👁 toggle; forgot password = hashed email auth (7-digit code, hash-only
+  storage, 15-min TTL, 5-attempt lockout, code delivered via email in production,
+  `dev_code` in demo response)
 - **Subscriber gate**: `/app` checks the subscription token and shows a paywall
-  overlay (View plans / Explore demo / Log in) until subscribed
+  overlay (Create account & subscribe / Explore demo / Log in / Forgot password)
 - Dark trading terminal: live **instruction feed** (auto-refresh 5 min), market
   pulse (DXY/breadth/mood), currency-strength grid, sortable signals table,
   canvas candle charts with plan levels + RSI, correlation heatmap, backtest lab
 - API: `/api/health` · `/api/universe` · `/api/scan` · `/api/instructions` ·
-  `/api/pair/{symbol}` · `POST /api/backtest` · `POST /api/subscribe` ·
-  `POST /api/login` · `GET /api/subscription/{token}` — all validated
+  `/api/pair/{symbol}` · `POST /api/backtest` · `POST /api/register` ·
+  `POST /api/auth/login` · `POST /api/auth/forgot` · `POST /api/auth/reset` ·
+  `GET /api/auth/password-policy` · `POST /api/subscribe` ·
+  `GET /api/subscription/{token}` — all validated (insecure email-only
+  `POST /api/login` retired)
 - Branding: exact name **klevs FX trading App** (title, header KFX, footer, API)
 - Thread-safe engine (lock), no-store headers, self-contained (no CDN)
 
 ### 5. Tooling & quality
 - CLIs: `scripts/scan.py` · `scripts/backtest.py` · `scripts/train.py`
-- **47 tests** (indicators, signals & instruction lifecycle, risk, backtest
-  invariants/no-lookahead, ML, API) — all passing
+- **69 tests** (indicators, signals & instruction lifecycle, risk, backtest
+  invariants/no-lookahead, ML, API, subscription, **auth/register/reset**) — all passing
 - `ruff.toml` (F,E9,I,B,SIM,C4,RUF) — All checks passed
 - `RESOURCES.md` — GitHub/paper/data-source research survey with design mapping
 
@@ -77,7 +90,7 @@ half-Kelly reference (edge-case safe).
 ## ▶️ Resume commands
 ```bash
 bash setup.sh                               # rebuild .venv (not stored in git)
-.venv/bin/python -m pytest tests/ -q        # 50 tests
+.venv/bin/python -m pytest tests/ -q        # 69 tests
 .venv/bin/python -m scripts.scan            # whole-market scan
 .venv/bin/python -m scripts.backtest --symbol EURUSD
 .venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000

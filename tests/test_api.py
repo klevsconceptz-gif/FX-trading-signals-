@@ -110,9 +110,10 @@ def test_app_page_served(client):
 
 
 def test_subscription_flow(client):
-    """subscribe -> token works -> login re-issues -> unknown email 404."""
-    r = client.post("/api/subscribe", json={
-        "name": "Test Trader", "email": "trader@example.com", "plan": "pro"})
+    """register -> token works -> credential login re-issues -> unknown user 404."""
+    r = client.post("/api/register", json={
+        "username": "testtrader", "email": "trader@example.com",
+        "phone": "+1 555 123 4567", "password": "Str0ng!Pass99", "plan": "pro"})
     assert r.status_code == 200
     body = r.json()
     token = body["token"]
@@ -125,7 +126,9 @@ def test_subscription_flow(client):
     assert r2.status_code == 200
     assert r2.json()["subscription"]["email"] == "trader@example.com"
 
-    r3 = client.post("/api/login", json={"email": "trader@example.com"})
+    # subsequent login after payment: username + password (also email/phone work — see test_auth.py)
+    r3 = client.post("/api/auth/login", json={
+        "identifier": "testtrader", "password": "Str0ng!Pass99"})
     assert r3.status_code == 200
     new_token = r3.json()["token"]
     assert new_token != token
@@ -133,7 +136,10 @@ def test_subscription_flow(client):
     # old token invalidated after re-login
     assert client.get(f"/api/subscription/{token}").status_code == 404
 
-    assert client.post("/api/login", json={"email": "nobody@example.com"}).status_code == 404
+    assert client.post("/api/auth/login", json={
+        "identifier": "nobody", "password": "whatever1A!"}).status_code == 404
+    # insecure email-only login endpoint is gone
+    assert client.post("/api/login", json={"email": "trader@example.com"}).status_code in (404, 405)
 
 
 def test_subscription_validation(client):

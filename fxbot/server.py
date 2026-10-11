@@ -29,6 +29,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .auth import (  # noqa: F401  (re-exported for tests)
+    ACCOUNTS,
+    password_policy,
+    password_strength,
+    policy_error,
+)
 from .backtest import run_backtest
 from .config import AppConfig
 from .engine import MarketEngine
@@ -72,8 +78,29 @@ class SubscribeRequest(BaseModel):
     plan: str = Field("pro", description="starter | pro | elite | demo")
 
 
-class LoginRequest(BaseModel):
+class RegisterRequest(BaseModel):
+    """Full registration: the four allowed credentials + chosen plan."""
+    username: str = Field(..., min_length=3, max_length=32)
     email: str = Field(..., min_length=5, max_length=200)
+    phone: str = Field(..., min_length=7, max_length=20)
+    password: str = Field(..., min_length=1, max_length=128)
+    plan: str = Field("pro", description="starter | pro | elite | demo")
+
+
+class AuthLoginRequest(BaseModel):
+    identifier: str = Field(..., min_length=3, max_length=200,
+                            description="username, email or phone number")
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class ForgotRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=200)
+
+
+class ResetRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=200)
+    code: str = Field(..., min_length=6, max_length=10)
+    new_password: str = Field(..., min_length=1, max_length=128)
 
 
 def _checkout(record: dict[str, Any]) -> dict[str, Any]:
@@ -239,24 +266,130 @@ def subscribe(req: SubscribeRequest) -> dict[str, Any]:
     }
 
 
-@app.post("/api/login")
-def login(req: LoginRequest) -> dict[str, Any]:
-    email = req.email.strip().lower()
+def _issue_session(email: str, username: str, phone: str, plan_key: str,
+                   created_at: Optional[float] = None) -> dict[str, Any]:
+    """Create / refresh a subscription session for an account and return its token."""
+    plan = PLANS.get(plan_key) or PLANS["demo"]
     with _SUB_LOCK:
-        old_token = _EMAIL_INDEX.get(email)
-        record = _SUBSCRIPTIONS.get(old_token) if old_token else None
-        if record is None:
-            raise HTTPException(status_code=404, detail="no subscription found for that email")
-        new_token = secrets.token_urlsafe(24)   # re-issue a session token
-        record["token"] = new_token
-        _SUBSCRIPTIONS.pop(old_token, None)
-        _SUBSCRIPTIONS[new_token] = record
-        _EMAIL_INDEX[email] = new_token
+        # retire any previous session for this account
+        old = _EMAIL_INDEX.get(email)
+        if old is not None:
+            _SUBSCRIPTIONS.pop(old, None)
+        token = secrets.token_urlsafe(24)
+        record = {
+            "token": token,
+            "name": username,
+            "username": username,
+            "email": email,
+            "phone": phone,
+            "plan": plan_key,
+            "plan_name": plan["name"],
+            "price_usd": plan["price_usd"],
+            "interval": plan["interval"],
+            "created_at": created_at or time.time(),
+            "renews_at": time.time() + 30 * 86400,
+        }
+        record = _checkout(record)
+        _SUBSCRIPTIONS[token] = record
+        _EMAIL_INDEX[email] = token
+        return {"token": token, "record": record}
+
+
+@app.post("/api/register")
+def register(req: RegisterRequest) -> dict[str, Any]:
+    """Registration attached to the paywall: creates the account (username,
+    email, phone, password) and activates the chosen monthly plan."""
+    plan = PLANS.get(req.plan)
+    if plan is None:
+        raise HTTPException(status_code=422, detail=f"unknown plan '{req.plan}' — choose starter, pro or elite")
+    try:
+        acc = ACCOUNTS.register(req.username, req.email, req.phone, req.password, plan=req.plan)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    session = _issue_session(acc.email, acc.username, acc.phone, req.plan, acc.created_at)
     return {
         "ok": True,
-        "token": new_token,
-        "subscription": _public_record(record),
+        "token": session["token"],
+        "subscription": _public_record(session["record"]),
+        "message": f"Account created and {plan['name']} plan active — welcome to klevs FX trading App. "
+                   "Demo checkout: no payment was processed; wire Stripe Checkout into "
+                   "fxbot/server.py::_checkout for live billing.",
         "access_url": "/app",
+    }
+
+
+@app.post("/api/auth/login")
+def auth_login(req: AuthLoginRequest) -> dict[str, Any]:
+    """Log in with any credential — username, email or phone number — + password."""
+    try:
+        acc = ACCOUNTS.authenticate(req.identifier, req.password)
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    session = _issue_session(acc.email, acc.username, acc.phone, acc.plan, acc.created_at)
+    return {
+        "ok": True,
+        "token": session["token"],
+        "subscription": _public_record(session["record"]),
+        "access_url": "/app",
+    }
+
+
+@app.post("/api/auth/forgot")
+def auth_forgot(req: ForgotRequest) -> dict[str, Any]:
+    """Email auth: issue a one-time reset code. Only the code's hash is stored;
+    in production the raw code is emailed to the account owner."""
+    try:
+        code = ACCOUNTS.issue_reset(req.email)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="no account found for that email") from None
+    return {
+        "ok": True,
+        "message": f"A 7-digit reset code has been sent to {req.email}. "
+                   "It expires in 15 minutes. (Demo build: no real email is sent — "
+                   "use the dev_code below to complete the flow; production delivers "
+                   "it via your email provider only.)",
+        "dev_code": code,          # demo-only delivery channel; remove in production
+        "expires_in_seconds": 900,
+    }
+
+
+@app.post("/api/auth/reset")
+def auth_reset(req: ResetRequest) -> dict[str, Any]:
+    """Complete forgot-password: verify the emailed code and set a new strong password."""
+    try:
+        acc = ACCOUNTS.reset_password(req.email, req.code, req.new_password)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="no reset was requested for that email") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    session = _issue_session(acc.email, acc.username, acc.phone, acc.plan, acc.created_at)
+    return {
+        "ok": True,
+        "message": "Password updated. You are logged in with the new password.",
+        "token": session["token"],
+        "subscription": _public_record(session["record"]),
+        "access_url": "/app",
+    }
+
+
+@app.get("/api/auth/password-policy")
+def auth_password_policy() -> dict[str, Any]:
+    """Static policy description for the UI checklist/strength meter."""
+    return {
+        "min_length": 10,
+        "rules": ["length_10", "uppercase", "lowercase", "number", "symbol"],
+        "labels": {
+            "length_10": "At least 10 characters",
+            "uppercase": "An uppercase letter (A-Z)",
+            "lowercase": "A lowercase letter (a-z)",
+            "number": "A number (0-9)",
+            "symbol": "A symbol (!@#$%…)",
+        },
     }
 
 

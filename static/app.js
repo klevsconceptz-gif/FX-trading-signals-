@@ -586,12 +586,39 @@ async function initSubscriberGate() {
   document.body.style.overflow = "hidden";
 }
 
+/* auth modal (register / login / forgot password) is attached to the paywall */
+if (window.Auth) {
+  window.Auth.onAuth(() => {
+    const raw = localStorage.getItem("kfx_sub");
+    let s = null;
+    try { s = raw ? JSON.parse(raw) : null; } catch (_) { /* ignore */ }
+    if (s) {
+      $("#paywall").hidden = true;
+      document.body.style.overflow = "";
+      const chip = $("#chip-sub");
+      chip.hidden = false;
+      $("#chip-sub-name").textContent = `${s.plan_name} · ${s.name || s.username || s.email}`;
+      $("#btn-logout").hidden = false;
+      loadScan();
+    }
+  });
+}
+
 $("#btn-logout").addEventListener("click", () => {
   localStorage.removeItem("kfx_sub");
   window.location.href = "/";
 });
-$("#pw-subscribe").addEventListener("click", () => { window.location.href = "/#pricing"; });
-$("#pw-login").addEventListener("click", () => { window.location.href = "/"; });
+$("#pw-subscribe").addEventListener("click", () => {
+  if (window.Auth) window.Auth.open("register", { plan: "pro" });
+  else window.location.href = "/#pricing";
+});
+$("#pw-login").addEventListener("click", () => {
+  if (window.Auth) window.Auth.open("login");
+  else window.location.href = "/";
+});
+$("#pw-forgot")?.addEventListener("click", () => {
+  if (window.Auth) window.Auth.open("forgot");
+});
 $("#pw-demo").addEventListener("click", async () => {
   const btn = $("#pw-demo");
   btn.disabled = true;
