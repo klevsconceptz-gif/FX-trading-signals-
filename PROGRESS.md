@@ -1,7 +1,7 @@
 # Progress Log — klevs FX trading App
 
 Session save point · branch `arena/641dff05-fx-trading-signals` · 2026-10-10
-Status: **round 11 complete on the branch** — 114/114 pytest · ruff clean · payments via operator verification · Stripe unlinked
+Status: **round 11 complete on the branch** — 115/115 pytest · ruff clean · payments via operator verification · Stripe unlinked
 
 ---
 
@@ -122,7 +122,7 @@ half-Kelly reference (edge-case safe).
   return the same `401`.
 - **Tests**: `tests/test_billing.py` (14: full crypto and wire lifecycles, reject and retry,
   stacking and expiry, invoice isolation, operator-only routes, audit identity),
-  `tests/test_api.py` (gating 401/403, page routes), `tests/test_auth.py` (30). Suite total: 114 passed.
+  `tests/test_api.py` (gating 401/403, page routes), `tests/test_auth.py` (30). Suite total: 115 passed.
 - **Browser check** (not stored in the repo): a jsdom run against a live server drove the
   landing page, buyer registration, invoice, reference submission, operator confirm and
   reject, the paid and unpaid app, and the operator sign-in gate. 35/35 checks passed.
@@ -144,6 +144,20 @@ half-Kelly reference (edge-case safe).
     but 401 for an unknown one, which reveals existence once lockout triggers. Removing it
     would weaken the lockout, so it is left as a conscious choice (per-IP rate limiting would be
     the fix).
+- **Checks, third pass**: ruff, JS syntax, HTML structure, 114 tests, the security probe (21/21),
+  the scan CLI (live request falls back to labelled synthetic), the backtest CLI and API
+  (identical results), and a clean `setup.sh` rebuild all pass.
+  - Backtest baseline: the "sanctioned" figures in earlier notes (EURUSD 77 trades, PF 1.67,
+    +15.0 %; XAUUSD 87 / 1.97 / +25.0 %; GBPJPY 102 / 1.43 / +13.8 %) could **not** be reproduced
+    exactly from any commit in this history (`376873b` through `HEAD` all give EURUSD 78 trades,
+    PF 1.815, +17.5 %). The clock does not affect metrics (checked with pinned timestamps), and the
+    XAUUSD and GBPJPY figures are within one trade and about 0.04 PF of the notes. The current
+    deterministic baseline is pinned in `tests/test_backtest.py`.
+  - Synthetic bar timestamps still end at the current hour (`fxbot/data.py`), so trade dates in
+    the output shift between runs even though the metrics do not. Anchoring to a fixed date is a
+    product decision left open.
+  - `ruff format --check` would reformat 26 files. The repo does not use the formatter, so it
+    was not applied.
 - **Open items (product decisions and inputs needed)**: the operator must provide the wallet
   addresses and bank details; crypto amounts are fixed USD prices, so the operator must
   convert and verify the amount received by hand; no automatic on-chain or bank verification

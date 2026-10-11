@@ -68,3 +68,25 @@ def test_backtest_short_history_raises(cfg):
     )
     with pytest.raises(ValueError, match="need at least"):
         run_backtest("EURUSD", tiny, cfg)
+
+
+def test_pinned_eurusd_baseline_matches_cli_path():
+    """Regression pin for the deterministic synthetic market (3000 bars, 0.75 % risk, $10k).
+
+    Same path as ``python -m scripts.backtest --symbol EURUSD``. If the synthetic generator or
+    the signal engine changes on purpose, update these numbers and note it in PROGRESS.md.
+    The earlier 'sanctioned' figures (77 trades, PF 1.67) could not be reproduced from any
+    commit in this history, so this pin records the current, reproducible baseline instead.
+    """
+    from fxbot.config import AppConfig
+    from fxbot.data import MarketData
+
+    cfg = AppConfig()
+    cfg.data.bars = 3000
+    cfg.risk.equity = 10_000.0
+    cfg.risk.risk_per_trade_pct = 0.75
+    df = MarketData(cfg.data).load(["EURUSD"])["EURUSD"]
+    m = run_backtest("EURUSD", df, cfg, equity=10_000.0).metrics
+    assert m["trades"] == 78
+    assert m["profit_factor"] == pytest.approx(1.815, abs=0.001)
+    assert m["total_return_pct"] == pytest.approx(17.523, abs=0.001)
