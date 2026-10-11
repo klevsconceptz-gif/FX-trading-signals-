@@ -1,7 +1,7 @@
 # Progress Log — klevs FX trading App
 
 Session save point · branch `arena/641dff05-fx-trading-signals` · 2026-10-10
-Status: **complete & green** — 69/69 tests · ruff clean · 32-instrument stress verified
+Status: **complete & green** — 79/79 tests · ruff clean · 32-instrument stress verified
 
 ---
 
@@ -72,6 +72,12 @@ half-Kelly reference (edge-case safe).
   invariants/no-lookahead, ML, API, subscription, **auth/register/reset**) — all passing
 - `ruff.toml` (F,E9,I,B,SIM,C4,RUF) — All checks passed
 - `RESOURCES.md` — GitHub/paper/data-source research survey with design mapping
+
+### 6. Admin account
+- Operator-provisioned admin (`KFX_ADMIN_USERNAME` / `KFX_ADMIN_PASSWORD` [+ `_EMAIL`, `_PHONE`]) seeded at server start via `_bootstrap_admin_from_env()` → `AccountStore.seed_admin()`. No credentials in code or git.
+- Admin role/plan (`role: admin`, plan `admin`, `access: unrestricted`) never selectable at register/subscribe (422).
+- Admin username `Admin@klev.fx` is accepted through the admin path only (user usernames stay `[A-Za-z0-9_.-]`).
+- Tests: 79/79 (10 new admin tests). Ruff clean. Live check: username + email login 200, wrong password 401, admin plan self-select 422. Server stopped after.
 
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)

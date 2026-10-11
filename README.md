@@ -86,6 +86,24 @@ Run the test-suite:
 python -m pytest tests/ -q
 ```
 
+### Admin account (unrestricted access)
+
+The admin is provisioned by the operator from environment variables — the
+credentials are never written into the code or the repository:
+
+```bash
+export KFX_ADMIN_USERNAME='Admin@klev.fx'     # required
+export KFX_ADMIN_PASSWORD='...'               # required, must meet the password policy
+export KFX_ADMIN_EMAIL='admin@klev.fx'        # optional (defaults to the username)
+export KFX_ADMIN_PHONE='+1 555 000 0000'      # optional
+.venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000
+```
+
+The admin logs in on the paywall ("Log in") with the username, email or phone.
+Their session carries `role: "admin"`, plan `Admin` and `access: "unrestricted"`.
+The Admin plan is never offered at self-service signup or checkout. Accounts
+are held in memory, so the admin is re-provisioned from the environment on every start.
+
 ## Dashboard
 
 `python -m fxbot.server` serves a self-contained trading terminal (no CDN

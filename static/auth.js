@@ -240,12 +240,16 @@
       plan: data.subscription.plan,
       plan_name: data.subscription.plan_name,
       price_usd: data.subscription.price_usd,
+      role: data.subscription.role || "user",
+      access: data.subscription.access || "",
     };
     localStorage.setItem("kfx_sub", JSON.stringify(session));
     const el = document.getElementById("auth-modal");
     el.querySelector("#auth-success-title").textContent = title || "You're in!";
     el.querySelector("#auth-success-msg").textContent =
-      `${session.plan_name} plan · ${session.price_usd === 0 ? "free demo" : "$" + session.price_usd + "/month"} · signed in as ${session.username || session.email}`;
+      (session.access === "unrestricted"
+        ? `Admin · unrestricted access · signed in as ${session.username || session.email}`
+        : `${session.plan_name} plan · ${session.price_usd === 0 ? "free demo" : "$" + session.price_usd + "/month"} · signed in as ${session.username || session.email}`);
     showView("success");
     if (state.onAuth) state.onAuth(session);
   }

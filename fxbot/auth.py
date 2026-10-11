@@ -112,6 +112,7 @@ class Account:
     password_hash: str
     created_at: float = field(default_factory=time.time)
     plan: str = "demo"
+    role: str = "user"                 # "user" | "admin" (admin = unrestricted)
     reset_hash: Optional[str] = None
     reset_expires: float = 0.0
     reset_attempts: int = 0
@@ -122,6 +123,7 @@ class Account:
             "email": self.email,
             "phone": self.phone,
             "plan": self.plan,
+            "role": self.role,
             "created_at": self.created_at,
         }
 
@@ -228,6 +230,53 @@ class AccountStore:
             acc.reset_hash = None
             acc.reset_attempts = 0
             return acc
+
+    # -- admin seeding (operator-provisioned, never self-service) -----------
+
+    def seed_admin(self, username: str, password: str,
+                   email: Optional[str] = None, phone: Optional[str] = None) -> Account:
+        """Create or rotate the admin account.
+
+        Admin usernames are not restricted to the user-facing username rule
+        (so an address such as ``Admin@klev.fx`` works), but the password policy
+        still applies.  Email defaults to the username when that is an address.
+        Calling again with the same username rotates the password in place.
+        """
+        username = username.strip()
+        if not username or len(username) > 64 or any(c.isspace() for c in username):
+            raise ValueError("admin username must be 1-64 characters with no spaces")
+        email = (email if email is not None else username).strip().lower()
+        if not EMAIL_RE.match(email):
+            raise ValueError("admin email must be a valid address (set KFX_ADMIN_EMAIL)")
+        phone = (phone or "").strip()
+        if phone and not PHONE_RE.match(phone):
+            raise ValueError("invalid admin phone number")
+        err = policy_error(password)
+        if err:
+            raise ValueError(err)
+
+        with self._lock:
+            for index, key in ((self._by_username, username), (self._by_email, email)):
+                hit = index.get(key)
+                if hit is not None and hit.role != "admin":
+                    raise ValueError("admin credentials clash with an existing user account")
+            acc = self._by_username.get(username) or self._by_email.get(email)
+            if acc is None:
+                acc = Account(username=username, email=email, phone=phone,
+                              password_hash=hash_password(password),
+                              plan="admin", role="admin")
+                self._by_username[username] = acc
+                self._by_email[email] = acc
+            else:
+                acc.password_hash = hash_password(password)
+                acc.plan, acc.role = "admin", "admin"
+                acc.reset_hash, acc.reset_attempts = None, 0
+                if phone and phone != acc.phone:
+                    self._by_phone.pop(acc.phone, None)
+                    acc.phone = phone
+            if acc.phone:
+                self._by_phone[acc.phone] = acc
+        return acc
 
     def set_plan(self, email: str, plan: str) -> None:
         with self._lock:

@@ -227,3 +227,104 @@ def test_password_policy_endpoint(client):
     body = r.json()
     assert body["min_length"] == 10
     assert set(body["rules"]) == {"length_10", "uppercase", "lowercase", "number", "symbol"}
+
+
+# ---------------------------------------------------------------------------
+# admin account (operator-provisioned, unrestricted access)
+# ---------------------------------------------------------------------------
+
+ADMIN_USER = "Admin@klev.fx"
+ADMIN_PW = "@Klevfx123*"
+
+
+def test_admin_password_meets_policy():
+    assert password_policy(ADMIN_PW)["valid"] is True
+
+
+def test_seed_admin_creates_unrestricted_admin_and_hashes_password():
+    acc = ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
+    assert acc.role == "admin" and acc.plan == "admin"
+    assert acc.email == "admin@klev.fx"          # defaults to the address username
+    assert ADMIN_PW not in acc.password_hash     # never stored in plain text
+    assert ACCOUNTS.authenticate(ADMIN_USER, ADMIN_PW).role == "admin"
+    assert ACCOUNTS.authenticate("admin@klev.fx", ADMIN_PW).role == "admin"
+
+
+def test_admin_login_grants_unrestricted_session(client):
+    ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
+    r = client.post("/api/auth/login", json={"identifier": ADMIN_USER, "password": ADMIN_PW})
+    assert r.status_code == 200
+    sub = r.json()["subscription"]
+    assert sub["role"] == "admin"
+    assert sub["plan"] == "admin" and sub["plan_name"] == "Admin"
+    assert sub["access"] == "unrestricted"
+    assert sub["status"] == "active" and sub["price_usd"] == 0
+    # the session token unlocks the same subscription check the paywall uses
+    token = r.json()["token"]
+    assert client.get(f"/api/subscription/{token}").status_code == 200
+
+
+def test_admin_wrong_password_rejected(client):
+    ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
+    r = client.post("/api/auth/login", json={"identifier": ADMIN_USER, "password": "wrong-Pass1!"})
+    assert r.status_code == 401
+
+
+def test_admin_plan_cannot_be_self_selected(client):
+    r = client.post("/api/register", json={
+        "username": "sneaky_user", "email": "sneaky@example.com", "phone": "+15550001111",
+        "password": ADMIN_PW, "plan": "admin"})
+    assert r.status_code == 422
+    r = client.post("/api/subscribe", json={"name": "x", "email": "x@example.com", "plan": "admin"})
+    assert r.status_code == 422
+
+
+def test_normal_registration_is_never_admin(client):
+    r = client.post("/api/register", json={
+        "username": "trader_one", "email": "trader@example.com", "phone": "+15550002222",
+        "password": ADMIN_PW, "plan": "pro"})
+    assert r.status_code == 200
+    sub = r.json()["subscription"]
+    assert sub["role"] == "user" and "access" not in sub
+
+
+def test_seed_admin_rotates_password_in_place():
+    ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
+    ACCOUNTS.seed_admin(ADMIN_USER, "Rotated-Pass9#")
+    assert ACCOUNTS.authenticate(ADMIN_USER, "Rotated-Pass9#").role == "admin"
+    with pytest.raises(PermissionError):
+        ACCOUNTS.authenticate(ADMIN_USER, ADMIN_PW)
+    assert len(ACCOUNTS._by_username) == 1
+
+
+def test_seed_admin_rejects_weak_password_and_bad_fields():
+    with pytest.raises(ValueError):
+        ACCOUNTS.seed_admin(ADMIN_USER, "weakpass")
+    with pytest.raises(ValueError):
+        ACCOUNTS.seed_admin("has space@klev.fx", ADMIN_PW)
+    with pytest.raises(ValueError):
+        ACCOUNTS.seed_admin("notanemail", ADMIN_PW)   # no email derivable
+
+
+def test_seed_admin_refuses_to_take_over_a_user_account():
+    ACCOUNTS.register("victim_user", "admin@klev.fx", "+15550003333", ADMIN_PW)
+    with pytest.raises(ValueError):
+        ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
+
+
+def test_bootstrap_from_env(monkeypatch):
+    from fxbot import server
+
+    monkeypatch.delenv("KFX_ADMIN_USERNAME", raising=False)
+    monkeypatch.delenv("KFX_ADMIN_PASSWORD", raising=False)
+    assert server._bootstrap_admin_from_env() is None          # no-op when unset
+
+    monkeypatch.setenv("KFX_ADMIN_USERNAME", ADMIN_USER)
+    monkeypatch.setenv("KFX_ADMIN_PASSWORD", ADMIN_PW)
+    monkeypatch.setenv("KFX_ADMIN_PHONE", "+15559990000")
+    assert server._bootstrap_admin_from_env() == ADMIN_USER
+    assert ACCOUNTS.authenticate("+1 555 999 0000", ADMIN_PW).role == "admin"
+
+    monkeypatch.delenv("KFX_ADMIN_PASSWORD")
+    with pytest.raises(RuntimeError):                           # half-configured -> refuse
+        server._bootstrap_admin_from_env()

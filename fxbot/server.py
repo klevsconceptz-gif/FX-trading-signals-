@@ -64,7 +64,10 @@ PLANS: dict[str, dict[str, Any]] = {
     "pro": {"name": "Pro", "price_usd": 79, "interval": "month"},
     "elite": {"name": "Elite", "price_usd": 199, "interval": "month"},
     "demo": {"name": "Demo", "price_usd": 0, "interval": "month"},
+    # operator-only: granted to the admin account, never offered at checkout
+    "admin": {"name": "Admin", "price_usd": 0, "interval": "month", "access": "unrestricted"},
 }
+SELF_SERVE_PLANS = ("starter", "pro", "elite", "demo")
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SUBSCRIPTIONS: dict[str, dict[str, Any]] = {}   # token -> record
@@ -235,7 +238,7 @@ def subscribe(req: SubscribeRequest) -> dict[str, Any]:
     email = req.email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(status_code=422, detail="invalid email address")
-    plan = PLANS.get(req.plan)
+    plan = PLANS.get(req.plan) if req.plan in SELF_SERVE_PLANS else None
     if plan is None:
         raise HTTPException(status_code=422, detail=f"unknown plan '{req.plan}' — choose starter, pro or elite")
 
@@ -267,9 +270,12 @@ def subscribe(req: SubscribeRequest) -> dict[str, Any]:
 
 
 def _issue_session(email: str, username: str, phone: str, plan_key: str,
-                   created_at: Optional[float] = None) -> dict[str, Any]:
+                   created_at: Optional[float] = None, role: str = "user") -> dict[str, Any]:
     """Create / refresh a subscription session for an account and return its token."""
     plan = PLANS.get(plan_key) or PLANS["demo"]
+    if role == "admin":
+        plan_key = "admin"
+        plan = PLANS["admin"]
     with _SUB_LOCK:
         # retire any previous session for this account
         old = _EMAIL_INDEX.get(email)
@@ -286,9 +292,12 @@ def _issue_session(email: str, username: str, phone: str, plan_key: str,
             "plan_name": plan["name"],
             "price_usd": plan["price_usd"],
             "interval": plan["interval"],
+            "role": role,
             "created_at": created_at or time.time(),
             "renews_at": time.time() + 30 * 86400,
         }
+        if plan.get("access"):
+            record["access"] = plan["access"]
         record = _checkout(record)
         _SUBSCRIPTIONS[token] = record
         _EMAIL_INDEX[email] = token
@@ -299,7 +308,7 @@ def _issue_session(email: str, username: str, phone: str, plan_key: str,
 def register(req: RegisterRequest) -> dict[str, Any]:
     """Registration attached to the paywall: creates the account (username,
     email, phone, password) and activates the chosen monthly plan."""
-    plan = PLANS.get(req.plan)
+    plan = PLANS.get(req.plan) if req.plan in SELF_SERVE_PLANS else None
     if plan is None:
         raise HTTPException(status_code=422, detail=f"unknown plan '{req.plan}' — choose starter, pro or elite")
     try:
@@ -307,7 +316,7 @@ def register(req: RegisterRequest) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    session = _issue_session(acc.email, acc.username, acc.phone, req.plan, acc.created_at)
+    session = _issue_session(acc.email, acc.username, acc.phone, req.plan, acc.created_at, acc.role)
     return {
         "ok": True,
         "token": session["token"],
@@ -329,7 +338,7 @@ def auth_login(req: AuthLoginRequest) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    session = _issue_session(acc.email, acc.username, acc.phone, acc.plan, acc.created_at)
+    session = _issue_session(acc.email, acc.username, acc.phone, acc.plan, acc.created_at, acc.role)
     return {
         "ok": True,
         "token": session["token"],
@@ -367,7 +376,7 @@ def auth_reset(req: ResetRequest) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    session = _issue_session(acc.email, acc.username, acc.phone, acc.plan, acc.created_at)
+    session = _issue_session(acc.email, acc.username, acc.phone, acc.plan, acc.created_at, acc.role)
     return {
         "ok": True,
         "message": "Password updated. You are logged in with the new password.",
@@ -400,6 +409,38 @@ def subscription(token: str) -> dict[str, Any]:
         if record is None or record.get("status") != "active":
             raise HTTPException(status_code=404, detail="no active subscription")
         return {"ok": True, "subscription": _public_record(record)}
+
+
+def _bootstrap_admin_from_env() -> Optional[str]:
+    """Provision the admin account from the environment (no credentials in code).
+
+        KFX_ADMIN_USERNAME  required, e.g. Admin@klev.fx
+        KFX_ADMIN_PASSWORD  required, must satisfy the password policy
+        KFX_ADMIN_EMAIL     optional (defaults to the username)
+        KFX_ADMIN_PHONE     optional
+
+    Accounts live in memory, so this runs on every start.  Returns the admin
+    username, or None when no admin is configured.  Misconfiguration raises so
+    the server refuses to start with a half-provisioned admin.
+    """
+    import os
+
+    username = os.environ.get("KFX_ADMIN_USERNAME", "").strip()
+    password = os.environ.get("KFX_ADMIN_PASSWORD", "")
+    if not username and not password:
+        return None
+    if not username or not password:
+        raise RuntimeError("set both KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD to provision the admin")
+    ACCOUNTS.seed_admin(
+        username,
+        password,
+        email=os.environ.get("KFX_ADMIN_EMAIL") or None,
+        phone=os.environ.get("KFX_ADMIN_PHONE") or None,
+    )
+    return username
+
+
+_bootstrap_admin_from_env()
 
 
 def _public_record(record: dict[str, Any]) -> dict[str, Any]:
