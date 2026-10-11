@@ -336,6 +336,8 @@
     const el = modal();
     const box = $(el, "#pay-plans");
     box.innerHTML = "<p class=\"auth-sub\">Loading plans…</p>";
+    $(el, "#pay-methods").innerHTML = "<p class=\"auth-sub\">Loading payment methods…</p>";
+    $(el, "#pay-create").disabled = true;      // no invoice until the methods are known
     try {
       const opts = await API.get("/api/payment-options");
       state.plans = opts.plans;

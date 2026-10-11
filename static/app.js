@@ -88,17 +88,32 @@ async function apiFetch(url, opts = {}) {
   return res;
 }
 
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+})[c]);
+
 async function loadScan(refresh = false) {
   const btn = $("#btn-refresh");
   btn.disabled = true;
   btn.textContent = "Scanning…";
+  if (!SCAN) {
+    // zero state: no scan yet, so say so instead of showing an empty feed
+    $("#chip-source").textContent = "scanning…";
+    $("#insights").innerHTML =
+      `<li class="hint">Scanning all 32 instruments for the first time. This can take up to a minute; the feed fills in automatically.</li>`;
+  }
   try {
     const res = await apiFetch(`/api/scan${refresh ? "?refresh=true" : ""}`);
-    if (!res.ok) return;                       // paywall already shown for 401/403
+    if (res.status === 401 || res.status === 403) return;   // paywall already shown
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `server returned ${res.status}`);
+    }
     SCAN = await res.json();
     renderScan();
   } catch (e) {
-    $("#insights").innerHTML = `<li class="warn">Failed to load scan: ${e}</li>`;
+    if (!SCAN) $("#chip-source").textContent = "unavailable";
+    $("#insights").innerHTML = `<li class="warn">Failed to load scan: ${esc(e.message || e)}</li>`;
   } finally {
     btn.disabled = false;
     btn.textContent = "↻ Rescan market";

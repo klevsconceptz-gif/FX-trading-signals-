@@ -126,6 +126,12 @@ half-Kelly reference (edge-case safe).
 - **Browser check** (not stored in the repo): a jsdom run against a live server drove the
   landing page, buyer registration, invoice, reference submission, operator confirm and
   reject, the paid and unpaid app, and the operator sign-in gate. 35/35 checks passed.
+- **Zero state fixed** (checked in a run): before the first scan the Data chip read only "…"
+  and the feed was empty for the whole ~44 s cold scan. It now reads "scanning…" with a note,
+  shows "unavailable" plus the server error if the scan fails, and resolves to the real data
+  source (`synthetic`).
+- **Payment view race fixed**: the plan view could be clicked before its payment methods had
+  loaded. It now shows a loading state and keeps "Create invoice" disabled until they arrive.
 - **Open items (product decisions and inputs needed)**: the operator must provide the wallet
   addresses and bank details; crypto amounts are fixed USD prices, so the operator must
   convert and verify the amount received by hand; no automatic on-chain or bank verification
