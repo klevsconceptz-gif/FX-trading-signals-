@@ -164,6 +164,36 @@ half-Kelly reference (edge-case safe).
   exists; the Pro/Elite feature list still names items that are not built (for example
   webhooks and multi-account profiles).
 
+### 10. Deployment packaging and hosting options
+- **Guide**: `docs/CLOUDFLARE_DEPLOYMENT.md`. Architecture: Cloudflare DNS, TLS, WAF and
+  rate limiting in front; a Cloudflare Tunnel to an origin host running the app in Docker
+  or under systemd; no inbound ports. Covers PostgreSQL, Tunnel setup, zone settings,
+  the `/api/auth/*` rate-limit rule per plan, Cloudflare Access in front of `/admin` and
+  `/api/admin/*`, origin lockdown, verification, backups and troubleshooting.
+- **Files**: `Dockerfile` (non-root, one uvicorn worker, health check on `/api/health`),
+  `.dockerignore` (excludes `.env`, databases, models, Git data), `deploy/klevs.env.example`
+  (every `KLEVS_`/`KFX_` variable, no secrets), `deploy/klevs.service` (systemd, bound to
+  `127.0.0.1`), `tests/test_deploy_files.py` (drift checks for the above).
+- **Verified locally**: production uvicorn command starts; `/api/health`, admin login and
+  `/admin` respond; a restart with a new `KFX_ADMIN_PASSWORD` rotates the admin password
+  (the env value is authoritative on every start). Full suite passes.
+- **Not verified**: Docker image build, `cloudflared` connector, live PostgreSQL, Cloudflare
+  dashboard screens. The guide says so.
+- **Estimated monthly cost** (third-party price trackers, not vendor-verified for the
+  origin VM and database): Cloudflare path ~$74 (Pro $20/yr billing, Tunnel and Access
+  free up to 50 users, 2 vCPU/4 GB VM ~$24, managed PostgreSQL 2 GB ~$30). Render ~$90
+  (Pro workspace $25, 1 CPU/2 GB web $25, 1 CPU/2 GB Postgres $40; prices from
+  render.com/pricing). AWS-native ~$90 (EC2 t3.medium ~$30, RDS db.t4g.small ~$23,
+  ALB ~$22, WAF ~$8, storage and transfer extra).
+- **Gaps to close before launch**: login rate limiting moves into the app if the edge
+  rule is not used; `/admin` protection needs Access, an app-level allowlist or an SSO
+  proxy; `/api/health` exposes risk configuration publicly; the 429 lockout response can
+  reveal whether an account exists; the admin password committed in an earlier commit
+  must be rotated.
+- **Repo note**: the local branch was re-pointed to `origin/arena/641dff05-fx-trading-signals`
+  (`3a5413f`) after the local clone was found at `main`'s base commit. The working tree was
+  verified identical to that commit before the reset.
+
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)
 2. RSI on flat series returned 100 instead of 50 (false BUY on dead markets)
