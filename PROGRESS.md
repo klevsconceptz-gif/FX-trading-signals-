@@ -1,7 +1,7 @@
 # Progress Log — klevs FX trading App
 
 Session save point · branch `arena/641dff05-fx-trading-signals` · 2026-10-10
-Status: **round 11 complete on the branch** — 111/111 pytest · ruff clean · payments via operator verification · Stripe unlinked
+Status: **round 11 complete on the branch** — 114/114 pytest · ruff clean · payments via operator verification · Stripe unlinked
 
 ---
 
@@ -122,7 +122,7 @@ half-Kelly reference (edge-case safe).
   return the same `401`.
 - **Tests**: `tests/test_billing.py` (14: full crypto and wire lifecycles, reject and retry,
   stacking and expiry, invoice isolation, operator-only routes, audit identity),
-  `tests/test_api.py` (gating 401/403, page routes), `tests/test_auth.py` (30). Suite total: 111 passed.
+  `tests/test_api.py` (gating 401/403, page routes), `tests/test_auth.py` (30). Suite total: 114 passed.
 - **Browser check** (not stored in the repo): a jsdom run against a live server drove the
   landing page, buyer registration, invoice, reference submission, operator confirm and
   reject, the paid and unpaid app, and the operator sign-in gate. 35/35 checks passed.
@@ -132,6 +132,18 @@ half-Kelly reference (edge-case safe).
   source (`synthetic`).
 - **Payment view race fixed**: the plan view could be clicked before its payment methods had
   loaded. It now shows a loading state and keeps "Create invoice" disabled until they arrive.
+- **System check (round 11, second pass)**: found and fixed
+  - password reset did not revoke existing sessions → every session is now deleted on reset;
+  - `/api/auth/forgot` response carried a `delivered` field only for real accounts (an
+    enumeration oracle) → removed from the response, logged server-side instead;
+  - reset failures revealed account state ("no reset requested", "expired", "too many
+    attempts") → one generic message for all of them;
+  - the no-pending-reset path used `KeyError`, so the UI showed the message wrapped in quotes.
+  - Regression tests added to `tests/test_auth.py` (33 passing in the file).
+  - Known trade-off: after 10 failed logins the login route returns 429 for an existing account
+    but 401 for an unknown one, which reveals existence once lockout triggers. Removing it
+    would weaken the lockout, so it is left as a conscious choice (per-IP rate limiting would be
+    the fix).
 - **Open items (product decisions and inputs needed)**: the operator must provide the wallet
   addresses and bank details; crypto amounts are fixed USD prices, so the operator must
   convert and verify the amount received by hand; no automatic on-chain or bank verification

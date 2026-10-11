@@ -34,6 +34,7 @@ GET|PUT /api/admin/payment-settings   crypto wallets and wire bank details
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from pathlib import Path
@@ -255,8 +256,11 @@ def auth_forgot(req: ForgotRequest) -> dict[str, Any]:
         code = ACCOUNTS.issue_reset(req.email)
     except KeyError:
         return {"ok": True, "message": message}
+    # delivery status is logged, never returned: the response must not depend on the account
     delivered = deliver_reset_code(req.email.strip().lower(), code)
-    payload: dict[str, Any] = {"ok": True, "message": message, "delivered": delivered}
+    if not delivered:
+        logging.getLogger("klevs.auth").warning("reset code was not delivered (SMTP not configured or failed)")
+    payload: dict[str, Any] = {"ok": True, "message": message}
     if dev_reset_codes_enabled():
         payload["dev_code"] = code          # local development only (KLEVS_DEV_RESET_CODES=1)
     return payload

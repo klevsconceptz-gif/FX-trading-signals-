@@ -13,7 +13,7 @@ from fxbot.server import app
 
 PW = "Str0ng!Pass99"
 ADMIN = "Ops@test.fx"
-ADMIN_PW = "Ops-Admin#2026"
+ADMIN_PW = "not-a-real-Operator-pass-1"
 WALLET = "bc1qexamplewalletaddress0001"
 
 

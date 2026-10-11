@@ -30,7 +30,7 @@ import time
 from email.message import EmailMessage
 from typing import Any, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 
 from .db import User, UserSession, db_session
 
@@ -39,6 +39,7 @@ log = logging.getLogger("klevs.auth")
 PBKDF2_ITERATIONS = 200_000
 RESET_CODE_TTL = 15 * 60          # seconds
 RESET_MAX_ATTEMPTS = 5            # wrong-code attempts before invalidation
+RESET_FAILED = "reset code is incorrect or has expired — request a new code"  # the only reset error shown to callers
 MIN_PASSWORD_LEN = 10
 LOGIN_MAX_FAILURES = 10           # wrong passwords before a temporary lock
 LOGIN_LOCK_SECONDS = 15 * 60
@@ -225,7 +226,8 @@ class AccountStore:
         with db_session() as s:
             user = s.scalar(select(User).where(User.email == email.strip().lower()))
             if user is None or user.reset_hash is None:
-                raise KeyError("no reset was requested for that email")
+                # same wording as every other failure: do not reveal which emails have a pending reset
+                raise ValueError(RESET_FAILED)
             if time.time() > user.reset_expires:
                 user.reset_hash = None
                 outcome = "expired"
@@ -244,13 +246,12 @@ class AccountStore:
                     user.reset_attempts = 0
                     user.failed_logins = 0
                     user.locked_until = 0.0
+                    # a password reset ends every existing session for the account
+                    s.execute(delete(UserSession).where(UserSession.user_id == user.id))
                     outcome = "ok"
-        if outcome == "expired":
-            raise ValueError("reset code has expired — request a new one")
-        if outcome == "locked":
-            raise ValueError("too many wrong attempts — request a new code")
-        if outcome == "wrong":
-            raise ValueError("incorrect reset code")
+        if outcome in ("expired", "locked", "wrong"):
+            # one message for every failure, so the response never shows account state
+            raise ValueError(RESET_FAILED)
         return user
 
     # -- operator-provisioned admin -------------------------------------------
