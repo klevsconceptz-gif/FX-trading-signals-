@@ -251,6 +251,14 @@ reference only.
   **142 passed**, one existing Starlette/httpx deprecation warning. Production Pages/Tunnel
   configuration was not performed in this sandbox.
 
+### 16. Reduce Cloudflare Access email PIN prompts (2026-10-18)
+- Clarified that routine KLEVS sign-in uses the account password; email is used only for an
+  explicitly requested password reset. Cloudflare Access email PIN is a separate, optional
+  operator-route layer.
+- Updated deployment guidance to prefer SSO or increase the Access application's session duration
+  to a security-appropriate period. Cloudflare dashboard settings cannot be changed from this
+  repository sandbox.
+
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)
 2. RSI on flat series returned 100 instead of 50 (false BUY on dead markets)

@@ -310,12 +310,17 @@ only listed people reach the login page at all.
    your dashboard allows only one:
    - `/admin`
    - `/api/admin/*`
-3. **Identity provider:** one-time PIN (email), or your SSO provider.
+3. **Identity provider:** Prefer your existing SSO provider. If using the one-time PIN by email,
+   set a longer **application session duration** in the Access app settings so it does not ask for
+   a new PIN on every visit. Choose a duration that fits your security requirements.
 4. **Policy:** Action `Allow`. Include only the operator email addresses.
 5. Save, then open `https://klevs.example.com/admin` in a private window. You should see the
    Access login first.
 
-Access is a second layer. The app's own admin login still applies behind it.
+The Access session and KLEVS account are separate. The PIN only protects the operator routes above;
+normal KLEVS sign-in uses one account password and does not email a code. Access is a second layer,
+and the app's own admin login still applies behind it. The Access session duration is controlled in
+Cloudflare, not by this repository.
 
 ---
 
