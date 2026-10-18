@@ -231,12 +231,25 @@ reference only.
 
 ### 14. Cloudflare Pages build-log diagnosis (2026-10-18)
 - User-provided Pages log successfully installs Python packages, then fails on configured
-  `npm run build` because this repository has no `package.json` or Node build step.
+  `npm run build` because this repository had no `package.json` or Node build step.
 - The log cloned `69c4989` (`main`), not the pushed active feature branch. Selecting the feature
-  branch updates the source but will not fix the npm build command.
-- Clarified in Cloudflare deployment docs: Pages can serve static assets but cannot run this
-  FastAPI API. Deploy the complete signal app on the documented VM/container origin behind a
-  Cloudflare Tunnel; Pages would require a separately hosted API.
+  branch updates the source but will not fix the npm build command until the build files are on
+  that branch.
+- The FastAPI API still needs a separately hosted origin; Pages cannot run the Python backend.
+
+### 15. Optional Cloudflare Pages frontend build (2026-10-18)
+- Added a root `package.json` and dependency-free Node build script. `npm run build` creates
+  `dist/`, preserving `/`, `/app`, and `/admin` routes with all static assets under `/static/`.
+- Added a Pages Function that forwards `/api/*` to an HTTPS FastAPI origin configured with
+  `KLEVS_API_ORIGIN`; it returns a clear 503 when the variable is missing and does not expose an
+  arbitrary proxy target.
+- Added build/proxy regression checks and updated deployment docs with Pages settings. Pages
+  serves only the frontend; the FastAPI service, database, and signal engine remain on an origin
+  host/container behind Cloudflare Tunnel.
+- Verified `npm ci`, `npm run build`, JavaScript syntax, and API proxy forwarding (path, query,
+  method, bearer header and body), missing-origin and insecure-origin behavior. Full test suite:
+  **142 passed**, one existing Starlette/httpx deprecation warning. Production Pages/Tunnel
+  configuration was not performed in this sandbox.
 
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)

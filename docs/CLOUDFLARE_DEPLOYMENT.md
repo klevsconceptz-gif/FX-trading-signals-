@@ -41,15 +41,29 @@ Options that were considered:
 Cloudflare provides the edge only. The application runs on a host you control. Sections 3 and 4
 cover that host.
 
-### Cloudflare Pages build logs
+### Optional Cloudflare Pages frontend
 
-This repository is a Python/FastAPI application, not a Node.js or static-only project. It has no
-`package.json`, so a Pages build configured with `npm run build` will fail with `ENOENT` exactly
-as expected. Removing that command is not a complete deployment: Pages can serve static files,
-but it does not run this ASGI API, so dashboard requests such as `/api/scan` and `/api/pair/...`
-would fail. Use the origin-host + Cloudflare Tunnel architecture in this guide for the complete
-app. Pages is only suitable if the frontend is split out and configured to reach a separately
-hosted API.
+The root `package.json` now provides `npm run build`, which packages the existing HTML, CSS, and
+JavaScript into `dist/`. Set the Pages project to **Root directory** `/`, **Build command**
+`npm run build`, and **Build output directory** `dist`. The output keeps the app routes at `/`,
+`/app`, and `/admin`.
+
+Pages still does **not** run this Python/FastAPI API. A Pages Function at
+`functions/api/[[path]].js` forwards `/api/*` requests to a separately hosted API. To use this
+option:
+
+1. Deploy the FastAPI app on the Linux origin host/container described in sections 3–6, behind a
+   Cloudflare Tunnel. Publish a separate API hostname (for example, `api.example.com`) to
+   `http://localhost:8000`.
+2. In the Pages project's production **and preview** variables, set `KLEVS_API_ORIGIN` to that
+   HTTPS origin only, for example `https://api.example.com` (no path, query, or credentials).
+   Do not point it at the Pages frontend hostname.
+3. Deploy the Pages project from a branch containing this build and function code. Requests stay
+   same-origin in the browser; the Pages Function forwards them server-side to FastAPI.
+
+The Pages Function is only a proxy: without the separate FastAPI service, account, signal, and
+admin API requests will not work. If you do not want to run a separate frontend, use the simpler
+single-host origin + Tunnel setup in this guide and do not use Pages.
 
 ---
 
