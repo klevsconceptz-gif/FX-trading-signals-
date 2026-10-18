@@ -77,6 +77,11 @@ cloudflared tunnel diag
 The driver resolution for `postgresql+psycopg://` was checked in the sandbox. A live
 PostgreSQL connection was **not tested**.
 
+**Cloudflare Pages is not the runtime for this repository.** This is a Python ASGI app with no
+`package.json`/`npm run build`; Pages can host static files but not this FastAPI backend. Use the
+origin host plus Tunnel described in `CLOUDFLARE_DEPLOYMENT.md` unless you separately split and
+host the frontend and API.
+
 ## 6. Data stores
 
 | Store | Requirement | Notes |

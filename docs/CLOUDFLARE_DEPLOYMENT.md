@@ -41,6 +41,16 @@ Options that were considered:
 Cloudflare provides the edge only. The application runs on a host you control. Sections 3 and 4
 cover that host.
 
+### Cloudflare Pages build logs
+
+This repository is a Python/FastAPI application, not a Node.js or static-only project. It has no
+`package.json`, so a Pages build configured with `npm run build` will fail with `ENOENT` exactly
+as expected. Removing that command is not a complete deployment: Pages can serve static files,
+but it does not run this ASGI API, so dashboard requests such as `/api/scan` and `/api/pair/...`
+would fail. Use the origin-host + Cloudflare Tunnel architecture in this guide for the complete
+app. Pages is only suitable if the frontend is split out and configured to reach a separately
+hosted API.
+
 ---
 
 ## 2. Prerequisites

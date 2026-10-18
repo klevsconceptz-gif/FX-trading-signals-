@@ -229,6 +229,15 @@ reference only.
   requirements, not Python packages; no Cloudflare account, tunnel, token, or production host
   was configured. Follow `docs/CLOUDFLARE_DEPLOYMENT.md` on the origin host.
 
+### 14. Cloudflare Pages build-log diagnosis (2026-10-18)
+- User-provided Pages log successfully installs Python packages, then fails on configured
+  `npm run build` because this repository has no `package.json` or Node build step.
+- The log cloned `69c4989` (`main`), not the pushed active feature branch. Selecting the feature
+  branch updates the source but will not fix the npm build command.
+- Clarified in Cloudflare deployment docs: Pages can serve static assets but cannot run this
+  FastAPI API. Deploy the complete signal app on the documented VM/container origin behind a
+  Cloudflare Tunnel; Pages would require a separately hosted API.
+
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)
 2. RSI on flat series returned 100 instead of 50 (false BUY on dead markets)
