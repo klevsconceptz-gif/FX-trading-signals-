@@ -72,3 +72,18 @@ def test_systemd_unit_binds_loopback_only():
     exec_line = next(line for line in text.splitlines() if line.startswith("ExecStart="))
     assert "--host 127.0.0.1" in exec_line
     assert "0.0.0.0" not in exec_line
+
+
+def test_every_external_host_in_code_is_in_the_requirements_doc():
+    """A new outbound host in fxbot/ must be added to the egress list in the requirements."""
+    doc = (ROOT / "docs" / "CLOUDFLARE_REQUIREMENTS.md").read_text(encoding="utf-8")
+    hosts: set[str] = set()
+    for path in (ROOT / "fxbot").glob("*.py"):
+        hosts.update(re.findall(r"https?://([A-Za-z0-9.-]+)", path.read_text(encoding="utf-8")))
+    missing = {h for h in hosts if h not in doc}
+    assert not missing, f"add these hosts to docs/CLOUDFLARE_REQUIREMENTS.md section 4: {sorted(missing)}"
+
+
+def test_requirements_doc_lists_the_tunnel_port():
+    doc = (ROOT / "docs" / "CLOUDFLARE_REQUIREMENTS.md").read_text(encoding="utf-8")
+    assert "region1.v2.argotunnel.com" in doc and "7844" in doc

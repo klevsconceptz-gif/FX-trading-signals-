@@ -170,6 +170,9 @@ half-Kelly reference (edge-case safe).
   or under systemd; no inbound ports. Covers PostgreSQL, Tunnel setup, zone settings,
   the `/api/auth/*` rate-limit rule per plan, Cloudflare Access in front of `/admin` and
   `/api/admin/*`, origin lockdown, verification, backups and troubleshooting.
+- **Requirements**: `docs/CLOUDFLARE_REQUIREMENTS.md` lists the accounts and plans, origin
+  specs (memory still to be measured), the egress allow-list (including TCP/UDP 7844 for
+  the tunnel), configuration, data stores, decisions still needed, and a go-live gate.
 - **Files**: `Dockerfile` (non-root, one uvicorn worker, health check on `/api/health`),
   `.dockerignore` (excludes `.env`, databases, models, Git data), `deploy/klevs.env.example`
   (every `KLEVS_`/`KFX_` variable, no secrets), `deploy/klevs.service` (systemd, bound to

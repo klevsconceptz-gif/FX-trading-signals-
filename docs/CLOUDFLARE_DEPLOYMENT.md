@@ -45,6 +45,9 @@ cover that host.
 
 ## 2. Prerequisites
 
+The full checklist, with costs, egress allow-list, and go-live gate, is in
+[`CLOUDFLARE_REQUIREMENTS.md`](CLOUDFLARE_REQUIREMENTS.md). Complete it first.
+
 - A domain whose DNS is managed by Cloudflare (for example `klevs.example.com`).
 - A Cloudflare account. Tunnels, the WAF rate-limit rule, and Cloudflare Access are available on
   the free plan, with these limits:
@@ -56,7 +59,9 @@ cover that host.
   per-pair model training are CPU-bound. The image is large because of pandas and
   scikit-learn (expect roughly 1 GB; not measured here).
 - PostgreSQL 14 or newer, either managed or on another host.
-- Outbound internet from the host (to Cloudflare, and to Yahoo Finance when live data is on).
+- Outbound access from the host: **TCP and UDP port 7844** to `region1.v2.argotunnel.com` and
+  `region2.v2.argotunnel.com` (required for the tunnel), plus HTTPS to `api.frankfurter.dev`, Yahoo
+  Finance when live data is on, and your SMTP server on port 587. No inbound ports are needed.
 
 ---
 
@@ -183,8 +188,10 @@ python -c "from sqlalchemy import create_engine; print(create_engine('postgresql
 
    ```bash
    # Install cloudflared using the package for your distribution (see Cloudflare's install page).
+   # Use version 2026.5.2 or later. Its startup checks test DNS, port 7844, and api.cloudflare.com.
    sudo cloudflared service install <TOKEN_FROM_DASHBOARD>
    systemctl status cloudflared --no-pager
+   sudo cloudflared tunnel diag      # optional: re-run the connectivity checks
    ```
 
    The Docker alternative keeps the token in an env file, not on the command line:
@@ -198,7 +205,8 @@ python -c "from sqlalchemy import create_engine; print(create_engine('postgresql
    ```
 
    `--network host` lets the connector reach `localhost:8000`, which Docker published on loopback.
-4. Back in the dashboard, the tunnel should show **Healthy** after a few seconds.
+4. Back in the dashboard, the tunnel should show **Healthy** after a few seconds. If it does not, run
+   `cloudflared tunnel diag` on the host. The most common cause is blocked egress on port 7844.
 5. Open the tunnel's **Published application routes** and add a route:
    - **Hostname:** `klevs.example.com`
    - **Service:** type `HTTP`, URL `localhost:8000` (the Service URL is `http://localhost:8000`).
