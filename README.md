@@ -103,9 +103,12 @@ live in a database set by `KLEVS_DATABASE_URL`:
 | `GET /api/admin/users` | operator | accounts and access state |
 | `POST /api/admin/users/{id}/grant` · `…/revoke` | operator | manual grant (note required) or revoke (reason required) |
 | `GET` / `PUT /api/admin/payment-settings` | operator | crypto wallets (network + address) and wire details |
+| `GET /api/admin/audit-log[?limit=]` | operator | recent payment decisions, access grants/revocations, and payment-setting changes |
 
-Every decision is audited: the payment or grant records the operator username, the timestamp and
-the note.
+The `/admin` **Activity log** tab and audit endpoint show who changed what, when, and the operator's
+note. Wallet addresses and bank-account values are never copied into audit events. Existing payment
+decisions are reconstructed from their decision records; older manual access records may not have
+an exact action timestamp, and settings history begins when audit logging is deployed.
 
 Run the test-suite:
 

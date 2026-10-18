@@ -74,6 +74,7 @@
     <button class="tab active" data-tab="payments">Payments</button>
     <button class="tab" data-tab="users">Users &amp; access</button>
     <button class="tab" data-tab="settings">Payment details</button>
+    <button class="tab" data-tab="activity">Activity log</button>
   </nav>
   <div class="err" id="g-err"></div>
 
@@ -148,6 +149,21 @@
     <div class="card">
       <div class="row"><button class="ok" id="set-save">Save payment details</button><span class="note" id="set-msg"></span></div>
       <p class="note">Leaving a method blank hides it from buyers. Saved details are shown to buyers on each new invoice.</p>
+    </div>
+  </section>
+
+  <!-- activity -->
+  <section id="tab-activity" class="hidden">
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0;margin-right:auto">Admin activity</h2>
+        <button id="audit-refresh">Refresh</button>
+      </div>
+      <p class="note">Latest 200 payment decisions, access grants/revocations, and payment-setting changes. Sensitive wallet and bank values are never included. Older access records may not have an exact event time.</p>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>When</th><th>Operator</th><th>Action</th><th>Target</th><th>Reference</th><th>Note</th></tr></thead>
+        <tbody id="audit-rows"></tbody>
+      </table></div>
     </div>
   </section>
 </main>

@@ -188,6 +188,11 @@ def test_rejected_payment_lets_buyer_try_again():
     assert admin.post(f"/api/admin/payments/{inv['id']}/reject", json={"note": ""}).status_code == 422
     r = admin.post(f"/api/admin/payments/{inv['id']}/reject", json={"note": "no funds at that address"})
     assert r.status_code == 200 and r.json()["payment"]["status"] == "rejected"
+    audit = admin.get("/api/admin/audit-log").json()["events"]
+    reject_event = next(event for event in audit if event["action"] == "payment_rejected")
+    assert reject_event["actor"] == ADMIN
+    assert reject_event["reference"] == inv["invoice"]
+    assert reject_event["note"] == "no funds at that address"
     assert buyer.get("/api/universe").status_code == 403
     again = buyer.post("/api/payments", json={"plan": "pro", "method": "crypto", "network": "BTC"})
     assert again.status_code == 200 and again.json()["payment"]["status"] == "awaiting_payment"
@@ -265,8 +270,10 @@ def test_only_operators_reach_admin_routes():
     assert buyer.get("/api/admin/payments").status_code == 403
     assert buyer.get("/api/admin/users").status_code == 403
     assert buyer.put("/api/admin/payment-settings", json={}).status_code == 403
+    assert buyer.get("/api/admin/audit-log").status_code == 403
     anon = TestClient(app)
     assert anon.get("/api/admin/payments").status_code == 401
+    assert anon.get("/api/admin/audit-log").status_code == 401
 
 
 def test_admin_cannot_be_granted_by_buyer_or_plan_name():
@@ -285,3 +292,58 @@ def test_admin_identity_recorded_on_every_decision():
     with db_session() as s:
         grant = s.scalar(select(AccessGrant).where(AccessGrant.payment_id == inv["id"]))
         assert grant.granted_by == ADMIN
+
+
+def test_admin_activity_log_records_changes_and_redacts_payment_settings():
+    _, admin = _admin()
+    _configure(admin)
+    user, buyer = _user()
+
+    invoice = buyer.post("/api/payments", json={"plan": "pro", "method": "wire"}).json()["payment"]
+    buyer.post(f"/api/payments/{invoice['id']}/reference", json={"reference": "WIRE-AUDIT-123"})
+    confirmed = admin.post(
+        f"/api/admin/payments/{invoice['id']}/confirm", json={"note": "verified on bank statement"}
+    )
+    assert confirmed.status_code == 200
+
+    granted = admin.post(
+        f"/api/admin/users/{user.id}/grant",
+        json={"plan": "starter", "days": 7, "note": "support extension"},
+    )
+    assert granted.status_code == 200
+    revoked = admin.post(
+        f"/api/admin/users/{user.id}/revoke", json={"note": "support period ended"}
+    )
+    assert revoked.status_code == 200 and revoked.json()["revoked"] == 2
+
+    response = admin.get("/api/admin/audit-log")
+    assert response.status_code == 200
+    events = response.json()["events"]
+    actions = [event["action"] for event in events]
+    assert actions.count("payment_settings_updated") == 1
+    assert actions.count("payment_confirmed") == 1
+    assert actions.count("access_granted") == 1
+    assert actions.count("access_revoked") == 2
+
+    payment_event = next(event for event in events if event["action"] == "payment_confirmed")
+    assert payment_event["actor"] == ADMIN
+    assert payment_event["target_username"] == user.username
+    assert payment_event["reference"] == invoice["invoice"]
+    assert payment_event["note"] == "verified on bank statement"
+    assert all(event["legacy"] is False for event in events)
+
+    settings_event = next(event for event in events if event["action"] == "payment_settings_updated")
+    assert WALLET not in str(settings_event)
+    assert "0123456789" not in str(settings_event)
+
+
+def test_admin_activity_log_is_admin_only_and_limits_are_validated():
+    anon = TestClient(app)
+    assert anon.get("/api/admin/audit-log").status_code == 401
+
+    _, buyer = _user()
+    assert buyer.get("/api/admin/audit-log").status_code == 403
+
+    _, admin = _admin()
+    assert admin.get("/api/admin/audit-log?limit=501").status_code == 422
+    assert admin.get("/api/admin/audit-log?limit=1").json()["events"] == []

@@ -30,6 +30,7 @@ Admin
 GET  /api/admin/payments, POST /api/admin/payments/{id}/confirm|reject
 GET  /api/admin/users, POST /api/admin/users/{id}/grant|revoke
 GET|PUT /api/admin/payment-settings   crypto wallets and wire bank details
+GET  /api/admin/audit-log            recent operator activity
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ import threading
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -405,12 +406,19 @@ def admin_get_settings(_admin: User = Depends(require_admin)) -> dict[str, Any]:
 
 
 @app.put("/api/admin/payment-settings")
-def admin_put_settings(req: PaymentSettingsRequest, _admin: User = Depends(require_admin)) -> dict[str, Any]:
+def admin_put_settings(req: PaymentSettingsRequest,
+                       admin: User = Depends(require_admin)) -> dict[str, Any]:
     try:
-        data = billing.update_settings(req.model_dump())
+        data = billing.update_settings(req.model_dump(), admin.username)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ok": True, "settings": data}
+
+
+@app.get("/api/admin/audit-log")
+def admin_audit_log(limit: int = Query(100, ge=1, le=500),
+                    _admin: User = Depends(require_admin)) -> dict[str, Any]:
+    return {"events": billing.list_admin_audit(limit)}
 
 
 @app.get("/api/health")

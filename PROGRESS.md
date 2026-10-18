@@ -259,6 +259,16 @@ reference only.
   to a security-appropriate period. Cloudflare dashboard settings cannot be changed from this
   repository sandbox.
 
+### 17. Admin activity log (2026-10-18)
+- Added an admin-only API and an **Activity log** tab showing payment decisions, manual access
+  grants/revocations, and payment-settings changes. Events are written in the same transaction as
+  the audited action; settings values (wallets and bank details) are not copied into the log.
+- Existing payment decisions and legacy grant/revoke records are also surfaced where possible;
+  legacy grant/revoke timestamps are labeled unavailable when the database never stored them.
+- Added regression coverage for event contents, setting-value redaction, and admin-only access.
+- Verification: Ruff, Python compileall, JavaScript syntax checks, `npm ci`, and `npm run build`
+  passed; full pytest suite: **144 passed**, one existing Starlette/httpx deprecation warning.
+
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)
 2. RSI on flat series returned 100 instead of 50 (false BUY on dead markets)
