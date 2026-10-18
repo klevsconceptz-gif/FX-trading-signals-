@@ -119,6 +119,10 @@ def test_full_crypto_lifecycle_grants_access():
     r = admin.post(f"/api/admin/payments/{inv['id']}/confirm", json={"note": "received 0.0008 BTC"})
     assert r.status_code == 200 and r.json()["payment"]["status"] == "confirmed"
     assert r.json()["payment"]["decided_by"] == ADMIN
+    assert admin.post(f"/api/admin/payments/{inv['id']}/confirm", json={}).status_code == 409
+    with db_session() as s:
+        grants = s.scalars(select(AccessGrant).where(AccessGrant.payment_id == inv["id"])).all()
+        assert len(grants) == 1
 
     # 5. access is unlocked, for 30 days
     me = buyer.get("/api/me").json()
@@ -126,6 +130,38 @@ def test_full_crypto_lifecycle_grants_access():
     assert buyer.get("/api/universe").status_code == 200
     remaining = me["access"]["expires_at"] - time.time()
     assert 29 * 86400 < remaining <= 30 * 86400
+
+
+def test_concurrent_confirmations_create_only_one_access_grant():
+    from concurrent.futures import ThreadPoolExecutor
+
+    _, admin = _admin()
+    _configure(admin)
+    _, buyer = _user()
+    payment = buyer.post(
+        "/api/payments", json={"plan": "pro", "method": "wire"}
+    ).json()["payment"]
+    buyer.post(
+        f"/api/payments/{payment['id']}/reference",
+        json={"reference": "WIRE-CONCURRENT-1"},
+    )
+
+    def confirm():
+        try:
+            return billing.confirm_payment(payment["id"], ADMIN), None
+        except ValueError as exc:
+            return None, str(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _index: confirm(), range(2)))
+
+    assert sum(value is not None for value, _error in results) == 1
+    assert sum(error is not None for _value, error in results) == 1
+    with db_session() as session:
+        grants = session.scalars(
+            select(AccessGrant).where(AccessGrant.payment_id == payment["id"])
+        ).all()
+        assert len(grants) == 1
 
 
 def test_wire_lifecycle_and_reference_must_be_submitted():

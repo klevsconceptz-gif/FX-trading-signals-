@@ -17,9 +17,10 @@ import numpy as np
 import pandas as pd
 
 from .config import AppConfig
+from .conversion import latest_conversion_rate
 from .data import MarketData
 from .ml import MarketForecaster
-from .risk import RiskManager
+from .risk import RiskDecision, RiskManager
 from .signals import TradePlan, build_plan
 from .strength import CurrencyStrength, compute_strength, correlation_matrix, detect_regime
 from .universe import BY_SYMBOL
@@ -71,12 +72,17 @@ class MarketEngine:
         self._cache: Optional[MarketReport] = None
         self._history: dict[str, pd.DataFrame] = {}
         self._strength: Optional[CurrencyStrength] = None
+        self._plans: dict[str, TradePlan] = {}
 
     # ------------------------------------------------------------------
 
     def load_data(self) -> dict[str, pd.DataFrame]:
         self._history = self.data.load(prefer_live=self.prefer_live)
         return self._history
+
+    @property
+    def history(self) -> dict[str, pd.DataFrame]:
+        return self._history or self.load_data()
 
     def scan(self, use_cache: bool = False, reload: bool = False) -> MarketReport:
         """Run the full-market scan.
@@ -133,17 +139,42 @@ class MarketEngine:
                 plan.notes.insert(0, f"Signal flipped from {prev} to {plan.side} — exit the old trade.")
                 flips.append(f"{plan.display}: previous {prev} signal has flipped to {plan.side} — "
                              f"close the old position NOW and stand aside (or reverse).")
-            if plan.side in ("BUY", "SELL"):
-                decision = self.risk.can_open(plan)
-                plan.notes.append(
-                    f"Size: {plan.lots:.2f} lots ({plan.units:,.0f} units) — "
-                    f"risking ${plan.risk_amount:,.2f} ({self.cfg.risk.risk_per_trade_pct}% of equity)."
-                    if decision.accepted else f"Risk veto: {decision.reason}"
-                )
             plans.append(plan)
 
+        # Build a proposed portfolio in descending signal quality. Reserve each
+        # accepted setup so later recommendations respect position, currency,
+        # correlation, and per-currency risk caps. This is a projection only:
+        # without broker/account state, daily-loss and drawdown breakers cannot
+        # reflect a user's actual open positions or realized P&L.
         plans.sort(key=lambda p: (p.side == "WAIT", -p.confidence))
-        active = [p for p in plans if p.side != "WAIT"]
+        self.risk = RiskManager(self.cfg.risk)
+        for plan in plans:
+            if plan.side not in ("BUY", "SELL"):
+                continue
+            try:
+                quote_rate = latest_conversion_rate(
+                    history, BY_SYMBOL[plan.symbol].quote, self.cfg.risk.account_currency
+                )
+                decision = self.risk.open(plan, corr_lookup, quote_rate)
+            except ValueError as exc:
+                decision = RiskDecision(False, 0, 0, 0, 0, 0.0, str(exc))
+            if decision.accepted:
+                plan.notes.append(
+                    f"Proposed size: {plan.lots:.2f} lots ({plan.units:,.0f} units) — "
+                    f"risking {plan.risk_amount:,.2f} {self.cfg.risk.account_currency.upper()} "
+                    f"({plan.risk_amount / self.cfg.risk.equity * 100:.2f}% of configured equity) "
+                    "after portfolio scaling."
+                )
+            else:
+                plan.risk_veto_reason = decision.reason
+                plan.notes.append(f"Risk veto: {decision.reason}")
+                plan.actions = [f"DO NOT BUY — portfolio risk limit: {decision.reason}."]
+                plan.predicted_outcome = f"Directional setup not selected: {decision.reason}."
+                plan.side = "WAIT"
+
+        plans.sort(key=lambda p: (p.side == "WAIT", -p.confidence))
+        self._plans = {p.symbol: p for p in plans}
+        active = [p for p in plans if p.side in ("BUY", "SELL")]
         watch = [p for p in plans if p.side == "WAIT"][:10]
 
         # 5. distilled instruction stream: when to buy → predicted outcome →
@@ -165,7 +196,7 @@ class MarketEngine:
             watchlist=[p.to_dict() for p in watch],
             instructions=instructions,
             correlation=_corr_payload(corr),
-            risk=self._risk_payload(active, corr_lookup),
+            risk=self._risk_payload(active),
             ml=self._ml_payload(forecasts),
         )
         report.summary = self._summary(report, plans)
@@ -187,7 +218,8 @@ class MarketEngine:
                 one_line = (
                     f"BUY {p.display} NOW @ {p.entry:.5g} → predicted "
                     f"{p.target / p.entry - 1:+.2%} to {p.target:.5g} "
-                    f"(P≈{p.p_target_first:.0%}) → SELL {p.target:.5g} (50% at +1.5R, "
+                    f"(P≈{p.p_target_first:.0%}) → SELL {p.target:.5g} "
+                    f"({self.cfg.signal.partial_profit_fraction:.0%} at +{p.risk_reward:.1f}R, "
                     f"rest trailed to {p.target2:.5g}) / SELL ALL at stop {p.stop:.5g} "
                     f"/ time stop {p.time_stop_bars} bars"
                 )
@@ -196,7 +228,8 @@ class MarketEngine:
                 one_line = (
                     f"SELL {p.display} NOW (short) @ {p.entry:.5g} → predicted "
                     f"{p.target / p.entry - 1:+.2%} to {p.target:.5g} "
-                    f"(P≈{p.p_target_first:.0%}) → BUY BACK {p.target:.5g} (50% at +1.5R, "
+                    f"(P≈{p.p_target_first:.0%}) → BUY BACK {p.target:.5g} "
+                    f"({self.cfg.signal.partial_profit_fraction:.0%} at +{p.risk_reward:.1f}R, "
                     f"rest trailed to {p.target2:.5g}) / BUY BACK ALL at stop {p.stop:.5g} "
                     f"/ time stop {p.time_stop_bars} bars"
                 )
@@ -215,7 +248,7 @@ class MarketEngine:
                 "exit_orders": [
                     {"label": "take profit", "price": round(p.target, 6),
                      "instruction": f"sell {self.cfg.signal.partial_profit_fraction * 100:.0f}% at "
-                                    f"{p.target:.5g} (+{self.cfg.signal.partial_profit_r:.1f}R), "
+                                    f"{p.target:.5g} (+{p.risk_reward:.1f}R), "
                                     f"then move the stop to breakeven"},
                     {"label": "sell the rest", "price": round(p.target2, 6),
                      "instruction": f"trail the remainder toward {p.target2:.5g}"},
@@ -242,6 +275,8 @@ class MarketEngine:
                 "p_target_first": 0.0,
                 "expected_bars": 0,
                 "one_line": (
+                    f"DO NOT BUY {p.display} — portfolio risk veto: {p.risk_veto_reason}."
+                    if p.risk_veto_reason else
                     f"DO NOT BUY {p.display} — no edge (score {p.score:+.2f}). "
                     f"Trigger: score crosses ±{self.cfg.signal.entry_threshold} → "
                     f"the system will instruct BUY or SELL."
@@ -251,8 +286,7 @@ class MarketEngine:
             })
         return out
 
-    def _risk_payload(self, plans: list[TradePlan],
-                      corr_lookup: dict[tuple[str, str], float]) -> dict[str, Any]:
+    def _risk_payload(self, plans: list[TradePlan]) -> dict[str, Any]:
         total_risk = sum(p.risk_amount for p in plans if p.side != "WAIT")
         max_rr = max((p.risk_reward for p in plans if p.side != "WAIT"), default=0.0)
         from .risk import kelly_fraction as kf
@@ -260,14 +294,20 @@ class MarketEngine:
         est_wr = float(np.mean([p.confidence for p in wins])) * 0.5 + 0.25 if wins else 0.5
         return {
             "equity": self.cfg.risk.equity,
+            "account_currency": self.cfg.risk.account_currency.upper(),
             "risk_per_trade_pct": self.cfg.risk.risk_per_trade_pct,
             "planned_risk_total": round(total_risk, 2),
             "planned_risk_pct": round(total_risk / self.cfg.risk.equity * 100, 2),
             "max_open_positions": self.cfg.risk.max_open_positions,
+            "max_positions_per_currency": self.cfg.risk.max_positions_per_currency,
+            "max_risk_per_currency_pct": self.cfg.risk.max_risk_per_currency_pct,
+            "projected_positions": len(plans),
             "max_risk_reward": round(max_rr, 2),
             "kelly_reference_pct": round(kf(est_wr) * 100, 2),
             "daily_loss_limit_pct": self.cfg.risk.daily_loss_limit_pct,
             "max_drawdown_pct": self.cfg.risk.max_drawdown_pct,
+            "stateful_circuit_breakers_active": False,
+            "note": "Proposed signals are portfolio-capped; daily loss/drawdown require live account P&L and positions, which this analysis-only app does not track.",
         }
 
     def _ml_payload(self, forecasts) -> dict[str, Any]:
@@ -369,10 +409,12 @@ class MarketEngine:
                 )
                 break
         dd_note = (
-            f"Risk engine: risking {self.cfg.risk.risk_per_trade_pct}% per trade on "
-            f"${self.cfg.risk.equity:,.0f} equity, daily loss limit "
-            f"{self.cfg.risk.daily_loss_limit_pct}%, max drawdown throttle "
-            f"{self.cfg.risk.max_drawdown_pct}%."
+            f"Proposed portfolio sizing: {self.cfg.risk.risk_per_trade_pct}% base risk per trade on "
+            f"{self.cfg.risk.equity:,.0f} {self.cfg.risk.account_currency.upper()} configured equity, "
+            f"capped by position, currency and "
+            f"correlation limits. Daily-loss ({self.cfg.risk.daily_loss_limit_pct}%) and drawdown "
+            f"({self.cfg.risk.max_drawdown_pct}%) breakers need tracked account P&L and are not "
+            f"active in this analysis-only app."
         )
         out.append(dd_note)
         return out
@@ -382,21 +424,24 @@ class MarketEngine:
     # ------------------------------------------------------------------
 
     def pair_frame(self, symbol: str) -> Optional[pd.DataFrame]:
-        history = self._history or self.load_data()
-        return history.get(symbol)
+        return self.history.get(symbol)
 
     def pair_report(self, symbol: str) -> Optional[dict[str, Any]]:
         """Deep-dive report for one pair (chart payload + plan + context)."""
-        history = self._history or self.load_data()
+        history = self.history
         df = history.get(symbol)
         if df is None:
             return None
         from .indicators import compute_all
         ind = compute_all(df).dropna(subset=["ema20"])
-        strength = self._strength or compute_strength(history)
+        if symbol not in self._plans:
+            self.scan(use_cache=True)
         forecast = self.forecaster.forecasts.get(symbol)
-        plan = build_plan(symbol, df, self.cfg.signal,
-                          forecast=forecast, strength=strength)
+        plan = self._plans.get(symbol)
+        if plan is None:
+            strength = self._strength or compute_strength(history)
+            plan = build_plan(symbol, df, self.cfg.signal,
+                              forecast=forecast, strength=strength)
         regime = detect_regime(df, self.cfg.signal.adx_trend_threshold)
 
         tail = ind.tail(300)

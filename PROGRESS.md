@@ -1,7 +1,7 @@
 # Progress Log — klevs FX trading App
 
-Session save point · branch `arena/641dff05-fx-trading-signals` · 2026-10-10
-Status: **round 11 complete on the branch** — 115/115 pytest · ruff clean · payments via operator verification · Stripe unlinked
+Session save point · branch `arena/310b7038-fx-trading-signals` · 2026-10-18
+Status: **round 13 complete on the branch** — Cloudflare app Python dependencies installed locally · 139 passed · pip dependency check clean · review fixes saved
 
 ---
 
@@ -20,23 +20,26 @@ Status: **round 11 complete on the branch** — 115/115 pytest · ruff clean · 
   splits, permutation feature importance, honest OOS accuracy reporting
 - **Signal engine** (`signals.py`): 6 weighted factors (trend, momentum,
   mean-reversion, breakout, ML, currency-strength) × regime adaptation →
-  composite score → full trade plan (entry, ATR TP/SL ≥ 1.5 R:R, structure
-  refinement, partial-profit schedule)
+  composite score → full trade plan (next-bar entry, ATR/structure stop, configured
+  first partial target at max(partial R, minimum R:R), and separate stretch target)
 
 ### 2. Buy → Predict → Sell instruction lifecycle
 - **① WHEN TO BUY**: `BUY NOW @ …` / `SELL NOW (short)` / `DO NOT BUY YET` + trigger
 - **② PREDICTED OUTCOME**: signed target/stop moves, R:R, ML expectation with
   side-aligned probability, P(target before stop), expected resolution bars
-- **③ WHEN TO SELL**: take-profit ladder (50% at +1.5R → breakeven → trail to 3R),
-  stop-loss sell-all, **time stop** (36 bars), **flip exit** (`⛔ SIGNAL FLIPPED —
-  SELL NOW` tracked across scans)
-- Backtester enforces the same lifecycle (partials, breakeven, trailing,
-  time_stop, target exits)
+- **③ WHEN TO SELL**: configured partial fraction at the plan's first target →
+  breakeven stop → manage the runner toward target2, plus stop-loss and time stop.
+  Opposite signals produce an exit instruction.
+- Backtester now enters only on the bar after each signal, uses the plan's first
+  and runner targets, converts quote P&L via prior-bar FX rates, exits on opposite
+  signals, and includes terminal forced-close P&L in equity metrics.
 
 ### 3. Risk management (`risk.py`)
-ATR position sizing (fixed % equity risk), per-currency exposure caps,
-correlation down-sizing, daily-loss circuit breaker, drawdown throttle,
-half-Kelly reference (edge-case safe).
+Account-currency sizing with instrument-specific lot sizes; scan recommendations
+are reserved together under position-count, per-currency exposure/risk, and
+correlation caps. Daily-loss and drawdown breakers require live account P&L and
+positions and are not active in this analysis-only app; half-Kelly remains a
+reference only.
 
 ### 4. klevs FX trading App (dashboard + API)
 - **Landing page** (`/`): hero, features, how-it-works, instruction showcase,
@@ -64,8 +67,9 @@ half-Kelly reference (edge-case safe).
 
 ### 5. Tooling & quality
 - CLIs: `scripts/scan.py` · `scripts/backtest.py` · `scripts/train.py`
-- **95 tests** (indicators, signals & instruction lifecycle, risk, backtest
-  invariants/no-lookahead, ML, API, **auth/register/reset** (round 9); payments (round 11)) — all passing
+- Latest review run: **139 passed** (live-data dependencies installed; 1 existing
+  Starlette/httpx deprecation warning); includes conversion, portfolio allocation,
+  backtest timing/exits, ML purge, session revocation, and concurrent payment-confirmation regressions.
 - `ruff.toml` (F,E9,I,B,SIM,C4,RUF) — All checks passed
 - `RESOURCES.md` — GitHub/paper/data-source research survey with design mapping
 
@@ -149,10 +153,9 @@ half-Kelly reference (edge-case safe).
   (identical results), and a clean `setup.sh` rebuild all pass.
   - Backtest baseline: the "sanctioned" figures in earlier notes (EURUSD 77 trades, PF 1.67,
     +15.0 %; XAUUSD 87 / 1.97 / +25.0 %; GBPJPY 102 / 1.43 / +13.8 %) could **not** be reproduced
-    exactly from any commit in this history (`376873b` through `HEAD` all give EURUSD 78 trades,
-    PF 1.815, +17.5 %). The clock does not affect metrics (checked with pinned timestamps), and the
-    XAUUSD and GBPJPY figures are within one trade and about 0.04 PF of the notes. The current
-    deterministic baseline is pinned in `tests/test_backtest.py`.
+    exactly from any commit in that review snapshot (`376873b` through that round's HEAD all gave
+    EURUSD 78 trades, PF 1.815, +17.5 %). Those figures predate the next-open and lifecycle fixes;
+    the updated deterministic baseline is recorded in the current `tests/test_backtest.py`.
   - Synthetic bar timestamps still end at the current hour (`fxbot/data.py`), so trade dates in
     the output shift between runs even though the metrics do not. Anchoring to a fixed date is a
     product decision left open.
@@ -196,6 +199,35 @@ half-Kelly reference (edge-case safe).
 - **Repo note**: the local branch was re-pointed to `origin/arena/641dff05-fx-trading-signals`
   (`3a5413f`) after the local clone was found at `main`'s base commit. The working tree was
   verified identical to that commit before the reset.
+
+### 12. Review remediation (2026-10-18)
+- Removed same-bar backtest lookahead: signals use completed bars and entries fill at the next open.
+- Added shortest-path FX conversion; risk sizing and backtest P&L use account currency and
+  instrument-specific lot sizes. Backtest conversion rates are lagged to avoid peeking.
+- Allocated scan recommendations as a proposed portfolio with position-count, currency,
+  per-currency-risk, and correlation limits; vetoed setups now say not to trade. Pair detail
+  reuses the portfolio-approved plan.
+- Aligned the configured first partial target and instruction text with backtest fills; added
+  opposite-signal exits and recorded final forced-close P&L in terminal equity.
+- Purged forward-label overlap at the ML split; bootstrap admin password rotation revokes
+  existing sessions; payment confirmation now uses an atomic conditional state change.
+- Regression coverage added across risk/conversion, engine allocation, backtest lifecycle,
+  ML split, auth sessions, and concurrent payment confirmation. At remediation completion,
+  137 passed and 2 optional-provider tests were skipped; Ruff, compileall, JavaScript syntax,
+  CLI GBPJPY backtest, and diff checks passed. The dashboard refreshes every five minutes and
+  ignores overlapping refresh requests.
+
+### 13. Cloudflare application dependencies (2026-10-18)
+- Recreated the local Python 3.11 `.venv` and installed core requirements, live-data
+  requirements (`yfinance`), and the PostgreSQL binary driver (`psycopg[binary]`).
+- Verified imports and PostgreSQL dialect resolution; `pip check` reports no broken requirements.
+- Latest pytest run with live-data dependencies installed: **139 passed**, one existing
+  Starlette/httpx deprecation warning (the optional provider tests now run instead of skipping).
+- Reproduce the install with:
+  `.venv/bin/python -m pip install -r requirements.txt -r requirements-live.txt 'psycopg[binary]>=3.1'`
+- Docker and `cloudflared` are not installed in this sandbox. They are origin-host/container
+  requirements, not Python packages; no Cloudflare account, tunnel, token, or production host
+  was configured. Follow `docs/CLOUDFLARE_DEPLOYMENT.md` on the origin host.
 
 ## 🐛 Bug-hunt history (all fixed & regression-tested)
 1. Signal engine missing indicator computation (silent empty scans)

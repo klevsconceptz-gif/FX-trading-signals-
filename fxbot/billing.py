@@ -23,7 +23,7 @@ import secrets
 import time
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from .db import AccessGrant, Payment, Setting, User, db_session
 
@@ -277,15 +277,27 @@ def list_payments(status: Optional[str] = None) -> list[dict[str, Any]]:
 
 def confirm_payment(payment_id: int, operator: str, note: str = "") -> dict[str, Any]:
     with db_session() as s:
+        decided_at = _now()
+        decision_note = (note or "").strip()[:300] or None
+        # Compare-and-set first (before any read) so competing requests serialize
+        # on this row and only one can transition submitted -> confirmed.
+        result = s.execute(
+            update(Payment)
+            .where(Payment.id == payment_id, Payment.status == "submitted")
+            .values(status="confirmed", decided_at=decided_at,
+                    decided_by=operator, decision_note=decision_note)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            current = s.get(Payment, payment_id)
+            if current is None:
+                raise LookupError("payment not found")
+            raise ValueError(
+                f"only submitted payments can be confirmed (this one is {current.status.replace('_', ' ')})"
+            )
+
         p = s.get(Payment, payment_id)
-        if p is None:
-            raise LookupError("payment not found")
-        if p.status != "submitted":
-            raise ValueError(f"only submitted payments can be confirmed (this one is {p.status.replace('_', ' ')})")
-        p.status = "confirmed"
-        p.decided_at = _now()
-        p.decided_by = operator
-        p.decision_note = (note or "").strip()[:300] or None
+        assert p is not None  # guarded by the update above
         _extend_access(s, p.user_id, p.plan, ACCESS_DAYS, operator, p.id, p.decision_note)
         s.flush()
         return _view(p)

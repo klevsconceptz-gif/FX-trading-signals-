@@ -19,9 +19,9 @@ volatility-adaptive levels:
 
 * stop-loss  = entry ∓ k_sl · ATR  (1.5x trend / 1.2x range; research
   consensus for FX intraday/swing), clamped beyond recent structure;
-* take-profit = entry ± k_tp · ATR (2.5x trend / 1.8x range) with a
-  guaranteed minimum risk-reward of 1.5;
-* a partial-profit plan (50% at +1.5R, breakeven stop, trail the rest).
+* first partial target = entry ± ``max(partial_profit_r, min_risk_reward)`` × stop distance;
+* runner target = at least 3R / the regime's ATR target, adjusted for structure;
+* after the partial fill, move the stop to breakeven and manage the runner to target2.
 """
 
 from __future__ import annotations
@@ -143,6 +143,7 @@ class TradePlan:
     lots: float = 0.0
     risk_amount: float = 0.0
     position_value: float = 0.0
+    risk_veto_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -242,39 +243,34 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
             k_sl *= float(np.clip(forecast.vol_ratio, 1.0, 1.5))
             notes.append(f"Volatility forecast {(forecast.vol_ratio - 1) * 100:+.0f}% "
                          f"— stop widened to {k_sl:.2f} ATR.")
+        partial_r = max(cfg.partial_profit_r, cfg.min_risk_reward)
         if side == "BUY":
             stop = close - k_sl * atr_v
-            target = close + k_tp * atr_v
             # structure refinement: pull stop below nearest support if sensible
             supports = [s for s in sr["support"] if s < close]
             if supports:
                 struct = supports[-1] - 0.25 * atr_v
                 if close - struct < k_sl * atr_v * 1.4:
                     stop = struct
-            # enforce min R:R by stretching the target if needed
             risk = close - stop
-            rr = (target - close) / risk if risk > 0 else 0.0
-            if rr < cfg.min_risk_reward:
-                target = close + cfg.min_risk_reward * risk
-                rr = cfg.min_risk_reward
-            target2 = close + 3.0 * risk
+            # `target` is the actual first partial exit; `target2` is the runner target.
+            target = close + partial_r * risk
+            rr = partial_r
+            target2 = close + max(3.0 * risk, k_tp * atr_v)
             resistances = [r for r in sr["resistance"] if r > target]
             if resistances:
                 target2 = max(target2, resistances[-1])
         else:
             stop = close + k_sl * atr_v
-            target = close - k_tp * atr_v
             resistances = [r for r in sr["resistance"] if r > close]
             if resistances:
                 struct = resistances[-1] + 0.25 * atr_v
                 if struct - close < k_sl * atr_v * 1.4:
                     stop = struct
             risk = stop - close
-            rr = (close - target) / risk if risk > 0 else 0.0
-            if rr < cfg.min_risk_reward:
-                target = close - cfg.min_risk_reward * risk
-                rr = cfg.min_risk_reward
-            target2 = close - 3.0 * risk
+            target = close - partial_r * risk
+            rr = partial_r
+            target2 = close - max(3.0 * risk, k_tp * atr_v)
             supports = [s for s in sr["support"] if s < target]
             if supports:
                 target2 = min(target2, supports[-1])
@@ -316,7 +312,7 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
             actions = [
                 f"① BUY NOW — open a long at market ≈ {close:.5g} (enter on the next candle).",
                 f"② TAKE-PROFIT (sell): sell {cfg.partial_profit_fraction * 100:.0f}% at "
-                f"{target:.5g} (+{cfg.partial_profit_r:.1f}R), then move the stop to breakeven.",
+                f"{target:.5g} (+{partial_r:.1f}R), then move the stop to breakeven.",
                 f"③ SELL THE REST: trail toward {target2:.5g} (stretch target / structure).",
                 f"④ STOP-LOSS (sell all): {stop:.5g} — if price touches this the prediction "
                 f"is wrong; exit immediately and take the loss.",
@@ -329,7 +325,7 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
             actions = [
                 f"① SELL NOW — open a short at market ≈ {close:.5g} (enter on the next candle).",
                 f"② TAKE-PROFIT (buy to cover): cover {cfg.partial_profit_fraction * 100:.0f}% at "
-                f"{target:.5g} (+{cfg.partial_profit_r:.1f}R), then move the stop to breakeven.",
+                f"{target:.5g} (+{partial_r:.1f}R), then move the stop to breakeven.",
                 f"③ COVER THE REST: trail toward {target2:.5g} (stretch target / structure).",
                 f"④ STOP-LOSS (buy to cover all): {stop:.5g} — if price touches this the "
                 f"prediction is wrong; exit immediately and take the loss.",
@@ -350,7 +346,7 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
         )
         notes.append(
             f"Take profit {cfg.partial_profit_fraction * 100:.0f}% at {target:.5g} "
-            f"(+{cfg.partial_profit_r:.1f}R), move stop to breakeven, "
+            f"(+{partial_r:.1f}R), move stop to breakeven, "
             f"trail the rest toward {target2:.5g}."
         )
         if forecast:

@@ -1,16 +1,14 @@
 """Event-driven backtester for the signal engine.
 
-Replays history bar-by-bar.  Signals are computed on data available at
-bar ``t`` and *executed at the open of bar t+1* (no lookahead).  Position
-management mirrors the trade plan the live engine emits:
+Signals use data available through bar ``t`` and execute at the open of bar
+``t+1``. Position management mirrors the emitted plan: stop and first target
+are checked intrabar (the stop wins if both are touched), a configured partial
+is taken at the plan's first target, the stop moves to breakeven, and the
+remainder is managed toward the plan's stretch target. Opposite signals exit
+at the next bar open. P&L and position sizing are converted into account
+currency using rates observable before each bar.
 
-* hard stop-loss and take-profit checked intrabar (conservative: if both
-  fit inside one bar, the stop is assumed to have filled first);
-* partial profit (default 50%) at +1.5R with stop moved to breakeven;
-* ATR trailing stop on the remainder after the partial fill;
-* optional exit on an opposite signal.
-
-Costs: fixed spread (instrument-specific pips) + proportional slippage.
+Execution costs: proportional slippage estimated from instrument-specific typical spreads.
 """
 
 from __future__ import annotations
@@ -22,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from .config import AppConfig, SignalConfig
+from .conversion import conversion_rate_series
 from .indicators import compute_all
 from .signals import build_plan
 from .universe import BY_SYMBOL
@@ -33,13 +32,16 @@ class Trade:
     side: str
     entry_time: pd.Timestamp
     entry: float
+    signal_time: Optional[pd.Timestamp] = None
     exit_time: Optional[pd.Timestamp] = None
     exit: float = 0.0
     stop: float = 0.0
     target: float = 0.0
+    target2: float = 0.0
     units: float = 1.0
     r_multiple: float = 0.0
     pnl: float = 0.0
+    risk_amount: float = 0.0
     exit_reason: str = ""
 
 
@@ -52,8 +54,45 @@ class BacktestResult:
     config: dict[str, Any] = field(default_factory=dict)
 
 
-def _run_single(symbol: str, df: pd.DataFrame, cfg: AppConfig,
-                equity: float = 10_000.0) -> BacktestResult:
+def _account_pnl(fill: float, entry: float, units: float, sign: int,
+                 quote_to_account_rate: float) -> float:
+    """Translate price P&L from quote currency into account currency."""
+    return (fill - entry) * units * sign * quote_to_account_rate
+
+
+def _conversion_rates(
+    symbol: str,
+    df: pd.DataFrame,
+    cfg: AppConfig,
+    conversion_history: Optional[dict[str, pd.DataFrame]],
+    start: int,
+) -> pd.Series:
+    instrument = BY_SYMBOL.get(symbol)
+    quote = instrument.quote if instrument else cfg.risk.account_currency
+    account = cfg.risk.account_currency.upper()
+    if quote.upper() == account:
+        return pd.Series(1.0, index=df.index, dtype=float)
+
+    history = conversion_history or {}
+    rates = conversion_rate_series(
+        history, quote, account, df.index, lag_bars=1
+    )
+    backtest_rates = rates.iloc[start + 1:]
+    if not np.isfinite(backtest_rates).all() or (backtest_rates <= 0).any():
+        raise ValueError(
+            f"{symbol}: incomplete lagged {quote}/{account} conversion history "
+            "for the backtest period"
+        )
+    return rates
+
+
+def _run_single(
+    symbol: str,
+    df: pd.DataFrame,
+    cfg: AppConfig,
+    equity: float = 10_000.0,
+    conversion_history: Optional[dict[str, pd.DataFrame]] = None,
+) -> BacktestResult:
     ind = compute_all(df)
     sig_cfg: SignalConfig = cfg.signal
     ins = BY_SYMBOL.get(symbol)
@@ -61,54 +100,86 @@ def _run_single(symbol: str, df: pd.DataFrame, cfg: AppConfig,
     slippage = spread * 0.25
 
     start = 220  # warm-up for EMA200 etc.
+    if len(df) <= start + 1:
+        raise ValueError(f"{symbol}: need at least {start + 2} bars to backtest")
+    rates = _conversion_rates(symbol, df, cfg, conversion_history, start)
+
     trades: list[Trade] = []
     eq_idx: list[pd.Timestamp] = []
     eq_val: list[float] = []
-
     cash = equity
     open_trade: Optional[Trade] = None
     partial_taken = False
     stop_dist = 0.0
-    entry_at_next_open: Optional[tuple[str, float, float, float]] = None  # side, stop, target, units
-
+    bars_held = 0
     risk_per = equity * cfg.risk.risk_per_trade_pct / 100.0
 
-    for i in range(start, len(df) - 1):
+    # A plan is built from bars strictly before i, then filled on bar i's open.
+    # The final bar is reserved for terminal marking/closure, so we do not open
+    # a new position there.
+    for i in range(start + 1, len(df) - 1):
         t = df.index[i]
         row = df.iloc[i]
-        nxt = df.iloc[i + 1]
+        rate = float(rates.iloc[i])
+        window = ind.iloc[:i]
+        try:
+            plan = build_plan(symbol, window, sig_cfg,
+                              forecast=None, precomputed=True)
+        except (ValueError, IndexError, KeyError):
+            plan = None
 
-        # ---- entry signal (computed only on data ≤ t) ----
-        if open_trade is None and entry_at_next_open is None:
-            window = ind.iloc[: i + 1]
-            try:
-                plan = build_plan(symbol, window, sig_cfg,
-                                  forecast=None, precomputed=True)
-            except ValueError:
-                plan = None
-            if plan is not None and plan.side in ("BUY", "SELL"):
-                entry_price = float(nxt["open"]) + (slippage if plan.side == "BUY" else -slippage)
-                stop = plan.stop
-                target = plan.target
-                sd = abs(entry_price - stop)
-                if sd > 0:
-                    units = risk_per / sd
-                    entry_at_next_open = (plan.side, stop, target, units)
+        closed_on_signal = False
+        if (open_trade is not None and plan is not None
+                and plan.side in ("BUY", "SELL")
+                and plan.side != open_trade.side):
+            tr = open_trade
+            sign = 1 if tr.side == "BUY" else -1
+            fill = float(row["open"]) - slippage if sign > 0 else float(row["open"]) + slippage
+            realized = _account_pnl(fill, tr.entry, tr.units, sign, rate)
+            tr.pnl += realized
+            cash += realized
+            tr.exit, tr.exit_time, tr.exit_reason = fill, t, "signal"
+            tr.r_multiple = tr.pnl / tr.risk_amount if tr.risk_amount else 0.0
+            trades.append(tr)
+            open_trade = None
+            closed_on_signal = True
 
-        # ---- open pending position at this bar's open ----
-        if entry_at_next_open is not None and open_trade is None:
-            side, stop, target, units = entry_at_next_open
-            entry_price = float(row["open"]) + (slippage if side == "BUY" else -slippage)
-            open_trade = Trade(
-                symbol=symbol, side=side, entry_time=t, entry=entry_price,
-                stop=stop, target=target, units=units,
+        # Execute a signal from the preceding bar at this bar's open. Do not
+        # immediately reverse on the same open after closing an old position.
+        if (open_trade is None and not closed_on_signal and plan is not None
+                and plan.side in ("BUY", "SELL")):
+            sign = 1 if plan.side == "BUY" else -1
+            entry_price = float(row["open"]) + (slippage if sign > 0 else -slippage)
+            stop = float(plan.stop)
+            target = float(plan.target)
+            target2 = float(plan.target2)
+            distance = abs(entry_price - stop)
+            valid_levels = (
+                (stop < entry_price < target <= target2) if sign > 0
+                else (target2 <= target < entry_price < stop)
             )
-            stop_dist = abs(entry_price - stop)
-            bars_held = 0
-            partial_taken = False
-            entry_at_next_open = None
+            entry_rate = rate
+            if (valid_levels and distance > 0 and risk_per > 0
+                    and np.isfinite(entry_rate) and entry_rate > 0):
+                units = risk_per / (distance * entry_rate)
+                if np.isfinite(units) and units > 0:
+                    open_trade = Trade(
+                        symbol=symbol,
+                        side=plan.side,
+                        entry_time=t,
+                        entry=entry_price,
+                        signal_time=window.index[-1],
+                        stop=stop,
+                        target=target,
+                        target2=target2,
+                        units=float(units),
+                        risk_amount=risk_per,
+                    )
+                    stop_dist = distance
+                    bars_held = 0
+                    partial_taken = False
 
-        # ---- manage open position intrabar ----
+        # ---- manage the open position intrabar -----------------------------
         if open_trade is not None:
             tr = open_trade
             bars_held += 1
@@ -116,79 +187,95 @@ def _run_single(symbol: str, df: pd.DataFrame, cfg: AppConfig,
             sign = 1 if long else -1
             hit_stop = (row["low"] <= tr.stop) if long else (row["high"] >= tr.stop)
             hit_target = (row["high"] >= tr.target) if long else (row["low"] <= tr.target)
+            hit_runner = (row["high"] >= tr.target2) if long else (row["low"] <= tr.target2)
             hit_time_stop = (
                 sig_cfg.time_stop_bars > 0 and bars_held >= sig_cfg.time_stop_bars
             )
 
             if hit_stop:
                 fill = tr.stop - slippage if long else tr.stop + slippage
-                # remainder exits at the stop (breakeven stop after a partial → 0R)
-                realized = (fill - tr.entry) * tr.units * sign
+                realized = _account_pnl(fill, tr.entry, tr.units, sign, rate)
                 tr.pnl += realized
                 cash += realized
                 tr.exit, tr.exit_time, tr.exit_reason = fill, t, "stop"
-                tr.r_multiple = tr.pnl / risk_per if risk_per else 0.0
+                tr.r_multiple = tr.pnl / tr.risk_amount if tr.risk_amount else 0.0
                 trades.append(tr)
                 open_trade = None
             elif hit_target and not partial_taken:
-                # take partial profit at the first target, stop → breakeven
-                partial_taken = True
-                half = tr.units * sig_cfg.partial_profit_fraction
+                # The signal's configured first target is the partial-profit fill.
+                fraction = float(np.clip(sig_cfg.partial_profit_fraction, 0.0, 1.0))
+                partial_units = tr.units * fraction
                 fill = tr.target - slippage if long else tr.target + slippage
-                partial_pnl = (fill - tr.entry) * half * sign
+                partial_pnl = _account_pnl(fill, tr.entry, partial_units, sign, rate)
                 cash += partial_pnl
                 tr.pnl += partial_pnl
-                tr.units -= half
-                tr.stop = tr.entry  # move to breakeven
-                # stretch target to 3R on the remainder
-                tr.target = tr.entry + (3 * stop_dist if long else -3 * stop_dist)
-            elif hit_target and partial_taken:
-                # remainder exits at the stretch target
-                fill = tr.target - slippage if long else tr.target + slippage
-                realized = (fill - tr.entry) * tr.units * sign
+                tr.units -= partial_units
+                partial_taken = True
+                if tr.units <= 1e-12:
+                    tr.units = 0.0
+                    tr.exit, tr.exit_time, tr.exit_reason = fill, t, "target"
+                    tr.r_multiple = tr.pnl / tr.risk_amount if tr.risk_amount else 0.0
+                    trades.append(tr)
+                    open_trade = None
+                else:
+                    tr.stop = tr.entry  # move remaining units to breakeven
+            elif hit_runner and partial_taken:
+                fill = tr.target2 - slippage if long else tr.target2 + slippage
+                realized = _account_pnl(fill, tr.entry, tr.units, sign, rate)
                 tr.pnl += realized
                 cash += realized
                 tr.exit, tr.exit_time, tr.exit_reason = fill, t, "target"
-                tr.r_multiple = tr.pnl / risk_per if risk_per else 0.0
+                tr.r_multiple = tr.pnl / tr.risk_amount if tr.risk_amount else 0.0
                 trades.append(tr)
                 open_trade = None
             elif partial_taken:
-                # ATR-style trailing: lock in +1R once the trade runs past +2R
+                # ATR-style trailing: lock in +1R once the trade runs past +2R.
                 r_now = (row["close"] - tr.entry) / stop_dist * sign if stop_dist else 0.0
                 if r_now > 2.0:
                     new_stop = tr.entry + (1.0 * stop_dist if long else -1.0 * stop_dist)
                     if (long and new_stop > tr.stop) or (not long and new_stop < tr.stop):
                         tr.stop = new_stop
 
-            # time stop: predicted move failed to materialize → close at market
-            if open_trade is not None and hit_time_stop and not hit_stop:
+            # Time stop: predicted move failed to materialize -> close at market.
+            if open_trade is not None and hit_time_stop:
                 fill = float(row["close"])
-                realized = (fill - tr.entry) * tr.units * sign
+                sign = 1 if tr.side == "BUY" else -1
+                realized = _account_pnl(fill, tr.entry, tr.units, sign, rate)
                 tr.pnl += realized
                 cash += realized
                 tr.exit, tr.exit_time, tr.exit_reason = fill, t, "time_stop"
-                tr.r_multiple = tr.pnl / risk_per if risk_per else 0.0
+                tr.r_multiple = tr.pnl / tr.risk_amount if tr.risk_amount else 0.0
                 trades.append(tr)
                 open_trade = None
 
+        # Mark-to-market unrealized P&L in account currency.
+        unrealized = 0.0
+        if open_trade is not None:
+            sign = 1 if open_trade.side == "BUY" else -1
+            unrealized = _account_pnl(
+                float(row["close"]), open_trade.entry, open_trade.units, sign, rate
+            )
         eq_idx.append(t)
-        eq_val.append(cash + (0.0 if open_trade is None else
-                              (row["close"] - open_trade.entry) * open_trade.units
-                              * (1 if open_trade.side == "BUY" else -1)))
+        eq_val.append(cash + unrealized)
 
-    # force-close anything left open at the end of the data
+    # Force-close at the final observed close and include the realized amount in
+    # the terminal equity point (and thus in return/drawdown metrics).
+    final_index = df.index[-1]
+    final = df.iloc[-1]
+    final_rate = float(rates.iloc[-1])
     if open_trade is not None:
         tr = open_trade
-        last = df.iloc[-1]
-        fill = float(last["close"])
         sign = 1 if tr.side == "BUY" else -1
-        realized = (fill - tr.entry) * tr.units * sign
+        fill = float(final["close"])
+        realized = _account_pnl(fill, tr.entry, tr.units, sign, final_rate)
         tr.pnl += realized
-        cash += realized   # partial profits were already added to cash when banked
-        tr.exit, tr.exit_time, tr.exit_reason = fill, df.index[-1], "end_of_data"
-        tr.r_multiple = tr.pnl / risk_per if risk_per else 0.0
+        cash += realized
+        tr.exit, tr.exit_time, tr.exit_reason = fill, final_index, "end_of_data"
+        tr.r_multiple = tr.pnl / tr.risk_amount if tr.risk_amount else 0.0
         trades.append(tr)
 
+    eq_idx.append(final_index)
+    eq_val.append(cash)
     curve = pd.Series(eq_val, index=pd.DatetimeIndex(eq_idx), name="equity")
     metrics = _metrics(trades, curve, equity, risk_per)
     return BacktestResult(symbol=symbol, trades=trades, equity_curve=curve,
@@ -249,11 +336,16 @@ def _metrics(trades: list[Trade], curve: pd.Series, equity0: float,
     }
 
 
-def run_backtest(symbol: str, df: pd.DataFrame,
-                 cfg: Optional[AppConfig] = None,
-                 equity: Optional[float] = None) -> BacktestResult:
+def run_backtest(
+    symbol: str,
+    df: pd.DataFrame,
+    cfg: Optional[AppConfig] = None,
+    equity: Optional[float] = None,
+    *,
+    conversion_history: Optional[dict[str, pd.DataFrame]] = None,
+) -> BacktestResult:
     cfg = cfg or AppConfig()
     if df is None or len(df) < 250:
         raise ValueError(f"{symbol}: need at least 250 bars to backtest")
     eq = equity if equity is not None else cfg.risk.equity
-    return _run_single(symbol, df, cfg, eq)
+    return _run_single(symbol, df, cfg, eq, conversion_history)

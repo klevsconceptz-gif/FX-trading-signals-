@@ -87,18 +87,25 @@ class PairModel:
         feats = data[X.columns]
 
         split = int(len(data) * (1.0 - self.cfg.test_fraction))
-        X_tr, X_te = feats.iloc[:split], feats.iloc[split:]
-        d_tr, d_te = y_dir.iloc[:split], y_dir.iloc[split:]
+        # Labels at t use prices through t + horizon. Purge the final horizon
+        # training rows so none of their outcomes overlap the held-out period.
+        train_end = max(0, split - self.cfg.horizon)
+        X_tr, X_te = feats.iloc[:train_end], feats.iloc[split:]
+        d_tr, d_te = y_dir.iloc[:train_end], y_dir.iloc[split:]
+        ret_tr, vol_tr = y_ret.iloc[:train_end], y_vol.iloc[:train_end]
+        if len(X_tr) < 2 or d_tr.nunique() < 2:
+            return self
 
         self.clf.fit(X_tr, d_tr)
-        self.ret_reg.fit(X_tr, y_ret.iloc[:split])
-        self.vol_reg.fit(X_tr, y_vol.iloc[:split])
+        self.ret_reg.fit(X_tr, ret_tr)
+        self.vol_reg.fit(X_tr, vol_tr)
 
         if len(X_te) > 20:
             self.accuracy_ = float((self.clf.predict(X_te) == d_te.to_numpy()).mean())
             imp_sample_X, imp_sample_y = X_te, d_te
         else:
-            self.accuracy_ = float((self.clf.predict(X_tr) == d_tr.to_numpy()).mean())
+            # Never substitute training accuracy for out-of-sample accuracy.
+            self.accuracy_ = None
             imp_sample_X, imp_sample_y = X_tr, d_tr
 
         self.feature_names_ = list(X.columns)

@@ -122,7 +122,8 @@ def test_backtest_endpoint(client):
     assert body["equity_curve"]["v"]
     if body["trades"]:
         t = body["trades"][0]
-        assert {"side", "entry", "exit", "r_multiple", "pnl"} <= set(t)
+        assert {"side", "signal_time", "entry_time", "entry", "exit", "r_multiple", "pnl"} <= set(t)
+        assert t["signal_time"] < t["entry_time"]
 
 
 def test_landing_page_served(client):

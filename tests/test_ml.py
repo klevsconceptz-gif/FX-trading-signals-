@@ -1,8 +1,10 @@
 """ML forecaster tests: training, honest accuracy, forecast shape."""
 
 import numpy as np
+import pandas as pd
 import pytest
 
+import fxbot.ml as ml_module
 from fxbot.config import MLConfig
 from fxbot.features import build_features, make_labels
 from fxbot.ml import MarketForecaster, PairModel
@@ -37,6 +39,41 @@ def test_pair_model_trains_and_forecasts(eurusd):
     assert np.isfinite(fc.expected_move_pct)
     assert 0.25 <= fc.vol_ratio <= 4.0
     assert fc.feature_importance
+
+
+def test_training_purges_forward_labels_at_time_split(monkeypatch):
+    cfg = MLConfig(horizon=8, test_fraction=0.2, min_train_bars=10)
+    model = PairModel(cfg)
+    idx = pd.date_range("2025-01-01", periods=100, freq="h")
+    X = pd.DataFrame({"feature": np.arange(100, dtype=float)}, index=idx)
+    y = pd.DataFrame({
+        "direction": np.arange(100) % 2,
+        "fwd_ret": np.arange(100, dtype=float),
+        "fwd_vol": np.arange(100, dtype=float),
+    }, index=idx)
+
+    class CaptureEstimator:
+        def fit(self, features, labels):
+            self.feature_index = features.index.copy()
+            self.label_index = labels.index.copy()
+
+    model._design = lambda _df: (X, y)
+    model.clf = CaptureEstimator()
+    model.ret_reg = CaptureEstimator()
+    model.vol_reg = CaptureEstimator()
+    monkeypatch.setattr(
+        ml_module, "permutation_importance",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("skip")),
+    )
+
+    model.fit(pd.DataFrame())
+
+    split = 80
+    assert len(model.clf.feature_index) == split - cfg.horizon
+    assert model.clf.feature_index[-1] == idx[split - cfg.horizon - 1]
+    assert model.clf.feature_index[-1] < idx[split]
+    assert model.ret_reg.label_index.equals(model.clf.feature_index)
+    assert model.accuracy_ is None  # no in-sample accuracy when holdout is small
 
 
 def test_market_forecaster_full_universe(full_history, cfg):

@@ -477,21 +477,23 @@ def backtest(req: BacktestRequest, _user: User = Depends(require_access)) -> dic
     symbol = req.symbol.upper()
     if symbol not in BY_SYMBOL:
         raise HTTPException(status_code=404, detail=f"unknown symbol {symbol}")
-    df = _engine.pair_frame(symbol)
-    if df is None:
-        raise HTTPException(status_code=404, detail="no data")
-    if req.bars:
-        df = df.tail(req.bars)
-
     cfg = AppConfig()
-    if req.equity:
+    if req.equity is not None:
         cfg.risk.equity = req.equity
-    if req.risk_per_trade_pct:
+    if req.risk_per_trade_pct is not None:
         cfg.risk.risk_per_trade_pct = req.risk_per_trade_pct
 
+    # Loading/reading the shared history and the backtest itself must be covered
+    # by the same engine lock used by scans and pair reports.
     with _engine_lock:
+        history = _engine.history
+        df = history.get(symbol)
+        if df is None:
+            raise HTTPException(status_code=404, detail="no data")
+        if req.bars:
+            df = df.tail(req.bars)
         try:
-            result = run_backtest(symbol, df, cfg)
+            result = run_backtest(symbol, df, cfg, conversion_history=history)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     curve = result.equity_curve
@@ -505,6 +507,7 @@ def backtest(req: BacktestRequest, _user: User = Depends(require_access)) -> dic
         "trades": [
             {
                 "side": t.side,
+                "signal_time": str(t.signal_time),
                 "entry_time": str(t.entry_time),
                 "entry": round(t.entry, 6),
                 "exit_time": str(t.exit_time),

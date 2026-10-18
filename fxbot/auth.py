@@ -291,7 +291,12 @@ class AccountStore:
                             role="admin", created_at=time.time())
                 s.add(user)
             else:
-                user.password_hash = hash_password(password)
+                password_changed = not verify_password(password, user.password_hash)
+                if password_changed:
+                    user.password_hash = hash_password(password)
+                    # Environment-based password rotation must revoke every old
+                    # bearer token just like the user-facing reset flow does.
+                    s.execute(delete(UserSession).where(UserSession.user_id == user.id))
                 user.role = "admin"
                 user.reset_hash, user.reset_attempts = None, 0
                 user.failed_logins, user.locked_until = 0, 0.0

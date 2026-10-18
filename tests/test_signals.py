@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from fxbot.config import SignalConfig
 from fxbot.signals import build_plan
@@ -42,6 +43,28 @@ def test_plan_level_invariants_short(eurusd):
         if plan.side == "SELL":
             assert plan.target < plan.entry < plan.stop
             assert plan.risk_reward >= cfg.min_risk_reward - 1e-9
+
+
+def test_first_partial_target_matches_configured_r_multiple():
+    idx = pd.date_range("2025-01-01", periods=300, freq="h")
+    close = 1.0 * np.cumprod(1 + np.abs(np.sin(np.arange(300) / 12)) * 0.0012 + 0.0009)
+    df = pd.DataFrame(
+        {
+            "open": np.roll(close, 1),
+            "high": close * 1.0007,
+            "low": close * 0.9993,
+            "close": close,
+        },
+        index=idx,
+    ).iloc[1:]
+    cfg = SignalConfig(partial_profit_r=1.0, min_risk_reward=1.75)
+
+    plan = build_plan("EURUSD", df, cfg)
+
+    assert plan.side == "BUY"
+    assert plan.risk_reward == 1.75
+    assert plan.target == pytest.approx(plan.entry + 1.75 * (plan.entry - plan.stop))
+    assert "+1.8R" in " ".join(plan.actions)
 
 
 def test_synthetic_uptrend_produces_buy():
