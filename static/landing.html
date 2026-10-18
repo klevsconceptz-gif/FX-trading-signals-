@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>klevs FX trading App — Know when to buy. Predict the move. Know when to sell.</title>
+<meta name="description" content="klevs FX trading App scans 32 FX markets, predicts the outcome, and tells you exactly when to buy and when to sell. Pay by crypto or bank wire; access unlocks once the operator verifies your payment." />
+<link rel="stylesheet" href="/static/landing.css" />
+<link rel="stylesheet" href="/static/auth.css" />
+</head>
+<body>
+
+<!-- ===== NAV ===== -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#">
+      <div class="logo">KFX</div>
+      <span>klevs FX trading App</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div class="nav-cta">
+      <button class="btn ghost" id="btn-login">Log in</button>
+      <button class="btn primary" data-scroll="#pricing">Choose a plan</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <div class="eyebrow">⚡ Live FX instruction engine · 32 markets scanned every 5 minutes</div>
+      <h1>Know exactly <em>when to buy</em>.<br/>Predict the outcome.<br/><em class="sell">Know when to sell.</em></h1>
+      <p class="lead">
+        klevs FX trading App traces signals across the entire FX market — majors, crosses,
+        exotics, gold &amp; silver — forecasts the outcome of every setup, and sends you
+        plain-English trade instructions: <b>BUY NOW → predicted +0.49% → SELL at target / stop / time-stop</b>.
+      </p>
+      <div class="hero-actions">
+        <button class="btn primary big" data-scroll="#pricing">Choose a plan &amp; pay</button>
+        <button class="btn ghost big" data-scroll="#how">How it works →</button>
+      </div>
+      <div class="hero-trust">
+        <span class="stars">★★★★★</span>
+        <span>Trusted by retail &amp; prop traders · pay by crypto or wire · not financial advice</span>
+      </div>
+    </div>
+
+    <div class="hero-card" aria-hidden="true">
+      <div class="mock">
+        <div class="mock-head">
+          <span class="badge buy">BUY NOW</span>
+          <strong>EUR/USD</strong>
+          <span class="mock-conf">confidence 62%</span>
+        </div>
+        <div class="mock-line">BUY EUR/USD NOW @ 1.0850 → predicted <b class="up">+0.49%</b> to 1.0903 (P≈58%)</div>
+        <div class="mock-steps">
+          <div><b>① WHEN TO BUY</b> — enter at market on the next candle</div>
+          <div><b>② PREDICTED OUTCOME</b> — +0.49% to target · 1:1.67 R:R · ~6 bars</div>
+          <div><b>③ WHEN TO SELL</b> — 50% at 1.0903 · trail to 1.0948 · stop 1.0820 · time stop 36 bars</div>
+        </div>
+        <div class="mock-foot">
+          <span>ML P(up) 58%</span><span>regime: trend up</span><span>updated 2 min ago</span>
+        </div>
+      </div>
+      <div class="mock mock2">
+        <div class="mock-head">
+          <span class="badge sell">SELL NOW</span>
+          <strong>USD/JPY</strong>
+          <span class="mock-conf">confidence 55%</span>
+        </div>
+        <div class="mock-line">SELL USD/JPY NOW (short) @ 149.12 → predicted <b class="down">−0.31%</b> to 148.66 (P≈52%)</div>
+        <div class="mock-foot"><span>signal flipped ⛔ exit long</span><span>stop 149.55</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div><b>32</b><span>instruments scanned</span></div>
+    <div><b>5 min</b><span>instruction refresh</span></div>
+    <div><b>6</b><span>factors + ML per signal</span></div>
+    <div><b>1.5+ R:R</b><span>minimum on every plan</span></div>
+  </div>
+</header>
+
+<!-- ===== FEATURES ===== -->
+<section id="features" class="section">
+  <h2>Everything you need to trade with a plan</h2>
+  <p class="sub">Not another signal group. A complete decision system: prediction, instructions, and risk — in one app.</p>
+  <div class="grid features">
+    <div class="card">
+      <div class="icon">📡</div>
+      <h3>Whole-market scanner</h3>
+      <p>All 7 majors, 15 crosses, 8 exotics plus gold &amp; silver — scanned continuously with a coherent currency-strength model so you see the entire FX market, not one chart.</p>
+    </div>
+    <div class="card">
+      <div class="icon">🔮</div>
+      <h3>Outcome prediction</h3>
+      <p>Gradient-boosting ML forecasts direction probability, expected move and volatility for every pair — with honest out-of-sample accuracy and P(target before stop) on each plan.</p>
+    </div>
+    <div class="card">
+      <div class="icon">🎯</div>
+      <h3>Buy → Predict → Sell instructions</h3>
+      <p>Every signal is a command: <b>BUY NOW</b> at a price, the <b>predicted outcome</b>, and exactly <b>when to sell</b> — take-profit ladder, stop-loss, time-stop and flip-exits.</p>
+    </div>
+    <div class="card">
+      <div class="icon">🛡️</div>
+      <h3>Risk management built in</h3>
+      <p>ATR-based position sizing, per-currency exposure caps, correlation down-sizing, daily-loss circuit breaker and drawdown throttle — so one bad day never becomes a bad month.</p>
+    </div>
+    <div class="card">
+      <div class="icon">📊</div>
+      <h3>Backtest lab</h3>
+      <p>Validate any pair with the same engine that trades: event-driven, no lookahead, spread &amp; slippage, partial profits and trailing stops. Win rate, profit factor, Sharpe, max DD.</p>
+    </div>
+    <div class="card">
+      <div class="icon">🧠</div>
+      <h3>Market intelligence</h3>
+      <p>Currency strength grid, regime detection (trend / range / volatile), correlation heatmap and a plain-English insight feed with capital-preservation warnings.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== HOW IT WORKS ===== -->
+<section id="how" class="section alt">
+  <h2>How it works</h2>
+  <div class="grid steps">
+    <div class="step">
+      <div class="num">1</div>
+      <h3>Create an account &amp; pay</h3>
+      <p>Pick a plan, create your login, and pay the operator by crypto or bank wire. Nothing is charged by this site.</p>
+    </div>
+    <div class="step">
+      <div class="num">2</div>
+      <h3>Receive buy instructions</h3>
+      <p>The engine scans all 32 markets every 5 minutes and surfaces the qualified setups: when to buy, at what price, with what size.</p>
+    </div>
+    <div class="step">
+      <div class="num">3</div>
+      <h3>Act on the prediction</h3>
+      <p>Each instruction carries the predicted outcome — target, probability, expected time — so you know the plan before you enter.</p>
+    </div>
+    <div class="step">
+      <div class="num">4</div>
+      <h3>Sell on instruction</h3>
+      <p>Take profits in stages, get stopped out with discipline, and exit instantly when a signal flips. The system tells you when — you just execute.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SHOWCASE ===== -->
+<section class="section">
+  <h2>Inside the instruction feed</h2>
+  <p class="sub">This is exactly what paid members see — every setup, every day.</p>
+  <div class="showcase">
+    <div class="show-row buy">
+      <div class="show-tag">BUY NOW</div>
+      <div>
+        <b>BUY XAU/USD NOW @ 2,320.40</b> → predicted <b class="up">+0.42%</b> to 2,330.15 (P≈57%)
+        <div class="show-sub">SELL 50% at 2,330.15 (+1.5R) → trail to 2,337.9 · SELL ALL at stop 2,314.9 · time stop 36 bars</div>
+      </div>
+    </div>
+    <div class="show-row sell">
+      <div class="show-tag">SELL NOW</div>
+      <div>
+        <b>SELL EUR/GBP NOW (short) @ 0.8548</b> → predicted <b class="down">−0.22%</b> to 0.8529 (P≈54%)
+        <div class="show-sub">BUY BACK 50% at 0.8529 (+1.5R) → trail to 0.8513 · BUY BACK ALL at stop 0.8560 · time stop 36 bars</div>
+      </div>
+    </div>
+    <div class="show-row flip">
+      <div class="show-tag">⛔ FLIP</div>
+      <div>
+        <b>USD/CAD signal flipped BUY → SELL</b> — close the old position NOW and stand aside
+        <div class="show-sub">The engine tracks every instruction it has issued and calls the exit when the thesis dies.</div>
+      </div>
+    </div>
+    <div class="show-row wait">
+      <div class="show-tag">DO NOT BUY</div>
+      <div>
+        <b>GBP/JPY — no edge (score +0.21)</b>. Trigger: score crosses ±0.25 → the system will instruct BUY or SELL.
+        <div class="show-sub">Knowing when <i>not</i> to trade is part of the system.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PRICING ===== -->
+<section id="pricing" class="section alt">
+  <h2>Simple 30-day pricing</h2>
+  <p class="sub">Each verified payment unlocks 30 days. Paying again before it expires extends your access. All plans include the full market scanner and trade instructions.</p>
+  <div class="grid pricing">
+    <div class="plan">
+      <h3>Starter</h3>
+      <div class="price"><span class="cur">$</span>29<span class="per">/30 days</span></div>
+      <p class="plan-for">For traders building the habit</p>
+      <ul>
+        <li>All 32 FX markets &amp; metals</li>
+        <li>Buy / sell instructions with TP &amp; SL</li>
+        <li>Predicted outcome on every setup</li>
+        <li>Daily market summary &amp; strength grid</li>
+        <li>Email alerts</li>
+      </ul>
+      <button class="btn primary full plan-btn" data-plan="starter">Choose Starter</button>
+    </div>
+
+    <div class="plan featured">
+      <div class="popular">MOST POPULAR</div>
+      <h3>Pro</h3>
+      <div class="price"><span class="cur">$</span>79<span class="per">/30 days</span></div>
+      <p class="plan-for">For active traders who want the full edge</p>
+      <ul>
+        <li>Everything in Starter</li>
+        <li>Live instruction feed (5-min refresh)</li>
+        <li>ML predictions: P(up), expected move, odds</li>
+        <li>Backtest lab &amp; equity analytics</li>
+        <li>Correlation &amp; portfolio-risk dashboard</li>
+        <li>Priority support</li>
+      </ul>
+      <button class="btn primary full plan-btn" data-plan="pro">Choose Pro</button>
+    </div>
+
+    <div class="plan">
+      <h3>Elite</h3>
+      <div class="price"><span class="cur">$</span>199<span class="per">/30 days</span></div>
+      <p class="plan-for">For serious &amp; multi-account operators</p>
+      <ul>
+        <li>Everything in Pro</li>
+        <li>Multi-account risk profiles</li>
+        <li>Custom alerts &amp; webhooks</li>
+        <li>1-on-1 onboarding session</li>
+      </ul>
+      <button class="btn primary full plan-btn" data-plan="elite">Choose Elite</button>
+    </div>
+  </div>
+  <p class="billing-note">One-time 30-day payments in USD · crypto or bank wire · no card, no recurring billing · access unlocks after the operator verifies your payment</p>
+</section>
+
+<!-- ===== TESTIMONIALS ===== -->
+<section class="section">
+  <h2>Traders who stopped guessing</h2>
+  <div class="grid quotes">
+    <div class="quote">
+      <div class="stars">★★★★★</div>
+      <p>“The buy → predict → sell format changed how I trade. I know the target, the stop and the time-stop before I even click buy. No more improvising exits.”</p>
+      <div class="who"><b>Daniel O.</b> · swing trader, London</div>
+    </div>
+    <div class="quote">
+      <div class="stars">★★★★★</div>
+      <p>“The currency-strength grid alone is worth it. I stopped stacking three correlated USD trades without realizing it — the risk engine just says no.”</p>
+      <div class="who"><b>Maria K.</b> · part-time trader, Berlin</div>
+    </div>
+    <div class="quote">
+      <div class="stars">★★★★★</div>
+      <p>“Backtesting the same engine that sends the instructions gave me the confidence to follow the plan. The discipline is baked in.”</p>
+      <div class="who"><b>Sam A.</b> · prop-firm challenge trader, Dubai</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FAQ ===== -->
+<section id="faq" class="section alt">
+  <h2>Frequently asked questions</h2>
+  <div class="faq">
+    <details>
+      <summary>What markets does the app cover?</summary>
+      <p>All 7 major pairs (EUR/USD, GBP/USD, USD/JPY, USD/CHF, AUD/USD, NZD/USD, USD/CAD), 15 minor crosses, 8 exotics (USD/ZAR, USD/MXN, USD/SEK, USD/NOK, USD/SGD and more), plus gold (XAU/USD) and silver (XAG/USD) — 32 instruments in total.</p>
+    </details>
+    <details>
+      <summary>How are the buy/sell instructions generated?</summary>
+      <p>Six weighted factors — trend, momentum, mean-reversion, breakout, ML probability and cross-sectional currency strength — are combined by market regime into a composite score. Beyond threshold, the system issues a full trade plan: entry, take-profit ladder, stop-loss, time-stop and flip-exits, with ATR-based position sizing.</p>
+    </details>
+    <details>
+      <summary>How accurate are the predictions?</summary>
+      <p>Direction models report honest walk-forward out-of-sample accuracy (typically 48–56% — the reality of FX forecasting). The edge comes from combining the model with structure, regime and risk: every plan carries a minimum 1.5 risk-reward, so you don't need to be right all the time.</p>
+    </details>
+    <details>
+      <summary>Is this financial advice?</summary>
+      <p>No. klevs FX trading App is an analysis and education tool. Everything it produces is a decision-support instruction, not personalized investment advice. Trading FX involves substantial risk of loss — never trade money you cannot afford to lose.</p>
+    </details>
+    <details>
+      <summary>Is there recurring billing?</summary>
+      <p>No. Each payment buys 30 days of access and nothing renews automatically. You pay again when you want to extend.</p>
+    </details>
+    <details>
+      <summary>How do I access the bot after paying?</summary>
+      <p>Create your account, choose a plan and send the payment to the wallet or bank account shown on your invoice. Submit the transaction hash or wire reference, and the operator verifies it. Once verified, log in and open the web app at <b>/app</b> — the live instruction feed, charts, backtest lab and risk dashboard work on desktop and mobile browsers.</p>
+    </details>
+    <details>
+      <summary>Do you place trades for me?</summary>
+      <p>No. The app tells you <i>when to buy, what outcome to expect, and when to sell</i> — execution stays with you and your broker. This keeps you in control and your capital in your own account.</p>
+    </details>
+  </div>
+</section>
+
+<!-- ===== FINAL CTA ===== -->
+<section class="cta">
+  <h2>Start trading with a plan, not a hunch.</h2>
+  <p>Join klevs FX trading App today — first instructions arrive in minutes.</p>
+  <button class="btn primary big" data-scroll="#pricing">Choose a plan</button>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer>
+  <div class="foot-inner">
+    <div class="brand"><div class="logo">KFX</div><span>klevs FX trading App</span></div>
+    <div class="foot-links">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+      <a href="/app">App login</a>
+    </div>
+  </div>
+  <p class="disclaimer">
+    ⚠ Educational software. klevs FX trading App provides analysis, predictions and decision-support
+    instructions only — it is <b>not financial advice</b> and places no orders with any broker.
+    Trading foreign exchange involves substantial risk of loss and is not suitable for every investor.
+    Past performance does not guarantee future results.
+  </p>
+  <p class="copy">© 2026 klevs FX trading App · All rights reserved</p>
+</footer>
+
+<script src="/static/auth.js"></script>
+<script src="/static/landing.js"></script>
+</body>
+</html>

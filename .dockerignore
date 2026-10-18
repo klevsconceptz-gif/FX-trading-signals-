@@ -1,0 +1,31 @@
+# Keep the build context small and keep secrets, local data and VCS metadata out of the image.
+.git
+.gitignore
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+tests
+scripts
+docs
+deploy
+output
+models
+data
+# Environment files may hold admin passwords and SMTP credentials. Never bake them into an image.
+.env
+.env.*
+*.pickle
+*.pkl
+*.joblib
+*.db
+*.sqlite
+*.sqlite3
+*.log
+Dockerfile
+.dockerignore
