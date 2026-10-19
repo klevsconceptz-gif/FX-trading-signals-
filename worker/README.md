@@ -87,6 +87,6 @@ Run these commands from the repository root in an authenticated Cloudflare/Wrang
    npm run worker:deploy
    ```
 
-7. In the Cloudflare Pages project, set `KLEVS_API_ORIGIN` to the Worker HTTPS origin for both Production and Preview, then deploy Pages. Do not put admin credentials in Pages settings: Pages variables are not forwarded to the API Worker.
+7. The Pages Function defaults to the configured Worker origin (`https://klv-fx-trading-signals.klevco.workers.dev`) for Production and Preview builds. If you need a different origin, set `KLEVS_API_ORIGIN` in the Pages project for both environments, then deploy Pages. Do not put admin credentials in Pages settings: Pages variables are not forwarded to the API Worker.
 
 The Worker name in this config targets `klv-fx-trading-signals`. Review the Cloudflare account/Worker target before running a remote migration or deployment. Remote migrations and deployment have not been run from this repository workspace.

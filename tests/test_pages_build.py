@@ -73,8 +73,9 @@ assert.equal(forwarded.method, 'POST');
 assert.equal(forwarded.headers.get('authorization'), 'Bearer test');
 assert.deepEqual(await forwarded.json(), { plan: 'starter' });
 const healthRequest = new Request('https://pages.example/api/health');
-const missing = await onRequest({ request: healthRequest, env: {} });
-assert.equal(missing.status, 503);
+const fallback = await onRequest({ request: healthRequest, env: {} });
+assert.equal(fallback.status, 200);
+assert.equal(forwarded.url, 'https://klv-fx-trading-signals.klevco.workers.dev/api/health');
 const insecure = await onRequest({
   request: healthRequest,
   env: { KLEVS_API_ORIGIN: 'http://api.example.com' },

@@ -25,13 +25,13 @@ In the API Worker's **Settings → Variables and Secrets**, configure:
 
 The password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol. Set these on the **API Worker**, not the Pages project. Never put credential values in `wrangler.jsonc`, source control, or chat.
 
-The Pages project should contain only `KLEVS_API_ORIGIN`, set to the API Worker's HTTPS origin for both Production and Preview. Pages variables are not forwarded to the external Worker.
+The Pages Function defaults to `https://klv-fx-trading-signals.klevco.workers.dev` for Production and Preview. Set `KLEVS_API_ORIGIN` on Pages only if you need to override that origin. Pages variables are not forwarded to the external Worker.
 
 For full local and production commands, including D1 migrations and Worker deployment, see [`worker/README.md`](../worker/README.md). Live Cloudflare secrets, remote migrations, and deployment have not been applied from this workspace.
 
 ## Important signal-engine requirement
 
-Account, payment, admin, health, and universe APIs run in the Worker. The computational signal engine still uses the Python modules under `fxbot/`, which cannot run unchanged in a Worker. Configure `KFX_SIGNAL_ENGINE_ORIGIN` on the Worker to a **separate HTTPS signal-engine API origin** for scans, instructions, pair detail, and backtests. Without it those routes return `503`; this is documented in the Worker README.
+Account, payment, admin, health, and universe APIs run in the Worker. The computational signal engine still uses the Python modules under `fxbot/`, which cannot run unchanged in a Worker. Configure `KFX_SIGNAL_ENGINE_ORIGIN` on the Worker to a **separate HTTPS signal-engine API origin** and configure the same high-entropy `KFX_SIGNAL_ENGINE_TOKEN` secret on both Worker and FastAPI service for scans, instructions, pair detail, and backtests. Without both settings those routes return `503`; this is documented in the Worker README.
 
 ## If using the FastAPI backend instead
 
@@ -41,9 +41,9 @@ The existing FastAPI service also supports admin bootstrap from its own runtime 
 
 - **Incorrect credentials / 401:** check the Worker secrets and that the admin bootstrap succeeds in D1.
 - **“This account is not an operator account” / 403:** the account authenticated but does not have the `admin` role. Do not change the role in browser storage.
-- **Pages reports that `KLEVS_API_ORIGIN` is not configured:** set it on the Pages project for the relevant environment, then deploy Pages.
+- **Pages API calls fail or target the wrong Worker:** check `KLEVS_API_ORIGIN` if set; with no override, the Pages Function uses `https://klv-fx-trading-signals.klevco.workers.dev`.
 - **Admin page loads but API calls fail:** verify the Worker deployment, D1/KV bindings, remote D1 migration, and Pages API origin.
-- **Scan, instructions, pair or backtest returns 503:** configure a separate `KFX_SIGNAL_ENGINE_ORIGIN`; do not point it back to the Worker itself.
+- **Scan, instructions, pair or backtest returns 503:** configure a separate HTTPS `KFX_SIGNAL_ENGINE_ORIGIN` and the matching `KFX_SIGNAL_ENGINE_TOKEN` secret on the Worker and FastAPI host; do not point the origin back to the Worker itself.
 - **Password reset message arrives but no email:** configure the Worker reset-mail HTTP endpoint and token as described in `worker/README.md`.
 
 If a password is exposed, rotate it in the API runtime and redeploy. Do not use test credentials from the repository.
