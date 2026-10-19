@@ -7,6 +7,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 let SCAN = null;          // last scan report
 let PAIR = null;          // last pair detail
+let scanInProgress = false; // avoid overlapping manual/automatic refresh requests
 let sortKey = "confidence";
 let sortDir = -1;
 
@@ -93,6 +94,8 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
 })[c]);
 
 async function loadScan(refresh = false) {
+  if (scanInProgress) return;
+  scanInProgress = true;
   const btn = $("#btn-refresh");
   btn.disabled = true;
   btn.textContent = "Scanning…";
@@ -115,6 +118,7 @@ async function loadScan(refresh = false) {
     if (!SCAN) $("#chip-source").textContent = "unavailable";
     $("#insights").innerHTML = `<li class="warn">Failed to load scan: ${esc(e.message || e)}</li>`;
   } finally {
+    scanInProgress = false;
     btn.disabled = false;
     btn.textContent = "↻ Rescan market";
   }

@@ -20,8 +20,8 @@ and an event-driven backtester.
 | **2 · Measure** | `fxbot/indicators.py`, `fxbot/strength.py` | 20+ indicators (EMA/SMA/RSI/MACD/Bollinger/ATR/ADX/Stochastic/CCI/Donchian/Ichimoku…), cross-sectional **currency strength** ranking, regime detection (trend / range / volatile), correlation matrix |
 | **3 · Predict** | `fxbot/features.py`, `fxbot/ml.py` | Per-pair gradient-boosting ensembles forecasting **direction P(up), expected move and volatility** over the next bars — walk-forward, time-ordered, honest OOS accuracy |
 | **4 · Decide** | `fxbot/signals.py` | Six weighted factors (trend, momentum, mean-reversion, breakout, ML, strength differential) → composite score → full **trade plan**: entry, stop-loss, take-profit, stretch target, R:R, partial-profit schedule, narrative |
-| **5 · Protect** | `fxbot/risk.py` | ATR-based position sizing (fixed % equity risk), per-currency exposure caps, correlation down-sizing, daily-loss circuit breaker, drawdown throttle, Kelly reference |
-| **6 · Validate** | `fxbot/backtest.py` | Event-driven backtester: next-open execution (no lookahead), conservative intrabar fills, spread + slippage, partial profits, breakeven stops, trailing stops → win rate, profit factor, expectancy (R), Sharpe, Sortino, max DD |
+| **5 · Protect** | `fxbot/risk.py` | Account-currency position sizing with instrument lot sizes; proposed-scan position-count, per-currency exposure/risk and correlation caps; Kelly reference. Daily-loss and drawdown breakers need live account state and are not active in this analysis-only app. |
+| **6 · Validate** | `fxbot/backtest.py` | Event-driven backtester: next-open execution (no lookahead), lagged FX conversion for quote-currency P&L, conservative intrabar fills, plan-matched partial/runner targets, opposite-signal exits, terminal close included in equity metrics. |
 | **7 · Present** | `fxbot/server.py`, `static/` | Live dashboard: market pulse, currency strength, signals table, candle charts with plan levels, correlation heatmap, insight feed, backtest lab |
 
 ## Quick start
@@ -57,8 +57,9 @@ Access works like this — there is **no card checkout and no payment processor*
 3. The buyer submits the transaction hash or wire reference. The payment waits in the
    operator queue as `submitted`.
 4. The **operator verifies the payment** in `/admin` (wallet or bank statement) and clicks
-   *Confirm & grant*. Only then is 30 days of access written to the database. A rejection
-   carries a reason that the buyer sees, and the buyer can try again.
+   *Confirm & grant*. Only then is 30 days of access written to the database. Confirmation is
+   an atomic one-time transition, so duplicate/concurrent clicks cannot create duplicate grants.
+   A rejection carries a reason that the buyer sees, and the buyer can try again.
 5. Each further confirmed payment adds 30 days, stacked onto any active access. Nothing
    renews automatically.
 
@@ -74,7 +75,8 @@ code to the account email. Only its hash is stored, it expires in 15 minutes and
 after 5 wrong attempts. The code is never returned in an API response unless the local-only
 flag `KLEVS_DEV_RESET_CODES=1` is set. Set the SMTP variables `KLEVS_SMTP_*` to deliver the
 code by email. Login locks out for 15 minutes after 10 failures. Session tokens are stored
-only as SHA-256 hashes.
+only as SHA-256 hashes. Rotating the environment-provisioned admin password revokes all
+existing admin sessions.
 
 **Database.** Accounts, sessions, payments, access grants and the operator's payment details
 live in a database set by `KLEVS_DATABASE_URL`:
@@ -101,9 +103,12 @@ live in a database set by `KLEVS_DATABASE_URL`:
 | `GET /api/admin/users` | operator | accounts and access state |
 | `POST /api/admin/users/{id}/grant` · `…/revoke` | operator | manual grant (note required) or revoke (reason required) |
 | `GET` / `PUT /api/admin/payment-settings` | operator | crypto wallets (network + address) and wire details |
+| `GET /api/admin/audit-log[?limit=]` | operator | recent payment decisions, access grants/revocations, and payment-setting changes |
 
-Every decision is audited: the payment or grant records the operator username, the timestamp and
-the note.
+The `/admin` **Activity log** tab and audit endpoint show who changed what, when, and the operator's
+note. Wallet addresses and bank-account values are never copied into audit events. Existing payment
+decisions are reconstructed from their decision records; older manual access records may not have
+an exact action timestamp, and settings history begins when audit logging is deployed.
 
 Run the test-suite:
 
@@ -184,12 +189,13 @@ factors ────┼─ breakout (Donchian position)        0.10 ├──►
             └─ currency strength differential      0.10 ┘
                                           (weights × regime)
 
-Trade plan:  entry = next open
-             SL    = entry ∓ 1.5·ATR (1.2× in range, widened if vol forecast hot, beyond S/R)
-             TP    = entry ± 2.5·ATR (1.8× in range)  — guaranteed ≥ 1.5 R:R
-             TP2   = 3R / structure
-             plan  = 50% off at +1.5R → stop to breakeven → trail remainder to 3R
-             size  = (equity × 0.75%) / |entry − SL|
+Trade plan:  signal uses the completed close; entry = following bar open
+             SL    = signal close ∓ ATR multiple (widened for hot volatility / structure)
+             TP    = max(configured partial R, minimum R:R) × stop distance
+             TP2   = stretch target from ATR / structure
+             plan  = configured fraction off at TP → stop to breakeven → manage to TP2
+             size  = account-currency risk budget ÷ (stop distance × quote conversion)
+             lots  = base units ÷ instrument-specific lot size
 ```
 
 ## The instruction lifecycle — buy → predict → sell
@@ -200,10 +206,12 @@ Every signal is delivered as an imperative 3-stage instruction, not just data:
 |-------|---------------------------|
 | **① WHEN TO BUY** | `BUY NOW — open a long at market ≈ 1.0850` (or `SELL NOW` to short; or `DO NOT BUY YET` on the watchlist) |
 | **② PREDICTED OUTCOME** | "Model expects EUR/USD to trade higher (+0.42% over the next 8 bars, P(up)=58%). Plan: +0.62% to take-profit vs −0.37% to stop (1:1.67 R:R). Estimated chance take-profit is hit before the stop ≈ 37%; typically resolved in ~6 bars." |
-| **③ WHEN TO SELL / EXIT** | imperative sell steps: take-profit order (sell 50% at +1.5R → stop to breakeven → sell the rest on the trail to 3R) · stop-loss sell-all at the invalidation level · **time stop** (sell after 36 bars if the predicted move never came) · **sell immediately if the signal flips** (the engine tracks prior signals and emits `⛔ SIGNAL FLIPPED — SELL NOW`) |
+| **③ WHEN TO SELL / EXIT** | imperative sell steps: take-profit order at the plan's configured first target → stop to breakeven → manage the remainder toward the stretch target · stop-loss sell-all at the invalidation level · **time stop** (sell after the configured number of bars) · **sell immediately if the signal flips** |
 
-The backtester enforces the same lifecycle it preaches: partial-profit sells,
-breakeven stops, trailing sells, time-stop exits and flip exits are all simulated.
+The backtester fills entries on the bar after the signal, uses the same first and
+stretch targets as the plan, converts quote-currency P&L using rates from before
+the exit bar, and includes opposite-signal, time-stop, and terminal exits. These
+are simulations, not broker orders or guarantees.
 
 ## Project layout
 
@@ -223,7 +231,7 @@ fxbot/
   server.py       # FastAPI JSON API + dashboard
 static/           # self-contained web terminal (vanilla JS + canvas)
 scripts/          # scan.py · backtest.py · train.py CLIs
-tests/            # 43 tests: indicators, signals, risk, backtest, ML, API
+tests/            # pytest regression suite: indicators, signals, risk, backtest, ML, auth, billing, API
 RESOURCES.md      # research survey (GitHub repos, papers, data sources)
 ```
 
@@ -231,11 +239,14 @@ RESOURCES.md      # research survey (GitHub repos, papers, data sources)
 
 All knobs live in `fxbot/config.py`:
 
-- **RiskConfig** — equity (default $10,000), risk/trade 0.75%, max 8 open
-  positions, ≤2 per currency, min R:R 1.5, 3% daily loss limit, 15% DD throttle
-- **SignalConfig** — factor weights, entry threshold 0.25, ATR multipliers
-  (SL 1.5 / TP 2.5 trend, 1.2 / 1.8 range), partial-profit plan
-- **MLConfig** — horizon 8 bars, HistGradientBoosting, time-ordered 80/20 split
+- **RiskConfig** — account currency (default USD), configured equity ($10,000),
+  base risk/trade 0.75%, max 8 proposed positions, ≤2 per currency, max 2% risk
+  per currency, min R:R 1.5. Daily-loss and drawdown settings are not live-enforced
+  because this app has no broker/account P&L connection.
+- **SignalConfig** — factor weights, entry threshold 0.25, ATR stop/runner-target
+  multipliers (SL 1.5 / runner 2.5 trend, 1.2 / 1.8 range), partial-profit R and fraction
+- **MLConfig** — horizon 8 bars, HistGradientBoosting, time-ordered 80/20 split;
+  forward-label overlap is purged at the train/test boundary
 - **DataConfig** — timeframe `1h` or `1d`, 3000 bars, provider order, synthetic seed
 
 Every scan and backtest is deterministic for a given seed — reproducible research.

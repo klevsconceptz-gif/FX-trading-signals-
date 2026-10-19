@@ -4,8 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>klevs FX trading App — Market Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/static/style.css" />
 <link rel="stylesheet" href="/static/auth.css" />
+<link rel="stylesheet" href="/static/theme.css" />
+<link rel="stylesheet" href="/static/dashboard-polish.css" />
 </head>
 <body>
 <header class="topbar">
@@ -13,7 +18,7 @@
     <div class="logo">KFX</div>
     <div>
       <h1>klevs FX trading App</h1>
-      <div class="sub">Whole-market tracing · prediction · trade plans (entry / TP / SL)</div>
+      <div class="sub">Whole-market signal scan · prediction · suggested entry / TP / SL</div>
     </div>
   </div>
     <div class="pulse" id="pulse">
@@ -122,7 +127,7 @@
   <!-- ============ BACKTEST TAB ============ -->
   <section id="tab-backtest" class="tab-panel">
     <div class="card">
-      <h2>Backtest Lab <span class="hint">event-driven · spread + slippage · partial profits · trailing stops</span></h2>
+      <h2>Backtest Lab <span class="hint">event-driven · spread-based slippage estimate · partial profits · trailing stops</span></h2>
       <div class="bt-controls">
         <label>Pair
           <select id="bt-symbol"></select>
@@ -176,20 +181,23 @@
         <h3>3 · Act — signal engine &amp; trade plans</h3>
         <p>Six factors (trend, momentum, mean-reversion, breakout, ML, currency-strength differential)
         are weighted by regime into a composite score. Beyond threshold it emits a full plan:
-        <strong>entry</strong> (next bar), <strong>stop-loss</strong> at 1.2–1.5×ATR beyond structure
-        (wider when volatility is forecast hot), <strong>take-profit</strong> at 1.8–2.5×ATR with a
-        guaranteed 1.5 minimum R:R, a partial-profit plan (50% at +1.5R → breakeven stop → trail to 3R),
-        and ATR-based position sizing risking a fixed 0.75% of equity per trade.</p>
+        <strong>entry</strong> on the next bar, a volatility/structure-aware <strong>stop-loss</strong>,
+        a first partial target at the configured R multiple (at least the minimum R:R), and a separate
+        ATR/structure stretch target. The configured fraction is taken at the first target, then the
+        stop moves to breakeven. Position sizing converts quote-currency risk into the configured
+        account currency and uses each instrument's lot size.</p>
 
-        <h3>4 · Protect — portfolio risk layer</h3>
-        <p>Max open positions, per-currency exposure caps (no 3× USD stacking), correlation down-sizing,
-        daily loss circuit-breaker and a drawdown throttle. The Kelly fraction is shown as a reference
-        only (half-Kelly, capped).</p>
+        <h3>4 · Protect — proposed-portfolio risk layer</h3>
+        <p>Scanned recommendations are allocated together under position-count, per-currency exposure
+        and risk caps, and correlation scaling. Kelly is shown only as a reference. Daily-loss and
+        drawdown breakers require tracked account P&amp;L and open positions; they are not active in
+        this analysis-only app.</p>
 
         <h3>5 · Validate — event-driven backtester</h3>
         <p>Signals computed on bar t execute at bar t+1's open (no lookahead). Intrabar stop/target
-        fills are conservative (stop wins ties). Costs = instrument spread + slippage. Metrics:
-        win rate, profit factor, expectancy in R, Sharpe, Sortino, max drawdown.</p>
+        fills are conservative (stop wins ties), partial/runner exits match the plan, opposite signals
+        exit at the next open, and quote-currency P&amp;L uses prior-bar FX conversion rates. The
+        terminal close is included in the final equity and return metrics.</p>
 
         <p class="disclaimer">⚠ Educational software. Markets involve substantial risk of loss.
         Nothing here is financial advice; no orders are ever sent to a broker.

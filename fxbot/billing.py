@@ -23,9 +23,9 @@ import secrets
 import time
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
-from .db import AccessGrant, Payment, Setting, User, db_session
+from .db import AccessGrant, AdminAuditEvent, Payment, Setting, User, db_session
 
 PLANS: dict[str, dict[str, Any]] = {
     "starter": {"name": "Starter", "price_usd": 29},
@@ -41,6 +41,34 @@ WIRE_FIELDS = ("bank_name", "account_name", "account_number", "routing_or_swift"
 
 def _now() -> float:
     return time.time()
+
+
+def _record_admin_event(
+    session,
+    *,
+    actor: str,
+    action: str,
+    summary: str,
+    target: Optional[User] = None,
+    payment_id: Optional[int] = None,
+    grant_id: Optional[int] = None,
+    reference: Optional[str] = None,
+    note: Optional[str] = None,
+    occurred_at: Optional[float] = None,
+) -> None:
+    """Add a non-sensitive operator audit record in the current transaction."""
+    session.add(AdminAuditEvent(
+        occurred_at=occurred_at if occurred_at is not None else _now(),
+        actor_username=actor[:64],
+        action=action[:48],
+        target_user_id=target.id if target else None,
+        target_username=target.username[:64] if target else None,
+        payment_id=payment_id,
+        grant_id=grant_id,
+        reference=reference[:32] if reference else None,
+        summary=summary[:200],
+        note=note[:300] if note else None,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +89,7 @@ def get_settings() -> dict[str, Any]:
     return data
 
 
-def update_settings(payload: dict[str, Any]) -> dict[str, Any]:
+def update_settings(payload: dict[str, Any], operator: str) -> dict[str, Any]:
     crypto: list[dict[str, str]] = []
     for item in payload.get("crypto") or []:
         network = str(item.get("network", "")).strip().upper()
@@ -87,9 +115,31 @@ def update_settings(payload: dict[str, Any]) -> dict[str, Any]:
     with db_session() as s:
         row = s.get(Setting, SETTINGS_KEY)
         if row is None:
+            previous = _empty_settings()
             s.add(Setting(key=SETTINGS_KEY, value=json.dumps(data)))
         else:
+            previous_raw = json.loads(row.value)
+            previous = _empty_settings()
+            previous["crypto"] = list(previous_raw.get("crypto", []))
+            previous["wire"].update({
+                key: value for key, value in (previous_raw.get("wire") or {}).items()
+                if key in WIRE_FIELDS
+            })
             row.value = json.dumps(data)
+
+        if previous != data:
+            wire_enabled = bool(wire["account_number"] or wire["iban"])
+            audit_note = (
+                f"Crypto networks: {len(crypto)}; bank wire: "
+                f"{'enabled' if wire_enabled else 'disabled'}"
+            )
+            _record_admin_event(
+                s,
+                actor=operator,
+                action="payment_settings_updated",
+                summary="Updated payment settings",
+                note=audit_note,
+            )
     return data
 
 
@@ -277,16 +327,41 @@ def list_payments(status: Optional[str] = None) -> list[dict[str, Any]]:
 
 def confirm_payment(payment_id: int, operator: str, note: str = "") -> dict[str, Any]:
     with db_session() as s:
+        decided_at = _now()
+        decision_note = (note or "").strip()[:300] or None
+        # Compare-and-set first (before any read) so competing requests serialize
+        # on this row and only one can transition submitted -> confirmed.
+        result = s.execute(
+            update(Payment)
+            .where(Payment.id == payment_id, Payment.status == "submitted")
+            .values(status="confirmed", decided_at=decided_at,
+                    decided_by=operator, decision_note=decision_note)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            current = s.get(Payment, payment_id)
+            if current is None:
+                raise LookupError("payment not found")
+            raise ValueError(
+                f"only submitted payments can be confirmed (this one is {current.status.replace('_', ' ')})"
+            )
+
         p = s.get(Payment, payment_id)
-        if p is None:
-            raise LookupError("payment not found")
-        if p.status != "submitted":
-            raise ValueError(f"only submitted payments can be confirmed (this one is {p.status.replace('_', ' ')})")
-        p.status = "confirmed"
-        p.decided_at = _now()
-        p.decided_by = operator
-        p.decision_note = (note or "").strip()[:300] or None
-        _extend_access(s, p.user_id, p.plan, ACCESS_DAYS, operator, p.id, p.decision_note)
+        assert p is not None  # guarded by the update above
+        target = s.get(User, p.user_id)
+        grant = _extend_access(s, p.user_id, p.plan, ACCESS_DAYS, operator, p.id, p.decision_note)
+        _record_admin_event(
+            s,
+            actor=operator,
+            action="payment_confirmed",
+            summary=f"Confirmed payment; granted {ACCESS_DAYS} days of {p.plan} access",
+            target=target,
+            payment_id=p.id,
+            grant_id=grant.id,
+            reference=p.invoice,
+            note=p.decision_note,
+            occurred_at=decided_at,
+        )
         s.flush()
         return _view(p)
 
@@ -305,6 +380,18 @@ def reject_payment(payment_id: int, operator: str, note: str) -> dict[str, Any]:
         p.decided_at = _now()
         p.decided_by = operator
         p.decision_note = note[:300]
+        target = s.get(User, p.user_id)
+        _record_admin_event(
+            s,
+            actor=operator,
+            action="payment_rejected",
+            summary="Rejected payment",
+            target=target,
+            payment_id=p.id,
+            reference=p.invoice,
+            note=p.decision_note,
+            occurred_at=p.decided_at,
+        )
         s.flush()
         return _view(p)
 
@@ -319,9 +406,22 @@ def grant_access(user_id: int, plan: str, days: int, operator: str, note: str) -
     if len(note) < 3:
         raise ValueError("give a note explaining the manual grant")
     with db_session() as s:
-        if s.get(User, user_id) is None:
+        target = s.get(User, user_id)
+        if target is None:
             raise LookupError("user not found")
+        occurred_at = _now()
         grant = _extend_access(s, user_id, plan, days, operator, None, note[:300])
+        _record_admin_event(
+            s,
+            actor=operator,
+            action="access_granted",
+            summary=f"Granted {plan} access for {days} days",
+            target=target,
+            grant_id=grant.id,
+            reference=f"grant #{grant.id}",
+            note=note[:300],
+            occurred_at=occurred_at,
+        )
         return {"id": grant.id, "plan": plan, "expires_at": grant.expires_at}
 
 
@@ -330,13 +430,25 @@ def revoke_access(user_id: int, operator: str, note: str) -> int:
     if len(note) < 3:
         raise ValueError("give a note explaining the revocation")
     with db_session() as s:
-        if s.get(User, user_id) is None:
+        target = s.get(User, user_id)
+        if target is None:
             raise LookupError("user not found")
         rows = s.scalars(select(AccessGrant).where(
             AccessGrant.user_id == user_id, AccessGrant.status == "active")).all()
-        for g in rows:
-            g.status = "revoked"
-            g.note = f"revoked by {operator}: {note[:200]}"
+        occurred_at = _now()
+        for grant in rows:
+            grant.status = "revoked"
+            _record_admin_event(
+                s,
+                actor=operator,
+                action="access_revoked",
+                summary=f"Revoked {grant.plan} access grant",
+                target=target,
+                grant_id=grant.id,
+                reference=f"grant #{grant.id}",
+                note=note[:300],
+                occurred_at=occurred_at,
+            )
         return len(rows)
 
 
@@ -354,3 +466,115 @@ def list_users() -> list[dict[str, Any]]:
                            "expires_at": grant.expires_at if grant else None},
             })
         return out
+
+
+def _legacy_revoke_details(note: Optional[str], fallback_actor: str) -> tuple[str, Optional[str]]:
+    """Recover actor/reason from older revoke notes that predate structured audit events."""
+    text = (note or "").strip()
+    prefix = "revoked by "
+    if text.startswith(prefix):
+        actor, separator, reason = text[len(prefix):].partition(": ")
+        if separator and actor.strip():
+            return actor.strip(), reason.strip() or None
+    return fallback_actor, text or None
+
+
+def list_admin_audit(limit: int = 100) -> list[dict[str, Any]]:
+    """Return recent admin activity plus recoverable legacy payment/access records."""
+    limit = max(1, min(int(limit), 500))
+    with db_session() as s:
+        stored = s.scalars(
+            select(AdminAuditEvent)
+            .order_by(AdminAuditEvent.occurred_at.desc(), AdminAuditEvent.id.desc())
+            .limit(limit)
+        ).all()
+        events: list[dict[str, Any]] = [
+            {
+                "event_id": event.id,
+                "occurred_at": event.occurred_at,
+                "actor": event.actor_username,
+                "action": event.action,
+                "target_username": event.target_username,
+                "reference": event.reference,
+                "summary": event.summary,
+                "note": event.note,
+                "legacy": False,
+            }
+            for event in stored
+        ]
+        stored_payment_ids = {event.payment_id for event in stored if event.payment_id is not None}
+        stored_grant_ids = {event.grant_id for event in stored if event.grant_id is not None}
+
+        # Payment records already contain a trustworthy decision timestamp and actor.
+        decisions = s.execute(
+            select(Payment, User)
+            .join(User, User.id == Payment.user_id)
+            .where(Payment.decided_at.is_not(None))
+            .order_by(Payment.decided_at.desc())
+            .limit(limit)
+        ).all()
+        for payment, user in decisions:
+            if payment.id in stored_payment_ids:
+                continue
+            confirmed = payment.status == "confirmed"
+            events.append({
+                "event_id": f"legacy-payment-{payment.id}",
+                "occurred_at": payment.decided_at,
+                "actor": payment.decided_by or "Unknown operator",
+                "action": "payment_confirmed" if confirmed else "payment_rejected",
+                "target_username": user.username,
+                "reference": payment.invoice,
+                "summary": (
+                    f"Payment confirmed; access grant recorded ({payment.plan})"
+                    if confirmed else "Payment rejected"
+                ),
+                "note": payment.decision_note,
+                "legacy": True,
+            })
+
+        # Legacy manual grants lack a creation/revocation timestamp. Show them, but label
+        # their event time as unavailable instead of treating the effective date as the action time.
+        grants = s.execute(
+            select(AccessGrant, User)
+            .join(User, User.id == AccessGrant.user_id)
+            .where(AccessGrant.payment_id.is_(None))
+            .order_by(AccessGrant.id.desc())
+            .limit(limit)
+        ).all()
+        for grant, user in grants:
+            if grant.id in stored_grant_ids:
+                continue
+            events.append({
+                "event_id": f"legacy-grant-{grant.id}",
+                "occurred_at": None,
+                "actor": grant.granted_by,
+                "action": "access_granted",
+                "target_username": user.username,
+                "reference": f"grant #{grant.id}",
+                "summary": f"Legacy manual {grant.plan} access grant; event time not recorded",
+                "note": grant.note if grant.status == "active" else None,
+                "legacy": True,
+            })
+            if grant.status == "revoked":
+                actor, reason = _legacy_revoke_details(grant.note, grant.granted_by)
+                events.append({
+                    "event_id": f"legacy-revoke-{grant.id}",
+                    "occurred_at": None,
+                    "actor": actor,
+                    "action": "access_revoked",
+                    "target_username": user.username,
+                    "reference": f"grant #{grant.id}",
+                    "summary": "Legacy access revocation; event time not recorded",
+                    "note": reason,
+                    "legacy": True,
+                })
+
+        events.sort(
+            key=lambda item: (
+                item["occurred_at"] is not None,
+                item["occurred_at"] if item["occurred_at"] is not None else 0,
+                str(item["event_id"]),
+            ),
+            reverse=True,
+        )
+        return events[:limit]

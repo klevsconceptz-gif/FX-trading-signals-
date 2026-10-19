@@ -89,11 +89,12 @@ function setErr(msg) { $("#g-err").textContent = msg || ""; }
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
-  ["payments", "users", "settings"].forEach((name) =>
+  ["payments", "users", "settings", "activity"].forEach((name) =>
     $(`#tab-${name}`).classList.toggle("hidden", name !== t.dataset.tab));
   if (t.dataset.tab === "payments") loadPayments();
   if (t.dataset.tab === "users") loadUsers();
   if (t.dataset.tab === "settings") loadSettings();
+  if (t.dataset.tab === "activity") loadAuditLog();
 }));
 
 /* ---------- payments ---------- */
@@ -277,6 +278,47 @@ async function loadSettings() {
     if (!guard(err)) setErr(err.message);
   }
 }
+
+const AUDIT_ACTIONS = {
+  payment_confirmed: "Payment confirmed",
+  payment_rejected: "Payment rejected",
+  access_granted: "Access granted",
+  access_revoked: "Access revoked",
+  payment_settings_updated: "Payment settings updated",
+};
+
+function renderAuditLog(events) {
+  const tbody = $("#audit-rows");
+  if (!events.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="note">No admin activity recorded yet.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = events.map((event) => {
+    const when = event.occurred_at == null ? "Time not recorded" : fmtDate(event.occurred_at);
+    const legacy = event.legacy ? `<div class="note">Historical record</div>` : "";
+    const action = AUDIT_ACTIONS[event.action] || event.action;
+    return `<tr>
+      <td>${esc(when)}${legacy}</td>
+      <td>${esc(event.actor || "—")}</td>
+      <td>${esc(action)}<div class="note">${esc(event.summary || "")}</div></td>
+      <td>${esc(event.target_username || "—")}</td>
+      <td>${esc(event.reference || "—")}</td>
+      <td>${esc(event.note || "—")}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function loadAuditLog() {
+  setErr("");
+  try {
+    const data = await api("GET", "/api/admin/audit-log?limit=200");
+    renderAuditLog(data.events || []);
+  } catch (err) {
+    if (!guard(err)) setErr(err.message);
+  }
+}
+
+$("#audit-refresh").addEventListener("click", loadAuditLog);
 
 $("#add-crypto").addEventListener("click", () => $("#crypto-rows").appendChild(cryptoRow()));
 $("#crypto-rows").addEventListener("click", (e) => {

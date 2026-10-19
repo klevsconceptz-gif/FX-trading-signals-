@@ -12,7 +12,7 @@ were not run in the build sandbox.
 | Cloudflare account, with the domain added as a zone and its nameservers moved to Cloudflare | DNS, TLS, WAF, rate limits | Free to create |
 | **Pro plan** on the zone (recommended) | Login rate limit with 2 rules and a 60 s counting window | $20/mo billed annually, $25/mo billed monthly. The Free plan allows 1 rule with a 10 s window only. |
 | Zero Trust organisation (create a team name) | Tunnel and Access | Free for up to 50 users |
-| Access identity provider: one-time PIN by email, or an SSO provider | Gate `/admin` and `/api/admin/*` | Included with Zero Trust |
+| Access identity provider: SSO preferred; email one-time PIN is an alternative. Set a longer Access session duration to reduce repeat PIN prompts. | Gate `/admin` and `/api/admin/*` | Included with Zero Trust |
 | Cloudflare Tunnel with a remotely managed tunnel | Route the hostname to the origin | Included with Zero Trust |
 
 Not required: Workers, Containers, R2, or any Cloudflare-hosted database.
@@ -76,6 +76,11 @@ cloudflared tunnel diag
 
 The driver resolution for `postgresql+psycopg://` was checked in the sandbox. A live
 PostgreSQL connection was **not tested**.
+
+**Cloudflare Pages can host only the frontend, not the Python runtime.** The repository's
+`package.json` builds static assets into `dist/`, and a Pages Function can forward `/api/*` to the
+separately hosted FastAPI service. The API, database, and market engine still need the Linux origin
+host plus Tunnel described in `CLOUDFLARE_DEPLOYMENT.md`.
 
 ## 6. Data stores
 

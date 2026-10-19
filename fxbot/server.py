@@ -30,6 +30,7 @@ Admin
 GET  /api/admin/payments, POST /api/admin/payments/{id}/confirm|reject
 GET  /api/admin/users, POST /api/admin/users/{id}/grant|revoke
 GET|PUT /api/admin/payment-settings   crypto wallets and wire bank details
+GET  /api/admin/audit-log            recent operator activity
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ import threading
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -405,12 +406,19 @@ def admin_get_settings(_admin: User = Depends(require_admin)) -> dict[str, Any]:
 
 
 @app.put("/api/admin/payment-settings")
-def admin_put_settings(req: PaymentSettingsRequest, _admin: User = Depends(require_admin)) -> dict[str, Any]:
+def admin_put_settings(req: PaymentSettingsRequest,
+                       admin: User = Depends(require_admin)) -> dict[str, Any]:
     try:
-        data = billing.update_settings(req.model_dump())
+        data = billing.update_settings(req.model_dump(), admin.username)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ok": True, "settings": data}
+
+
+@app.get("/api/admin/audit-log")
+def admin_audit_log(limit: int = Query(100, ge=1, le=500),
+                    _admin: User = Depends(require_admin)) -> dict[str, Any]:
+    return {"events": billing.list_admin_audit(limit)}
 
 
 @app.get("/api/health")
@@ -477,21 +485,23 @@ def backtest(req: BacktestRequest, _user: User = Depends(require_access)) -> dic
     symbol = req.symbol.upper()
     if symbol not in BY_SYMBOL:
         raise HTTPException(status_code=404, detail=f"unknown symbol {symbol}")
-    df = _engine.pair_frame(symbol)
-    if df is None:
-        raise HTTPException(status_code=404, detail="no data")
-    if req.bars:
-        df = df.tail(req.bars)
-
     cfg = AppConfig()
-    if req.equity:
+    if req.equity is not None:
         cfg.risk.equity = req.equity
-    if req.risk_per_trade_pct:
+    if req.risk_per_trade_pct is not None:
         cfg.risk.risk_per_trade_pct = req.risk_per_trade_pct
 
+    # Loading/reading the shared history and the backtest itself must be covered
+    # by the same engine lock used by scans and pair reports.
     with _engine_lock:
+        history = _engine.history
+        df = history.get(symbol)
+        if df is None:
+            raise HTTPException(status_code=404, detail="no data")
+        if req.bars:
+            df = df.tail(req.bars)
         try:
-            result = run_backtest(symbol, df, cfg)
+            result = run_backtest(symbol, df, cfg, conversion_history=history)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     curve = result.equity_curve
@@ -505,6 +515,7 @@ def backtest(req: BacktestRequest, _user: User = Depends(require_access)) -> dic
         "trades": [
             {
                 "side": t.side,
+                "signal_time": str(t.signal_time),
                 "entry_time": str(t.entry_time),
                 "entry": round(t.entry, 6),
                 "exit_time": str(t.exit_time),

@@ -307,6 +307,20 @@ def test_seed_admin_creates_admin_and_rotates_password():
         assert len(s.scalars(select(User).where(User.role == "admin")).all()) == 1
 
 
+def test_seed_admin_password_rotation_revokes_existing_sessions():
+    admin = ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
+    old_token = issue_session(admin.id)
+    assert auth_mod.resolve_session(old_token) is not None
+
+    ACCOUNTS.seed_admin(ADMIN_USER, "Rotated-Pass9#")
+    assert auth_mod.resolve_session(old_token) is None
+
+    current_token = issue_session(admin.id)
+    # A restart with the same authoritative password should not log out everyone.
+    ACCOUNTS.seed_admin(ADMIN_USER, "Rotated-Pass9#")
+    assert auth_mod.resolve_session(current_token) is not None
+
+
 def test_seed_admin_rejects_weak_password_and_bad_fields():
     with pytest.raises(ValueError):
         ACCOUNTS.seed_admin(ADMIN_USER, "weakpass")

@@ -13,6 +13,7 @@ user_sessions  bearer tokens — only the SHA-256 of each token is stored
 payments       invoices: crypto or wire, awaiting → submitted → confirmed/rejected
 access_grants  paid access windows (30 days per confirmed payment) and manual grants
 settings       operator-managed key/value config (crypto wallets, wire details)
+admin_audit_events  immutable operator activity records (no wallet/bank values)
 """
 
 from __future__ import annotations
@@ -104,6 +105,24 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
+
+
+class AdminAuditEvent(Base):
+    """Immutable record of an operator action; deliberately stores no payment secrets."""
+
+    __tablename__ = "admin_audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    occurred_at: Mapped[float] = mapped_column(Float, index=True)
+    actor_username: Mapped[str] = mapped_column(String(64))
+    action: Mapped[str] = mapped_column(String(48), index=True)
+    target_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    target_username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    payment_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    grant_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    reference: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    summary: Mapped[str] = mapped_column(String(200))
+    note: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,30 @@ Options that were considered:
 Cloudflare provides the edge only. The application runs on a host you control. Sections 3 and 4
 cover that host.
 
+### Optional Cloudflare Pages frontend
+
+The root `package.json` now provides `npm run build`, which packages the existing HTML, CSS, and
+JavaScript into `dist/`. Set the Pages project to **Root directory** `/`, **Build command**
+`npm run build`, and **Build output directory** `dist`. The output keeps the app routes at `/`,
+`/app`, and `/admin`.
+
+Pages still does **not** run this Python/FastAPI API. A Pages Function at
+`functions/api/[[path]].js` forwards `/api/*` requests to a separately hosted API. To use this
+option:
+
+1. Deploy the FastAPI app on the Linux origin host/container described in sections 3–6, behind a
+   Cloudflare Tunnel. Publish a separate API hostname (for example, `api.example.com`) to
+   `http://localhost:8000`.
+2. In the Pages project's production **and preview** variables, set `KLEVS_API_ORIGIN` to that
+   HTTPS origin only, for example `https://api.example.com` (no path, query, or credentials).
+   Do not point it at the Pages frontend hostname.
+3. Deploy the Pages project from a branch containing this build and function code. Requests stay
+   same-origin in the browser; the Pages Function forwards them server-side to FastAPI.
+
+The Pages Function is only a proxy: without the separate FastAPI service, account, signal, and
+admin API requests will not work. If you do not want to run a separate frontend, use the simpler
+single-host origin + Tunnel setup in this guide and do not use Pages.
+
 ---
 
 ## 2. Prerequisites
@@ -286,12 +310,17 @@ only listed people reach the login page at all.
    your dashboard allows only one:
    - `/admin`
    - `/api/admin/*`
-3. **Identity provider:** one-time PIN (email), or your SSO provider.
+3. **Identity provider:** Prefer your existing SSO provider. If using the one-time PIN by email,
+   set a longer **application session duration** in the Access app settings so it does not ask for
+   a new PIN on every visit. Choose a duration that fits your security requirements.
 4. **Policy:** Action `Allow`. Include only the operator email addresses.
 5. Save, then open `https://klevs.example.com/admin` in a private window. You should see the
    Access login first.
 
-Access is a second layer. The app's own admin login still applies behind it.
+The Access session and KLEVS account are separate. The PIN only protects the operator routes above;
+normal KLEVS sign-in uses one account password and does not email a code. Access is a second layer,
+and the app's own admin login still applies behind it. The Access session duration is controlled in
+Cloudflare, not by this repository.
 
 ---
 

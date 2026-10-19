@@ -46,8 +46,8 @@ def test_max_open_positions_cap():
 def test_currency_exposure_cap():
     rm = RiskManager(RiskConfig(equity=10_000, max_positions_per_currency=2))
     assert rm.open(_plan(symbol="EURUSD")).accepted      # USD 1
-    assert rm.open(_plan(symbol="EURGBP")).accepted      # EUR 2
-    d = rm.open(_plan(symbol="EURAUD"))                  # EUR would be 3rd
+    assert rm.open(_plan(symbol="EURGBP"), quote_to_account_rate=1.25).accepted  # EUR 2
+    d = rm.open(_plan(symbol="EURAUD"), quote_to_account_rate=0.66)  # EUR would be 3rd
     assert not d.accepted
     assert "currency exposure" in d.reason
 
@@ -79,6 +79,61 @@ def test_drawdown_throttle():
     d = rm.can_open(_plan())
     assert d.accepted
     assert d.scale == 0.5   # halved size past the drawdown threshold
+
+
+def test_quote_currency_conversion_is_included_in_sizing():
+    rm = RiskManager(RiskConfig(equity=10_000, risk_per_trade_pct=1.0))
+    plan = _plan(symbol="EURGBP", entry=0.85, stop=0.845, target=0.8625)
+
+    decision = rm.size_position(plan, quote_to_account_rate=1.25)
+
+    assert decision.accepted
+    assert decision.units == pytest.approx(16_000.0)
+    assert decision.lots == pytest.approx(0.16)
+    assert decision.risk_amount == pytest.approx(100.0)
+
+
+def test_metal_position_sizing_uses_instrument_lot_size():
+    rm = RiskManager(RiskConfig(equity=10_000, risk_per_trade_pct=1.0))
+    gold = _plan(symbol="XAUUSD", entry=2_300.0, stop=2_295.0, target=2_312.5)
+
+    decision = rm.size_position(gold)
+
+    assert decision.accepted
+    assert decision.units == pytest.approx(20.0)
+    assert decision.lots == pytest.approx(0.2)
+
+
+def test_per_currency_risk_cap_scales_then_vetoes():
+    rm = RiskManager(RiskConfig(
+        equity=10_000, risk_per_trade_pct=0.75,
+        max_positions_per_currency=5, max_risk_per_currency_pct=1.0,
+    ))
+    first = rm.open(_plan(symbol="EURUSD"))
+    second = rm.open(_plan(symbol="GBPUSD"))
+
+    assert first.accepted and first.risk_amount == pytest.approx(75.0)
+    assert second.accepted and second.risk_amount == pytest.approx(25.0)
+    third = rm.open(_plan(symbol="AUDUSD"))
+    assert not third.accepted
+    assert "per-currency risk cap" in third.reason
+
+
+def test_correlation_scales_proposed_trade():
+    rm = RiskManager(RiskConfig(
+        equity=10_000, risk_per_trade_pct=0.75,
+        max_positions_per_currency=5, max_risk_per_currency_pct=2.0,
+    ))
+    assert rm.open(_plan(symbol="EURUSD")).accepted
+
+    decision = rm.open(
+        _plan(symbol="GBPUSD"),
+        corr_lookup={("EURUSD", "GBPUSD"): 0.9},
+    )
+
+    assert decision.accepted
+    assert decision.scale == pytest.approx(0.25)  # shared USD and high correlation
+    assert decision.risk_amount == pytest.approx(18.75)
 
 
 def test_kelly_fraction():

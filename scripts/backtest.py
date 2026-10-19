@@ -36,8 +36,10 @@ def main() -> None:
     cfg.risk.equity = args.equity
     cfg.risk.risk_per_trade_pct = args.risk
 
-    df = MarketData(cfg.data).load([symbol])[symbol]
-    result = run_backtest(symbol, df, cfg, equity=args.equity)
+    history = MarketData(cfg.data).load()
+    df = history[symbol]
+    result = run_backtest(symbol, df, cfg, equity=args.equity,
+                          conversion_history=history)
 
     print(f"\n=== BACKTEST {symbol} · {len(df)} bars · equity ${args.equity:,.0f} · "
           f"risk {args.risk}%/trade ===\n")

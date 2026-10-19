@@ -19,6 +19,7 @@ class Instrument:
     start_price: float = 1.0
     typical_spread_pips: float = 0.8
     description: str = ""
+    lot_size_units: float = 100_000.0  # units of base asset per standard lot
 
     @property
     def display(self) -> str:
@@ -105,10 +106,12 @@ EXOTICS: list[Instrument] = [
 METAL_INSTRUMENTS: list[Instrument] = [
     Instrument("XAUUSD", "XAU", "USD", kind="metal", pip=0.01, start_price=2320.0,
                typical_spread_pips=0.30,
-               description="Gold / US Dollar — the classic macro hedge"),
+               description="Gold / US Dollar — the classic macro hedge",
+               lot_size_units=100.0),
     Instrument("XAGUSD", "XAG", "USD", kind="metal", pip=0.001, start_price=27.40,
                typical_spread_pips=0.025,
-               description="Silver / US Dollar — higher-beta precious metal"),
+               description="Silver / US Dollar — higher-beta precious metal",
+               lot_size_units=5_000.0),
 ]
 
 UNIVERSE: list[Instrument] = MAJORS + MINORS + EXOTICS + METAL_INSTRUMENTS

@@ -5,47 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex" />
 <title>klevs FX trading App — Operator console</title>
-<style>
-  :root { --bg:#0b1020; --card:#131a2e; --line:#23304f; --text:#e7ecf7; --mute:#8b97b5;
-          --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --acc:#60a5fa; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
-  header { display:flex; align-items:center; gap:16px; padding:14px 22px; border-bottom:1px solid var(--line); }
-  header h1 { font-size:17px; margin:0; font-weight:700; }
-  header .sp { flex:1; }
-  header .who { color:var(--mute); font-size:13px; }
-  main { padding:18px 22px 40px; max-width:1180px; margin:0 auto; }
-  .tabs { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
-  .tab, button { font:inherit; cursor:pointer; border:1px solid var(--line); background:#1a2442; color:var(--text);
-                 padding:7px 13px; border-radius:8px; }
-  .tab.active { background:var(--acc); color:#06122b; border-color:var(--acc); font-weight:600; }
-  button.ok { background:#14532d; border-color:#166534; }
-  button.bad { background:#7f1d1d; border-color:#991b1b; }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
-  .card h2 { font-size:15px; margin:0 0 10px; }
-  table { width:100%; border-collapse:collapse; }
-  th, td { text-align:left; padding:8px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { color:var(--mute); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
-  code { font-family:ui-monospace,Menlo,Consolas,monospace; background:#0b1222; padding:2px 6px; border-radius:6px; word-break:break-all; }
-  input, select, textarea { font:inherit; color:var(--text); background:#0b1222; border:1px solid var(--line); border-radius:8px; padding:7px 9px; width:100%; }
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .row > * { width:auto; }
-  .row input { width:auto; min-width:160px; }
-  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); }
-  .s-awaiting_payment { color:var(--mute); } .s-submitted { color:var(--warn); border-color:var(--warn); }
-  .s-confirmed { color:var(--ok); border-color:var(--ok); } .s-rejected, .s-cancelled { color:var(--bad); border-color:var(--bad); }
-  .err { color:var(--bad); margin:8px 0; }
-  .note { color:var(--mute); font-size:13px; }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  label.f { display:block; font-size:12px; color:var(--mute); margin-bottom:8px; }
-  label.f > input, label.f > select, label.f > textarea { margin-top:4px; }
-  #login { max-width:380px; margin:12vh auto; }
-  .hidden { display:none !important; }
-  @media (max-width:760px) { .grid2 { grid-template-columns:1fr; } table { font-size:12px; } }
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/theme.css" />
+<link rel="stylesheet" href="/static/admin.css" />
 </head>
-<body>
+<body class="admin-page">
 <header>
   <h1>klevs FX trading App <span class="note">· Operator console</span></h1>
   <span class="sp"></span>
@@ -74,6 +40,7 @@
     <button class="tab active" data-tab="payments">Payments</button>
     <button class="tab" data-tab="users">Users &amp; access</button>
     <button class="tab" data-tab="settings">Payment details</button>
+    <button class="tab" data-tab="activity">Activity log</button>
   </nav>
   <div class="err" id="g-err"></div>
 
@@ -148,6 +115,21 @@
     <div class="card">
       <div class="row"><button class="ok" id="set-save">Save payment details</button><span class="note" id="set-msg"></span></div>
       <p class="note">Leaving a method blank hides it from buyers. Saved details are shown to buyers on each new invoice.</p>
+    </div>
+  </section>
+
+  <!-- activity -->
+  <section id="tab-activity" class="hidden">
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0;margin-right:auto">Admin activity</h2>
+        <button id="audit-refresh">Refresh</button>
+      </div>
+      <p class="note">Latest 200 payment decisions, access grants/revocations, and payment-setting changes. Sensitive wallet and bank values are never included. Older access records may not have an exact event time.</p>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>When</th><th>Operator</th><th>Action</th><th>Target</th><th>Reference</th><th>Note</th></tr></thead>
+        <tbody id="audit-rows"></tbody>
+      </table></div>
     </div>
   </section>
 </main>
