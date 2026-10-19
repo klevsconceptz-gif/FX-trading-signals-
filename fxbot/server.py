@@ -35,13 +35,14 @@ GET  /api/admin/audit-log            recent operator activity
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import threading
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -184,11 +185,29 @@ def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer
     return user
 
 
-def require_access(user: User = Depends(current_user)) -> User:
-    """Paid access: an active subscription window, or the admin role."""
+def _require_paid_user(user: User) -> User:
     if user.role == "admin" or billing.access_status(user.id)["active"]:
         return user
     raise HTTPException(status_code=403, detail="payment required — complete payment to unlock the bot")
+
+
+def require_access(user: User = Depends(current_user)) -> User:
+    """Paid access for account-bound market data such as the instrument universe."""
+    return _require_paid_user(user)
+
+
+def require_signal_access(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    engine_token: Optional[str] = Header(None, alias="X-KLEVS-ENGINE-TOKEN"),
+) -> Optional[User]:
+    """Paid user access or trusted Worker access, scoped only to signal endpoints."""
+    expected = os.environ.get("KFX_SIGNAL_ENGINE_TOKEN", "")
+    if expected and engine_token and hmac.compare_digest(engine_token.encode("utf-8"), expected.encode("utf-8")):
+        return None
+    user = resolve_session(creds.credentials if creds else None)
+    if user is None:
+        raise HTTPException(status_code=401, detail="log in to continue")
+    return _require_paid_user(user)
 
 
 def require_admin(user: User = Depends(current_user)) -> User:
@@ -449,14 +468,14 @@ def universe(_user: User = Depends(require_access)) -> list[dict[str, Any]]:
 
 
 @app.get("/api/scan")
-def scan(refresh: bool = False, _user: User = Depends(require_access)) -> dict[str, Any]:
+def scan(refresh: bool = False, _user: Optional[User] = Depends(require_signal_access)) -> dict[str, Any]:
     with _engine_lock:
         report = _engine.scan(use_cache=not refresh, reload=refresh)
     return report.to_dict()
 
 
 @app.get("/api/instructions")
-def instructions(refresh: bool = False, _user: User = Depends(require_access)) -> dict[str, Any]:
+def instructions(refresh: bool = False, _user: Optional[User] = Depends(require_signal_access)) -> dict[str, Any]:
     """Distilled command stream: when to buy, predicted outcome, when to sell."""
     with _engine_lock:
         report = _engine.scan(use_cache=not refresh, reload=refresh)
@@ -469,7 +488,7 @@ def instructions(refresh: bool = False, _user: User = Depends(require_access)) -
 
 
 @app.get("/api/pair/{symbol}")
-def pair(symbol: str, _user: User = Depends(require_access)) -> dict[str, Any]:
+def pair(symbol: str, _user: Optional[User] = Depends(require_signal_access)) -> dict[str, Any]:
     symbol = symbol.upper()
     if symbol not in BY_SYMBOL:
         raise HTTPException(status_code=404, detail=f"unknown symbol {symbol}")
@@ -481,7 +500,7 @@ def pair(symbol: str, _user: User = Depends(require_access)) -> dict[str, Any]:
 
 
 @app.post("/api/backtest")
-def backtest(req: BacktestRequest, _user: User = Depends(require_access)) -> dict[str, Any]:
+def backtest(req: BacktestRequest, _user: Optional[User] = Depends(require_signal_access)) -> dict[str, Any]:
     symbol = req.symbol.upper()
     if symbol not in BY_SYMBOL:
         raise HTTPException(status_code=404, detail=f"unknown symbol {symbol}")

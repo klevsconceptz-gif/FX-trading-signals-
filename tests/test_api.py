@@ -45,6 +45,26 @@ def test_market_endpoints_require_paid_access(anon):
     assert unpaid.get("/api/scan").status_code == 403
 
 
+def test_internal_engine_token_is_limited_to_paid_signal_routes(anon, monkeypatch):
+    from types import SimpleNamespace
+
+    from fxbot import server
+
+    token = "test-only-internal-engine-token"
+    engine = TestClient(app)
+    headers = {"X-KLEVS-ENGINE-TOKEN": token}
+    monkeypatch.delenv("KFX_SIGNAL_ENGINE_TOKEN", raising=False)
+    assert engine.get("/api/scan", headers=headers).status_code == 401
+
+    monkeypatch.setenv("KFX_SIGNAL_ENGINE_TOKEN", token)
+    monkeypatch.setattr(server._engine, "scan", lambda **_: SimpleNamespace(to_dict=lambda: {"signals": []}))
+    assert engine.get("/api/scan", headers=headers).json() == {"signals": []}
+    assert engine.get("/api/universe", headers=headers).status_code == 401
+    assert engine.get("/api/me", headers=headers).status_code == 401
+    assert engine.get("/api/admin/users", headers=headers).status_code == 401
+    assert engine.get("/api/scan", headers={"X-KLEVS-ENGINE-TOKEN": "wrong"}).status_code == 401
+
+
 def test_health(client):
     r = client.get("/api/health")
     assert r.status_code == 200

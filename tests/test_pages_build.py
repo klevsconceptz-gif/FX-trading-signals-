@@ -1,6 +1,7 @@
 """Checks for the optional Cloudflare Pages static frontend build and API proxy."""
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,6 +18,10 @@ def test_pages_build_command_and_api_proxy_are_configured():
     proxy = (ROOT / "functions" / "api" / "[[path]].js").read_text(encoding="utf-8")
     assert "KLEVS_API_ORIGIN" in proxy
     assert "new Request(upstreamUrl, request)" in proxy
+    landing = (ROOT / "static" / "landing.html").read_text(encoding="utf-8")
+    assert '<a href="/admin">Operator sign in</a>' in landing
+    auth = (ROOT / "static" / "auth.js").read_text(encoding="utf-8")
+    assert re.search(r'if\s*\(s\.role === "admin"\)\s*\{\s*window\.location\.href = "/admin";', auth)
 
 
 def test_pages_static_build_preserves_app_routes_when_node_is_available():

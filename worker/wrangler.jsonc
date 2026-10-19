@@ -1,0 +1,23 @@
+{
+  "name": "klv-fx-trading-signals",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-19",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "klev",
+      "database_name": "klev",
+      "database_id": "1a4ea5fa-6c99-4f43-b895-e80ecf0b63de",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "voom",
+      "id": "4d28a5811a4d47de938a2a34ce22af60"
+    }
+  ]
+}

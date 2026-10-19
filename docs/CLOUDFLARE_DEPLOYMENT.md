@@ -1,5 +1,7 @@
 # Deploying KLEVS behind Cloudflare
 
+> **Legacy deployment route:** this runbook describes the earlier FastAPI-on-host/Tunnel architecture. The selected Worker API with D1/KV is documented in [`worker/README.md`](../worker/README.md). The Worker source and bindings are now in this repository; live Cloudflare migration/deployment still must be run in an authenticated Cloudflare environment.
+
 This guide puts the KLEVS FX signals app on the internet with Cloudflare in front of it.
 Cloudflare handles DNS, TLS, the WAF, and rate limiting. A **Cloudflare Tunnel** carries
 traffic to the app, so the origin server accepts **no inbound connections**.
