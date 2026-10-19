@@ -46,6 +46,10 @@ python -m scripts.backtest --symbol EURUSD
 python -m scripts.train
 ```
 
+## Cloudflare Worker API
+
+A D1/KV-backed Worker entrypoint and Wrangler config are in [`worker/`](worker/README.md). The Pages Function at `functions/api/[[path]].js` proxies same-origin API requests to `https://klv-fx-trading-signals.klevco.workers.dev` by default for production and preview builds; set the Pages variable `KLEVS_API_ORIGIN` to override it. The Worker binds D1 and KV using the configured resource IDs and implements account, admin, payment, access, and audit APIs; signal scan, instructions, pair detail, and backtest routes require the separate `KFX_SIGNAL_ENGINE_ORIGIN` adapter described in the Worker guide. Remote migrations, Cloudflare secrets, and deployment must still be applied in an authenticated Cloudflare environment.
+
 ## Landing page, payments & paid access
 
 Access works like this — there is **no card checkout and no payment processor**:
@@ -117,6 +121,9 @@ python -m pytest tests/ -q
 ```
 
 ### Operator setup (admin account and payment details)
+
+For the sign-in flow, Cloudflare Worker secrets, and troubleshooting, see the
+[Admin login and access guide](docs/ADMIN_LOGIN.md).
 
 The operator account is provisioned from environment variables. The credentials are never
 written into the code or the repository:

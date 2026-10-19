@@ -32,3 +32,11 @@ Thumbs.db
 # Operator database (accounts, payments, access) — never commit
 data/*.db
 data/*.db-*
+
+# Node dependencies
+node_modules/
+
+# Cloudflare Worker local state and development secrets
+.wrangler/
+.dev.vars
+.dev.vars.*

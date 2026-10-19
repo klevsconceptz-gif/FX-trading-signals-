@@ -1,3 +1,5 @@
+const DEFAULT_KLEVS_API_ORIGIN = "https://klv-fx-trading-signals.klevco.workers.dev";
+
 const jsonHeaders = {
   "Cache-Control": "no-store",
   "Content-Type": "application/json; charset=utf-8",
@@ -8,10 +10,10 @@ function errorResponse(status, detail) {
 }
 
 export async function onRequest({ request, env }) {
-  const configuredOrigin = env.KLEVS_API_ORIGIN;
-  if (typeof configuredOrigin !== "string" || configuredOrigin.trim() === "") {
-    return errorResponse(503, "KLEVS_API_ORIGIN is not configured for this Pages deployment.");
-  }
+  const configuredOrigin =
+    typeof env.KLEVS_API_ORIGIN === "string" && env.KLEVS_API_ORIGIN.trim() !== ""
+      ? env.KLEVS_API_ORIGIN.trim()
+      : DEFAULT_KLEVS_API_ORIGIN;
 
   let apiOrigin;
   try {

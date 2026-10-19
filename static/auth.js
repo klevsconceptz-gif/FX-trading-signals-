@@ -307,10 +307,13 @@
     box.hidden = !msg;
   }
 
-  /* After auth, admins get the operator path; subscribers use the payment/access flow. */
+  /* After auth, admins go straight to the operator console; subscribers use the payment/access flow. */
   async function routeAfterAuth(payload, title) {
     const s = saveFromPayload(payload);
-    if (s.role === "admin") return finishSuccess(s, title || "Operator sign-in successful");
+    if (s.role === "admin") {
+      window.location.href = "/admin";
+      return;
+    }
     if (s.access_active) return finishSuccess(s, title || "You're in!");
     const me = await API.get("/api/me");
     saveFromPayload(me);
