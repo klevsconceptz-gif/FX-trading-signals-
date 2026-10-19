@@ -176,7 +176,7 @@
 
         <form class="auth-view" id="view-login" hidden>
           <h3>Welcome back</h3>
-          <p class="auth-sub">Log in with your username, email or phone number.</p>
+          <p class="auth-sub">Log in with your username, email or phone number. Operator accounts can sign in here too and continue to the admin console.</p>
           <label class="auth-field"><span class="auth-label">Username, email or phone</span>
             <input type="text" id="log-ident" required maxlength="200"
                    placeholder="fxtrader24 / you@example.com / +1 555 123 4567" autocomplete="username" />
@@ -307,9 +307,10 @@
     box.hidden = !msg;
   }
 
-  /* after any login / register / reset: decide where the buyer goes next */
+  /* After auth, admins get the operator path; subscribers use the payment/access flow. */
   async function routeAfterAuth(payload, title) {
     const s = saveFromPayload(payload);
+    if (s.role === "admin") return finishSuccess(s, title || "Operator sign-in successful");
     if (s.access_active) return finishSuccess(s, title || "You're in!");
     const me = await API.get("/api/me");
     saveFromPayload(me);
@@ -323,10 +324,11 @@
     const el = modal();
     el.querySelector("#auth-success-title").textContent = title;
     const until = s.expires_at ? ` · access until ${new Date(s.expires_at * 1000).toLocaleDateString()}` : "";
-    el.querySelector("#auth-success-msg").textContent =
-      s.role === "admin"
-        ? `Admin · unrestricted access · signed in as ${s.username || s.email}`
-        : `${s.plan_name || "Paid"} plan${until} · signed in as ${s.username || s.email}`;
+    const isAdmin = s.role === "admin";
+    el.querySelector("#auth-success-msg").textContent = isAdmin
+      ? `Operator account · unrestricted access · signed in as ${s.username || s.email}`
+      : `${s.plan_name || "Paid"} plan${until} · signed in as ${s.username || s.email}`;
+    $(el, "#auth-open-app").textContent = isAdmin ? "Open operator console →" : "Open the bot →";
     showView("success");
     if (state.onAuth) state.onAuth(s);
   }
@@ -505,7 +507,9 @@
       if (e.key === "Escape" && !document.getElementById("auth-modal")?.hidden) close();
     });
     $(el, "#auth-close").addEventListener("click", close);
-    $(el, "#auth-open-app").addEventListener("click", () => { window.location.href = "/app"; });
+    $(el, "#auth-open-app").addEventListener("click", () => {
+      window.location.href = readSession()?.role === "admin" ? "/admin" : "/app";
+    });
 
     /* plan + method controls */
     el.addEventListener("change", (e) => {

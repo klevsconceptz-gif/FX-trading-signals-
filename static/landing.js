@@ -25,11 +25,13 @@ $("#btn-login").addEventListener("click", () => window.Auth.open("login"));
   const session = await window.Auth.refresh();
   if (!session) return;
   const btn = $("#btn-login");
-  btn.textContent = session.access_active ? "Open the bot →" : "Finish payment →";
+  const isAdmin = session.role === "admin";
+  btn.textContent = isAdmin ? "Open operator console →" : session.access_active ? "Open the bot →" : "Finish payment →";
   btn.classList.remove("ghost");
   btn.classList.add("primary");
   btn.onclick = () => {
-    if (session.access_active) window.location.href = "/app";
+    if (isAdmin) window.location.href = "/admin";
+    else if (session.access_active) window.location.href = "/app";
     else window.Auth.open("plan");
   };
 })();
