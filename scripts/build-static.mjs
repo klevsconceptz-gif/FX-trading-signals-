@@ -10,11 +10,11 @@ await rm(outputDir, { recursive: true, force: true });
 await mkdir(outputDir, { recursive: true });
 await cp(staticDir, path.join(outputDir, "static"), { recursive: true });
 
-// Keep the same public routes as the FastAPI app: landing page, dashboard, admin.
+// Keep the public app routes: landing page, dashboard, admin.
 await copyFile(path.join(staticDir, "landing.html"), path.join(outputDir, "index.html"));
 await mkdir(path.join(outputDir, "app"), { recursive: true });
 await copyFile(path.join(staticDir, "index.html"), path.join(outputDir, "app", "index.html"));
 await mkdir(path.join(outputDir, "admin"), { recursive: true });
 await copyFile(path.join(staticDir, "admin.html"), path.join(outputDir, "admin", "index.html"));
 
-console.log("Built Cloudflare Pages frontend in dist/ (FastAPI API is hosted separately).");
+console.log("Built Cloudflare Pages frontend in dist/ (API routes proxy to the Cloudflare Worker).");

@@ -28,13 +28,14 @@ def test_pages_static_build_preserves_app_routes_when_node_is_available():
     if not shutil.which("npm"):
         pytest.skip("Node.js/npm is not installed")
 
-    subprocess.run(
+    build = subprocess.run(
         ["npm", "run", "build"],
         cwd=ROOT,
         check=True,
         capture_output=True,
         text=True,
     )
+    assert "API routes proxy to the Cloudflare Worker" in build.stdout
 
     assert (ROOT / "dist" / "index.html").read_bytes() == (
         ROOT / "static" / "landing.html"
