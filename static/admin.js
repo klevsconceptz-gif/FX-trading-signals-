@@ -43,30 +43,8 @@ function showConsole(who) {
   $("#who").textContent = `Signed in as ${who}`;
 }
 
-/* ---------- sign in ---------- */
-$("#login-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const btn = $("#lg-submit");
-  btn.disabled = true;
-  try {
-    const data = await api("POST", "/api/auth/login", {
-      identifier: $("#lg-ident").value.trim(),
-      password: $("#lg-pass").value,
-    });
-    if (data.user.role !== "admin") {
-      localStorage.removeItem(SESSION_KEY);
-      throw new Error("This account is not an operator account.");
-    }
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ token: data.token, username: data.user.username, role: "admin" }));
-    $("#lg-pass").value = "";
-    showConsole(data.user.username);
-    loadPayments();
-  } catch (err) {
-    $("#lg-err").textContent = err.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
+/* ---------- sign in: the shared sign-in modal (auth.js), operator mode ---------- */
+$("#lg-open").addEventListener("click", () => window.Auth.open("login", { operator: true }));
 
 $("#btn-logout").addEventListener("click", async () => {
   try { await api("POST", "/api/auth/logout", {}); } catch (_) { /* already gone */ }
