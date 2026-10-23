@@ -28,7 +28,7 @@ GET  /api/scan, /api/instructions, /api/pair/{symbol}, /api/universe, POST /api/
 Admin
 -----
 GET  /api/admin/payments, POST /api/admin/payments/{id}/confirm|reject
-GET  /api/admin/users, POST /api/admin/users/{id}/grant|revoke
+GET  /api/admin/users, POST /api/admin/users/{id}/grant|revoke|reset-password
 GET|PUT /api/admin/payment-settings   crypto wallets and wire bank details
 GET  /api/admin/audit-log            recent operator activity
 """
@@ -144,6 +144,11 @@ class DecisionRequest(BaseModel):
 
 class RejectRequest(BaseModel):
     note: str = Field(..., min_length=3, max_length=300, description="reason shown to the buyer")
+
+
+class PasswordResetRequest(BaseModel):
+    new_password: str = Field(..., min_length=1, max_length=128)
+    note: str = Field(..., min_length=3, max_length=300, description="reason, shown in the audit trail")
 
 
 class GrantRequest(BaseModel):
@@ -417,6 +422,21 @@ def admin_revoke(user_id: int, req: RejectRequest, admin: User = Depends(require
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ok": True, "revoked": count}
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+def admin_reset_password(user_id: int, req: PasswordResetRequest,
+                         admin: User = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        billing.reset_password(user_id, admin.username, req.new_password, req.note,
+                               bootstrap_username=os.environ.get("KFX_ADMIN_USERNAME", ""))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @app.get("/api/admin/payment-settings")

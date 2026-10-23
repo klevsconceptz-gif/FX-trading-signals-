@@ -178,3 +178,11 @@ def test_admin_sign_in_uses_shared_user_flow(client):
     auth_js = client.get("/static/auth.js").text
     assert "state.operatorOnly" in auth_js
     assert "This account is not an operator account." in auth_js
+
+
+def test_admin_console_resets_passwords_with_a_reason(client):
+    html = client.get("/admin").text
+    assert 'id="rp-submit"' in html and 'id="rp-password"' in html and 'id="rp-note"' in html
+    admin_js = client.get("/static/admin.js").text
+    assert "/reset-password" in admin_js
+    assert "password_reset" in admin_js

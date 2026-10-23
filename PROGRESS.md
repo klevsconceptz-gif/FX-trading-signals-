@@ -186,9 +186,15 @@ reference only.
   2026). Password hashing uses PBKDF2 at 200,000 iterations. A local check took about 38 ms per
   derivation, so sign-in and registration would likely exceed the Free limit. Not measured on
   Cloudflare. Options: Workers Paid ($5/mo, a charged dependency) or no sign-in on the Free plan.
+- **Admin password reset** (`POST /api/admin/users/{id}/reset-password`, console form "Reset a
+  password"; Worker and FastAPI). The operator chooses the password under the normal policy, gives a
+  reason, and every session of the account ends. The reason is audited as `password_reset`, and the
+  password is never stored in plain text or logged. The bootstrap admin (`KFX_ADMIN_USERNAME`) is refused
+  with 409, because that password is re-seeded from its secret. Tests: `worker/test/admin-reset.test.js`
+  and `tests/test_billing.py::test_admin_reset_password_*`.
 - **Open (non-Cloudflare parts)**: the Python signal engine cannot run on a Worker within the Free
   limit. It needs its own HTTPS host (`KFX_SIGNAL_ENGINE_ORIGIN`), and until then the market routes
-  return `503`. Password reset e-mail uses an operator-supplied endpoint (`KLEVS_RESET_EMAIL_URL`).
+  return `503`. Password reset e-mail uses an operator-supplied endpoint (`KLEVS_RESET_EMAIL_URL`); without it, the admin console can reset passwords.
   Yahoo Finance and Frankfurter are runtime data sources pending the user's decision.
 - **Gaps to close before launch**: `/api/health` exposes risk configuration publicly; the 429
   lockout response can reveal whether an account exists; the operator password once shown in chat

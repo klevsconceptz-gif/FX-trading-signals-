@@ -1,5 +1,5 @@
 import { ApiError, requireDatabase } from "./http.js";
-import { randomToken } from "./security.js";
+import { hashPassword, passwordPolicyError, randomToken } from "./security.js";
 
 export const PLANS = Object.freeze({
   starter: { name: "Starter", price_usd: 29 },
@@ -399,6 +399,48 @@ export async function grantAccess(env, userId, operator, body) {
   const grant = await db.prepare("SELECT id, plan, expires_at FROM access_grants WHERE grant_key = ?").bind(key).first();
   if (!grant) throw new ApiError(404, "user not found");
   return { ok: true, grant: { id: Number(grant.id), plan: grant.plan, expires_at: Number(grant.expires_at) } };
+}
+
+/**
+ * Operator sets a new password for an account. The operator chooses the password; nothing
+ * is generated. Bumping password_version ends every session of the account (currentUser
+ * compares it on each request, including KV-cached sessions). The password is never written
+ * to the audit trail. The bootstrap admin (KFX_ADMIN_USERNAME) is refused, because its
+ * password is re-seeded from the Worker secret on each admin sign-in.
+ */
+export async function adminResetPassword(env, userId, operator, body) {
+  const newPassword = typeof body.new_password === "string" ? body.new_password : "";
+  const note = typeof body.note === "string" ? body.note.trim() : "";
+  if (!newPassword || newPassword.length > 128) throw new ApiError(422, "password must be 1-128 characters");
+  const policyError = passwordPolicyError(newPassword);
+  if (policyError) throw new ApiError(422, policyError);
+  if (note.length < 3 || note.length > 300) throw new ApiError(422, "give a note explaining the password reset");
+
+  const db = requireDatabase(env);
+  const user = await db.prepare("SELECT id, username, role FROM users WHERE id = ?").bind(userId).first();
+  if (!user) throw new ApiError(404, "user not found");
+  const bootstrap = String(env.KFX_ADMIN_USERNAME || "").trim().toLowerCase();
+  if (bootstrap && user.username.toLowerCase() === bootstrap) {
+    throw new ApiError(409, "this is the bootstrap admin: change KFX_ADMIN_PASSWORD on the Worker and redeploy instead");
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  const timestamp = nowSeconds();
+  await db.batch([
+    db.prepare(`
+      UPDATE users
+         SET password_hash = ?, password_version = password_version + 1, reset_hash = NULL,
+             reset_expires = 0, reset_attempts = 0, failed_logins = 0, locked_until = 0
+       WHERE id = ?
+    `).bind(passwordHash, userId),
+    db.prepare("DELETE FROM user_sessions WHERE user_id = ?").bind(userId),
+    db.prepare(`
+      INSERT INTO admin_audit_events
+        (event_key, occurred_at, actor_username, action, target_user_id, target_username, summary, note)
+      VALUES (?, ?, ?, 'password_reset', ?, ?, 'Set a new password; existing sessions ended', ?)
+    `).bind(`password-reset:${randomToken(12)}`, timestamp, operator, user.id, user.username, note.slice(0, 300)),
+  ]);
+  return { ok: true, user_id: Number(user.id) };
 }
 
 export async function revokeAccess(env, userId, operator, body) {

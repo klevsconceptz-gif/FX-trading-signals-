@@ -204,6 +204,28 @@ $("#gr-submit").addEventListener("click", async () => {
   }
 });
 
+$("#rp-submit").addEventListener("click", async () => {
+  const msg = $("#rp-msg");
+  msg.textContent = "";
+  const ident = $("#rp-user").value.trim();
+  const password = $("#rp-password").value;
+  const note = $("#rp-note").value.trim();
+  if (!ident) { msg.textContent = "Enter the username or email."; return; }
+  if (!password) { msg.textContent = "Enter the new password."; return; }
+  if (note.length < 3) { msg.textContent = "A reason of at least 3 characters is required."; return; }
+  if (!window.confirm(`Reset the password for ${ident}? All of their sessions will end.`)) return;
+  try {
+    const id = await resolveUserId(ident);
+    await api("POST", `/api/admin/users/${id}/reset-password`, { new_password: password, note });
+    msg.textContent = `Password reset for ${ident}. They must sign in again.`;
+    $("#rp-password").value = "";
+    $("#rp-note").value = "";
+    loadUsers();
+  } catch (err) {
+    if (!guard(err)) msg.textContent = err.message;
+  }
+});
+
 $("#user-rows").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-revoke]");
   if (!btn) return;
@@ -262,6 +284,7 @@ const AUDIT_ACTIONS = {
   payment_rejected: "Payment rejected",
   access_granted: "Access granted",
   access_revoked: "Access revoked",
+  password_reset: "Password reset",
   payment_settings_updated: "Payment settings updated",
 };
 

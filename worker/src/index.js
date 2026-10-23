@@ -22,6 +22,7 @@ import {
   paymentOptions,
   paymentSettings,
   rejectPayment,
+  adminResetPassword,
   revokeAccess,
   submitPaymentReference,
   updatePaymentSettings,
@@ -281,6 +282,12 @@ async function handleApi(request, env) {
     const body = await parseJson(request);
     if (accessMatch[2] === "grant") return jsonResponse(await grantAccess(env, userId, admin.username, body));
     return jsonResponse(await revokeAccess(env, userId, admin.username, body));
+  }
+  const resetPasswordMatch = /^\/api\/admin\/users\/(\d+)\/reset-password$/.exec(path);
+  if (resetPasswordMatch && method === "POST") {
+    const admin = await requireAdmin(env, request);
+    const userId = positiveInteger(resetPasswordMatch[1], "user_id");
+    return jsonResponse(await adminResetPassword(env, userId, admin.username, await parseJson(request)));
   }
   if (path === "/api/admin/payment-settings" && method === "GET") {
     await requireAdmin(env, request);

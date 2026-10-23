@@ -85,6 +85,22 @@
       <div class="row"><button class="ok" id="gr-submit">Grant access</button><span class="note" id="gr-msg"></span></div>
     </div>
     <div class="card">
+      <h2>Reset a password</h2>
+      <p class="note">You choose the new password; nothing is generated. Every session of the account ends, so the user must sign in again with the new password. The bootstrap admin password is set in the Worker secret KFX_ADMIN_PASSWORD, not here.</p>
+      <div class="grid2">
+        <label class="f">User (username or email)
+          <input id="rp-user" list="user-list" placeholder="fxtrader24" />
+        </label>
+        <label class="f">New password (policy applies)
+          <input id="rp-password" type="password" autocomplete="new-password" />
+        </label>
+        <label class="f">Reason (required, in the audit trail)
+          <input id="rp-note" maxlength="300" />
+        </label>
+      </div>
+      <div class="row"><button class="bad" id="rp-submit">Reset password</button><span class="note" id="rp-msg"></span></div>
+    </div>
+    <div class="card">
       <div class="row" style="margin-bottom:10px"><h2 style="margin:0;margin-right:auto">Accounts</h2><button id="us-refresh">Refresh</button></div>
       <div style="overflow-x:auto"><table>
         <thead><tr><th>Username</th><th>Email</th><th>Phone</th><th>Role</th><th>Access</th><th>Revoke</th></tr></thead>

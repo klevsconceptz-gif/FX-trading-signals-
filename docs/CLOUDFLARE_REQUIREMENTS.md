@@ -62,7 +62,7 @@ See the variable reference in the deployment guide, section 8. Secrets are set w
 
 - [ ] Sign-in on the Free plan: pay for Workers Paid, or accept that sign-in fails (deployment guide, section 2).
 - [ ] Signal engine: choose a host and provider, or leave the market routes off.
-- [ ] Reset e-mail: choose a provider and endpoint, or leave password reset off.
+- [ ] Reset e-mail: choose a provider and endpoint. Without one, operators reset passwords in the admin console.
 - [ ] Live market data: keep Yahoo Finance and Frankfurter, or use the synthetic market only.
 - [ ] Hostname and zone for the Pages site and the API proxy.
 - [ ] Rotate the admin password that was once shown in chat.

@@ -24,7 +24,7 @@ route does not cover, and the full variable list.
 | Payments, access grants, admin console, audit log | Worker + D1 | Same as sign-in | At risk, for the same reason |
 | Settings, universe list | Worker + D1/KV | Free | Works |
 | Market scan, instructions, pair detail, backtest | **External FastAPI signal engine** (`KFX_SIGNAL_ENGINE_ORIGIN`) | Not on Cloudflare | Returns `503` until an engine is configured |
-| Password reset e-mail | **Operator-supplied HTTPS endpoint** (`KLEVS_RESET_EMAIL_URL`) | Not on Cloudflare | Returns no e-mail until configured |
+| Password reset e-mail | **Operator-supplied HTTPS endpoint** (`KLEVS_RESET_EMAIL_URL`) | Not on Cloudflare | Returns no e-mail until configured. Operators can set a password from the admin console instead |
 
 The signal engine is Python (numpy, pandas, scikit-learn). A Worker cannot run it within the Free
 plan's CPU limit, so it needs its own host. The reset e-mail is sent by an endpoint you provide, so
@@ -95,6 +95,13 @@ endpoint must use HTTPS. The Worker calls it with `POST {to, subject, text}` and
 `Authorization: Bearer <token>`. Without both values, the
 Worker returns no e-mail and the reset cannot finish. The endpoint and its provider are yours to
 choose, and so is the cost.
+
+**Without an e-mail endpoint**, an operator resets the password in the admin console (**Reset a
+password**). Enter the username or e-mail, the new password you choose, and a reason. The reason
+goes to the audit trail, and the password is never logged. The reset ends every session of that
+account. Give the new password to the user through a channel you trust. The reset is not available
+for the bootstrap admin (`KFX_ADMIN_PASSWORD`), which you change as a Worker secret. Hashing the
+password runs on the Worker, so it counts toward the CPU limit in section 2.
 
 ## 7. Decisions before go-live
 

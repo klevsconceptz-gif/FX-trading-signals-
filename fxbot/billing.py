@@ -23,9 +23,9 @@ import secrets
 import time
 from typing import Any, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
-from .db import AccessGrant, AdminAuditEvent, Payment, Setting, User, db_session
+from .db import AccessGrant, AdminAuditEvent, Payment, Setting, User, UserSession, db_session
 
 PLANS: dict[str, dict[str, Any]] = {
     "starter": {"name": "Starter", "price_usd": 29},
@@ -423,6 +423,46 @@ def grant_access(user_id: int, plan: str, days: int, operator: str, note: str) -
             occurred_at=occurred_at,
         )
         return {"id": grant.id, "plan": plan, "expires_at": grant.expires_at}
+
+
+def reset_password(user_id: int, operator: str, new_password: str, note: str,
+                   bootstrap_username: str = "") -> dict[str, Any]:
+    """Operator sets a new password for an account, ends its sessions and logs the change.
+
+    The operator chooses the password; nothing is generated. The password is never written
+    to the audit trail. The bootstrap admin (KFX_ADMIN_USERNAME) is refused, because the
+    server re-seeds that password from its environment on every start.
+    """
+    from .auth import hash_password, policy_error  # local import: auth does not import billing
+
+    err = policy_error(new_password)
+    if err:
+        raise ValueError(err)
+    note = (note or "").strip()
+    if len(note) < 3 or len(note) > 300:
+        raise ValueError("give a note explaining the password reset")
+    with db_session() as s:
+        target = s.get(User, user_id)
+        if target is None:
+            raise LookupError("user not found")
+        if bootstrap_username and target.username_key == bootstrap_username.strip().lower():
+            raise PermissionError("this is the bootstrap admin: change KFX_ADMIN_PASSWORD and restart instead")
+        target.password_hash = hash_password(new_password)
+        target.reset_hash = None
+        target.reset_expires = 0.0
+        target.reset_attempts = 0
+        target.failed_logins = 0
+        target.locked_until = 0.0
+        s.execute(delete(UserSession).where(UserSession.user_id == user_id))
+        _record_admin_event(
+            s,
+            actor=operator,
+            action="password_reset",
+            summary="Set a new password; existing sessions ended",
+            target=target,
+            note=note[:300],
+        )
+        return {"id": user_id}
 
 
 def revoke_access(user_id: int, operator: str, note: str) -> int:
