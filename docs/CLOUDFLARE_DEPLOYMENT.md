@@ -1,189 +1,154 @@
-# Deploying KLEVS on Cloudflare (Containers route)
+# Deploying KLEVS on the existing Cloudflare route
 
-This is the Cloudflare-only deployment path. Every service it uses is a Cloudflare product:
+This guide covers the deployment that already exists in this repository: the Worker in `worker/`
+(D1 for accounts, payments and access; KV for short-lived caches) fronted by the Pages function in
+`functions/`. It uses only Cloudflare resources that the Free plan includes. No R2 bucket, no
+Containers, no Email Service, no VM, and no Tunnel.
 
-| Piece | Cloudflare service | Where it lives |
-|---|---|---|
-| Public entry point, TLS, WAF, rate limits | Worker custom domain, zone WAF | `edge/wrangler.jsonc` |
-| The FastAPI app (uvicorn, one worker) | Containers, bound to a Durable Object | `Dockerfile`, `edge/src/index.ts` |
-| SQLite database, restored and replicated | R2 bucket `klevs-backups` | `fxbot/replica.py`, `edge/src/internal.ts` |
-| Reset-code e-mail | Email Service, via a `send_email` binding | `fxbot/mail.py`, `edge/src/internal.ts` |
-| Operator console protection (optional) | Cloudflare Access | section 7 |
+The step-by-step Worker setup (migrations, secrets, deploy) is in
+[`worker/README.md`](../worker/README.md). This guide adds the limits, the three items that the free
+route does not cover, and the full variable list.
 
-There is no SMTP server, no VM, no systemd unit, and no Tunnel on this path.
-
-> **Scope and verification.** The sections below were checked as follows.
->
-> - **Checked locally:** the Python suite (including the replica, mail and deploy-file tests); the Worker type-check and its 20 unit tests; a `wrangler deploy --dry-run --containers-rollout=none`, which validated the bindings and resolved the container image path.
-> - **Not checked here:** the Docker image build (Docker is not installed in the build sandbox, so the dry-run skips the image build), a live deploy, the Container starting in Cloudflare, the container reaching its own public origin, a real R2 bucket, a real Email Service send, and the Cloudflare dashboard screens. Run section 9 in a staging zone before you rely on the setup.
-> - **The Worker still needs the other non-Cloudflare runtime data sources** for live prices: Yahoo Finance (via `yfinance`) and Frankfurter (`api.frankfurter.dev`). They are not part of the deploy path, but they are outbound dependencies. See section 10.
+> **Verification status.** Checked locally: the Python suite; the Worker unit tests (`node --test
+> worker/test/*.test.js`, 8 passing); a PBKDF2 timing check (section 2). **Not checked here:** a live
+> deploy, the remote D1 migration, the Pages build, and the Cloudflare dashboard screens.
 
 ---
 
-## 1. How it works
+## 1. What runs where
 
-```
-Browser ──HTTPS──▶ Worker klevs-edge (custom domain)
-                     │  /__internal/*  → token-checked R2 snapshot and e-mail routes
-                     │  everything else → KlevsContainer (one instance, sleeps after 15 min idle)
-                     ▼
-              Container: uvicorn fxbot.server:app (port 8000)
-                     │  on start: restore klevs.db from R2 if the local file is missing
-                     │  after each write: copy klevs.db to R2 (synchronously)
-                     │  reset codes: POST /__internal/email on the same origin
-                     ▼
-              R2 bucket klevs-backups, key klevs/klevs.db
-```
-
-- **One container instance** (`max_instances: 1`). SQLite has one writer, and the market engine keeps its cache in memory, so a second instance would hold a second copy.
-- **Idle shutdown.** The container stops after 15 minutes without requests (`sleepAfter = "15m"`). The next request starts it, restores the database from R2, and retrains the models. The cold start includes the restore plus a model retrain. An earlier estimate put the retrain at about 34 seconds. That is not yet measured on Cloudflare, so re-measure it.
-- **Internal routes** are the only route the container uses to reach Cloudflare services. They require the `X-Internal-Token` header (constant-time comparison) and return `401` otherwise. An unset token refuses every request.
-
-## 2. Prerequisites
-
-- A Cloudflare account on the **Workers Paid** plan. Containers are not available on Free.
-- A zone (domain) on Cloudflare that you will serve the app from.
-- Node.js 20 or later, and npm.
-- Wrangler, installed with the `edge/` package (`npm ci` in `edge/`).
-- Email Service enabled, with a sender domain onboarded. Until the domain is onboarded, the Worker cannot send reset codes.
-- **Docker (or a Docker-compatible CLI) on the machine that runs `wrangler deploy`.** Wrangler builds the container image locally before it uploads it, even for `--dry-run`. Set `WRANGLER_DOCKER_BIN` if the CLI is not on `PATH`.
-
-## 3. Cost (verified against the Cloudflare pricing page, 5 Oct 2026)
-
-Source: `developers.cloudflare.com/containers/platform/pricing/`.
-
-- **Workers Paid:** $5 per month. It includes 25 GiB-hours of memory, 375 vCPU-minutes, and 200 GB-hours of disk each month.
-- **Overage rates:** memory $0.0000025 per GiB-second; CPU $0.000020 per vCPU-second, billed only while the container is active; disk $0.00000007 per GB-second.
-- **Instance `standard-2`** (1 vCPU, 6 GiB, 12 GB disk), which is the provisional size in `wrangler.jsonc`.
-
-If the container runs around the clock, the total is about **$97 per month**: $5 for Workers Paid, plus about $92 for the container (memory $38.66, CPU $51.39, disk $2.13). Idle time reduces this, because memory and disk billing stops when the container sleeps. The sleep setting trades cost against the cold start in section 1.
-
-**Not verified:** Email Service and R2 pricing. Check the Email Service and R2 pricing pages before you budget for them. Email is billed per message beyond an included allowance, and R2 is billed per stored GB and per operation. At this scale both are expected to be small, but that is an estimate, not a checked figure.
-
-## 4. Set up the resources
-
-Run these from the `edge/` directory unless noted. Each step is a one-off.
-
-1. **Install the Worker dependencies.**
-   ```sh
-   cd edge
-   npm ci
-   ```
-2. **Log in to Cloudflare** (opens a browser flow on your machine).
-   ```sh
-   npx wrangler login
-   ```
-3. **Create the R2 bucket** that holds the database snapshot.
-   ```sh
-   npx wrangler r2 bucket create klevs-backups
-   ```
-4. **Onboard the sender domain** in the dashboard: *Email Service → Domains*. Then set the sender address in `wrangler.jsonc` under `vars.KLEVS_MAIL_FROM`, for example `noreply@yourdomain.example`.
-5. **Set your hostname.** In `wrangler.jsonc`, replace the placeholder `klevs.example.com` in both `routes[0].pattern` and `vars.KLEVS_PUBLIC_ORIGIN` with your hostname. The origin must not end with a slash.
-6. **Set the secrets.** Each command prompts for the value. Do not put values in files or in your shell history.
-   ```sh
-   npx wrangler secret put INTERNAL_TOKEN        # a long random string, e.g. 48 bytes from a password manager
-   npx wrangler secret put KFX_ADMIN_USERNAME    # the operator username
-   npx wrangler secret put KFX_ADMIN_PASSWORD    # the operator password (policy: see docs/ADMIN_LOGIN.md)
-   npx wrangler secret put KFX_ADMIN_EMAIL       # optional: needed if the username is not an e-mail address
-   ```
-   `KFX_ADMIN_PASSWORD` is applied on every container start and overwrites the stored password. To rotate it, change the secret and redeploy or restart the container.
-7. **Keep `KLEVS_DEV_RESET_CODES` unset.** It returns reset codes in API responses, which is for local development only. The Worker never sets it.
-
-## 5. Deploy
-
-```sh
-cd edge
-npm test                      # Worker unit tests (20)
-npm run deploy:dry-run        # validates bindings; add --containers-rollout=none if Docker is not installed
-npm run deploy                # builds the image and deploys the Worker and the container
-```
-
-Wrangler builds the container from `../Dockerfile`. The build context is the repository root, and `.dockerignore` keeps secrets, databases and the test suite out of the image.
-
-## 6. Environment reference
-
-Every variable the app reads, and where it comes from on this route.
-
-| Variable | Set by | Required | Purpose |
+| Function | Runs on | Cloudflare plan needed | Status on the Free plan |
 |---|---|---|---|
-| `KFX_ADMIN_USERNAME` | secret | yes, for an operator account | Operator login name |
-| `KFX_ADMIN_PASSWORD` | secret | yes, with the username | Operator password. Authoritative on every start |
-| `KFX_ADMIN_EMAIL` | secret | optional | Operator e-mail, needed when the username is not an address |
-| `KFX_ADMIN_PHONE` | secret | optional | Operator phone number |
-| `KFX_LIVE_DATA` | Worker (default `1`) | no | `1` uses live prices, `0` uses the synthetic market only |
-| `KLEVS_INTERNAL_TOKEN` | Worker, from the `INTERNAL_TOKEN` secret | set automatically | Authenticates the container to `/__internal/*` |
-| `KLEVS_REPLICA_URL` | Worker, from `KLEVS_PUBLIC_ORIGIN` | set automatically | Snapshot route on the public origin |
-| `KLEVS_EMAIL_URL` | Worker, from `KLEVS_PUBLIC_ORIGIN` | set automatically | E-mail route on the public origin |
-| `KLEVS_DATABASE_URL` | nothing | leave unset | Defaults to SQLite at `/app/data/klevs.db`. PostgreSQL is not used on this route |
-| `KLEVS_DEV_RESET_CODES` | nothing | must stay unset | Development only. Would expose reset codes |
-| `KFX_SIGNAL_ENGINE_TOKEN` | nothing | not used here | Only for the D1/KV Worker route in `worker/README.md` |
+| Static site and `/api` proxy | Pages (`functions/api/[[path]].js`) | Free | Works |
+| Sign-up, sign-in, sessions, password change | Worker + D1 | Free for the requests; **CPU limit is the risk** (section 2) | At risk |
+| Payments, access grants, admin console, audit log | Worker + D1 | Same as sign-in | At risk, for the same reason |
+| Settings, universe list | Worker + D1/KV | Free | Works |
+| Market scan, instructions, pair detail, backtest | **External FastAPI signal engine** (`KFX_SIGNAL_ENGINE_ORIGIN`) | Not on Cloudflare | Returns `503` until an engine is configured |
+| Password reset e-mail | **Operator-supplied HTTPS endpoint** (`KLEVS_RESET_EMAIL_URL`) | Not on Cloudflare | Returns no e-mail until configured |
 
-Empty values are dropped, so the app sees them as unset.
+The signal engine is Python (numpy, pandas, scikit-learn). A Worker cannot run it within the Free
+plan's CPU limit, so it needs its own host. The reset e-mail is sent by an endpoint you provide, so
+the mail provider is your choice.
 
-## 7. Protect the edge
+## 2. The Free-plan CPU limit (open blocker)
 
-- **Login rate limit.** On the zone, add a WAF rate-limiting rule for the path `/api/auth/*`, per IP. The Free plan allows one path-based rule with a 10-second window. Paid plans allow more rules and longer windows. Check the WAF rate-limiting page for your plan, since the limits change.
-- **Operator console.** Put Cloudflare Access in front of `/admin` and `/api/admin/*` on your hostname. Access adds a second sign-in before the app's own login. The Free plan of Zero Trust covers up to 50 users.
-- **The 429 response** from the rate limit can reveal whether an account exists. The rate-limit rule does not fix that. Treat it as an open gap.
-- **Public health endpoint.** `/api/health` returns the risk and signal configuration (equity, risk per trade, weights). It is public. Restrict it at the edge if that configuration is sensitive.
+Cloudflare's limits page (updated 12 Oct 2026) lists **10 ms of CPU time per HTTP request** on the
+Free plan, and 5 minutes on Workers Paid.
 
-## 8. Database: replication and recovery
+Password hashing is the problem. The Worker stores passwords with PBKDF2-SHA256 at 200,000
+iterations (`worker/src/security.js`). In a local check (Node WebCrypto, median of five runs), one
+derivation took about **38 ms**. That is nearly four times the Free limit. Login, registration and
+password changes would therefore likely fail with a CPU-limit error (Cloudflare error 1102) on the
+Free plan. The code's minimum iteration count is 100,000, which still takes roughly 19 ms in the
+same check, so lowering it is not enough.
 
-- **Restore on start.** When the container starts and no local `klevs.db` exists, it downloads the snapshot from R2, checks it with `PRAGMA quick_check`, and renames it into place. A missing snapshot is normal on the first start. Any other failure stops startup, so the app never serves an empty database by accident.
-- **Replicate on write.** After each commit that changes data (including bulk updates and deletes), the container uploads a consistent copy to R2 before the request returns.
-- **Failure handling.** If the upload fails, the replica is marked `pending`, and a background thread retries every 15 seconds. `/api/health` reports `replica: disabled`, `ok` or `pending`.
-- **Known limit.** A write that succeeds while R2 is unreachable is acknowledged to the user before it is replicated. If the container is evicted before the retry succeeds, that write is lost. Watch for `pending` in `/api/health` and alert on it if you cannot accept that loss window.
-- **Restore test.** Once a week, in staging, delete the container's data (redeploy, or restart with the snapshot removed from R2), and confirm the accounts and payments come back.
+**Not measured on Cloudflare.** Confirm it with the Worker's invocation logs after a staging deploy.
+If the limit is exceeded, the options are:
 
-## 9. Verify the deployment
+1. **Workers Paid**, which raises the limit to 5 minutes of CPU per request (default 30 seconds).
+   The plan costs $5 per month. This is a charged dependency.
+2. **Keep the Free plan and accept that sign-in does not work** on the Worker route.
 
-Run these against your hostname, not `workers.dev` (which is disabled).
+Decide before you go live. See section 7.
 
-1. `curl -s https://<your-host>/api/health` returns `200`, with `"replica": "ok"` after the first write.
-2. Log in as the operator through the sign-in dialog. `/admin` opens the console.
-3. Register a test account, request a password reset, and confirm the e-mail arrives. This is the only check of the Email Service path.
-4. Redeploy the container. The accounts and payments from before the redeploy are still there.
-5. Confirm with the dashboard that the container runs one instance and that `max_instances` is `1`.
-6. Confirm that `/__internal/snapshot` returns `401` without the token.
+## 3. Prerequisites
 
-If step 3 fails, check the Worker logs for `e-mail relay refused` (sender domain not onboarded, or daily quota) and `e-mail relay could not be reached`.
+- A Cloudflare account and a zone (domain) for the app.
+- Node.js 20 or later, with npm, for the Worker and Wrangler.
+- Wrangler, from the root `package.json` (`npm ci` at the repository root).
+- Optional, for the signal engine: a host you control that serves HTTPS (section 5).
 
-## 10. Open items before go-live
+## 4. Deploy the Cloudflare side
 
-- **Container reaching its public origin.** The container calls `https://<host>/__internal/*` over the public internet. This is the assumed design, and it is not yet checked on Cloudflare. If the container cannot reach that origin, switch the two URLs to a route that stays inside Cloudflare, and retest section 9.
-- **Instance size.** `standard-2` (1 vCPU, 6 GiB) is provisional. Measure peak memory during a model retrain and a scan, then adjust `instance_type`.
-- **Live data sources.** Yahoo Finance (`yfinance`) and Frankfurter (`api.frankfurter.dev`) are outbound dependencies of the signal engine. They are not part of the deploy path, and they are pending your decision. Set `KFX_LIVE_DATA=0` to run on the synthetic market only.
-- **Admin credentials.** An operator password was once committed to the repository and displayed in chat. Rotate it before go-live. Set the new value with `wrangler secret put KFX_ADMIN_PASSWORD`.
-- **Public health detail.** See section 7.
+Follow [`worker/README.md`](../worker/README.md), section "Production setup and deployment". In
+short:
 
-## 11. Operations
+1. Apply the D1 migration to the remote database: `npm run worker:migrate:remote`.
+2. Store the admin bootstrap values as Worker secrets (`KFX_ADMIN_USERNAME`,
+   `KFX_ADMIN_PASSWORD`, and `KFX_ADMIN_EMAIL` if the username is not an address). These are
+   secrets, not `vars`.
+3. Deploy the Worker: `npm run worker:deploy`.
+4. Deploy the Pages site. The function proxies `/api/*` to the Worker, and
+   `KLEVS_API_ORIGIN` overrides the default origin if you need one.
 
-- **Logs.** Worker and container logs are in the Cloudflare dashboard (observability is enabled in `wrangler.jsonc`). The app logs to stdout. The `klevs.replica`, `klevs.mail` and `klevs.auth` loggers report replication, relay and reset-code events without recipients or message bodies.
-- **Rollback.** `npx wrangler rollback` returns the Worker to the previous version. Check that the container image rolls back with it.
-- **Changing secrets** does not require a rebuild. `wrangler secret put` followed by a redeploy or a container restart is enough.
-- **Stopping the app.** `npx wrangler delete` removes the Worker. The R2 bucket and its snapshot remain until you delete them.
+The Worker is named `klv-fx-trading-signals` in `worker/wrangler.jsonc`. Check the target account
+before any remote migration or deploy.
 
-## 12. Troubleshooting
+## 5. Optional: the signal engine on an HTTPS host you control
 
-| Symptom | Likely cause and fix |
+Set the same high-entropy token on both sides:
+
+- On the Worker, as a secret: `npx wrangler secret put KFX_SIGNAL_ENGINE_TOKEN --config worker/wrangler.jsonc`.
+- On the FastAPI host, as an environment secret: `KFX_SIGNAL_ENGINE_TOKEN`.
+
+Then set `KFX_SIGNAL_ENGINE_ORIGIN` on the Worker (an HTTPS origin with no path). It must not point
+back at the Worker. The FastAPI host runs `uvicorn fxbot.server:app --host 0.0.0.0 --port 8000 --workers 1`.
+Until both are set, the market routes return `503`, and every other route still works.
+
+This host is outside Cloudflare, so it is a non-Cloudflare dependency. Its cost and location are
+yours to choose.
+
+## 6. Reset e-mail (optional)
+
+Set `KLEVS_RESET_EMAIL_URL` (an HTTPS endpoint) and `KLEVS_RESET_EMAIL_TOKEN` on the Worker. The
+endpoint must use HTTPS. The Worker calls it with `POST {to, subject, text}` and the header
+`Authorization: Bearer <token>`. Without both values, the
+Worker returns no e-mail and the reset cannot finish. The endpoint and its provider are yours to
+choose, and so is the cost.
+
+## 7. Decisions before go-live
+
+- **Sign-in on the Free plan.** Pay for Workers Paid, or accept that sign-in fails (section 2).
+- **Signal engine host.** Choose a host and a provider, or leave the market routes off.
+- **Reset e-mail provider.** Choose one, or leave password reset off.
+- **Live market data.** The FastAPI app fetches Yahoo Finance (`yfinance`) and Frankfurter
+  (`api.frankfurter.dev`) when `KFX_LIVE_DATA` is on. These are external runtime data sources. Set
+  `KFX_LIVE_DATA=0` to use the synthetic market only.
+- **Admin credentials.** An operator password was once shown in chat. Rotate it before go-live with
+  `wrangler secret put KFX_ADMIN_PASSWORD`.
+
+## 8. Variable reference
+
+Worker (set with `wrangler secret put` or in `vars`):
+
+| Name | Kind | Purpose |
+|---|---|---|
+| `KFX_ADMIN_USERNAME` | secret | Admin account, provisioned on each start |
+| `KFX_ADMIN_PASSWORD` | secret | Admin password, applied on each start |
+| `KFX_ADMIN_EMAIL` | secret | Admin e-mail, if the username is not an address |
+| `KFX_ADMIN_PHONE` | secret | Optional admin phone number |
+| `KFX_SCAN_CACHE_SECONDS` | var | Scan cache time in KV (default 60) |
+| `KFX_SIGNAL_ENGINE_ORIGIN` | var | HTTPS origin of the FastAPI signal engine |
+| `KFX_SIGNAL_ENGINE_TOKEN` | secret | Shared with the FastAPI host |
+| `KLEVS_RESET_EMAIL_URL` | var | HTTPS endpoint that sends reset e-mail |
+| `KLEVS_RESET_EMAIL_TOKEN` | secret | Token for the reset-e-mail endpoint |
+| `KLEVS_API_ORIGIN` | Pages variable | Overrides the Worker origin the Pages function proxies to |
+
+FastAPI signal engine (set on the host that runs `fxbot.server`):
+
+| Name | Purpose |
 |---|---|
-| `wrangler deploy` says the Docker CLI is needed | Install Docker, start the daemon, or set `WRANGLER_DOCKER_BIN`. To deploy only the Worker for now, use `--containers-rollout=none` |
-| `/api/health` shows `replica: disabled` | `KLEVS_REPLICA_URL` or `KLEVS_INTERNAL_TOKEN` is missing. Check `KLEVS_PUBLIC_ORIGIN` and the `INTERNAL_TOKEN` secret |
-| `/api/health` shows `replica: pending` | The R2 upload is failing. Check that the bucket exists and the Worker has the `BACKUPS` binding |
-| Container fails to start with a restore error | The snapshot in R2 failed the integrity check. Restore a known-good snapshot to `klevs/klevs.db`, or delete it to start empty (this loses data) |
-| Reset codes never arrive | The sender domain is not onboarded, or the daily quota is used up. Check Email Service and the Worker logs |
-| Login returns 401 for the operator | `KFX_ADMIN_PASSWORD` is wrong, or the container has not restarted since the secret changed |
-| First request after idle is slow | Expected: cold start, database restore and model retrain |
+| `KFX_SIGNAL_ENGINE_TOKEN` | Must match the Worker secret. Accepted only on the signal routes |
+| `KFX_LIVE_DATA` | `1` (default) for live market data, `0` for the synthetic market |
+| `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | Admin bootstrap for the FastAPI app |
+| `KLEVS_DATABASE_URL` | Database URL for the FastAPI app. Unset uses SQLite at `data/klevs.db` |
+| `KLEVS_DEV_RESET_CODES` | Development only. Must stay unset in production (it returns reset codes) |
+| `KLEVS_SMTP_HOST`, `KLEVS_SMTP_PORT`, `KLEVS_SMTP_USER`, `KLEVS_SMTP_PASSWORD`, `KLEVS_SMTP_FROM` | Reset e-mail for the FastAPI app, over STARTTLS. An external mail provider |
 
-## Appendix: files on this route
+## 9. Verify
 
-- `Dockerfile`, `.dockerignore`: the app image. Non-root, one uvicorn worker, port 8000.
-- `edge/wrangler.jsonc`: bindings, container, vars. Placeholder hostname until you set yours.
-- `edge/src/index.ts`: the Worker and the `KlevsContainer` class.
-- `edge/src/container-env.ts`: the environment passed to the container.
-- `edge/src/internal.ts`: the token-checked snapshot and e-mail routes.
-- `edge/test/`: Worker unit tests (`npm test` in `edge/`).
-- `fxbot/replica.py`, `fxbot/mail.py`: the app side of the snapshot and e-mail routes.
-- `tests/test_replica.py`, `tests/test_mail.py`, `tests/fake_worker.py`: Python tests against an in-process fake of the Worker.
-- `tests/test_deploy_files.py`: drift checks for the files above.
-- `worker/`, `functions/`, `worker/README.md`: the separate D1/KV Worker route, documented in its own README. It needs the external signal engine described there, which is a non-Cloudflare dependency.
+1. `curl -s https://<your-host>/api/health` returns `200`.
+2. Sign in as the admin. The console at `/admin` opens and lists payments.
+3. Sign up with a test account. If it fails with a CPU-limit error, see section 2.
+4. Call a market route. Before the signal engine is set, expect `503`. Afterwards, expect data.
+5. Request a reset code. Expect an e-mail only if `KLEVS_RESET_EMAIL_URL` is set.
+
+## 10. Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| Sign-in or sign-up fails with error 1102 / "exceeded resource limits" | CPU limit on the Free plan (section 2) |
+| Market routes return `503` | `KFX_SIGNAL_ENGINE_ORIGIN` or `KFX_SIGNAL_ENGINE_TOKEN` is not set (section 5) |
+| Reset code never arrives | `KLEVS_RESET_EMAIL_URL` or `KLEVS_RESET_EMAIL_TOKEN` is not set (section 6) |
+| Admin login fails | `KFX_ADMIN_USERNAME` or `KFX_ADMIN_PASSWORD` is wrong. Both must be set together |
+| `/api/*` returns a Pages error | `KLEVS_API_ORIGIN` points at a Worker that is not deployed |

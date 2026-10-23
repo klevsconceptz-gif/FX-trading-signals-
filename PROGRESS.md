@@ -167,49 +167,32 @@ reference only.
   exists; the Pro/Elite feature list still names items that are not built (for example
   webhooks and multi-account profiles).
 
-### 10. Cloudflare-only deployment (Containers route)
-- **Decision.** Deployment uses Cloudflare services only: Workers (custom domain and token-checked
-  internal routes), Containers (the FastAPI app, one instance), R2 (SQLite snapshot), and Email
-  Service (reset codes). No SMTP, VM, systemd or Tunnel remains on this path. Rebuilt on
-  2026-10-23 at the user's request, with the existing D1/KV Worker route kept alongside it.
-- **Guide**: `docs/CLOUDFLARE_DEPLOYMENT.md` (set-up, secrets, deploy, environment reference,
-  database replication and recovery, verification, open items, troubleshooting).
-- **Requirements**: `docs/CLOUDFLARE_REQUIREMENTS.md` (plans and prices, container sizing, egress
-  list, data stores, configuration, decisions still needed, go-live gate).
-- **Code**:
-  - `fxbot/replica.py`: restores `klevs.db` from R2 when the local file is missing (quick_check,
-    stale WAL removed), replicates after each write-bearing commit, and retries every 15 s.
-    `/api/health` reports `replica: disabled | ok | pending`.
-  - `fxbot/db.py`: restore before the first connection; replication after a commit that changed
-    any row, including bulk UPDATE and DELETE (the connection's change counter is checked).
-  - `fxbot/mail.py`: reset-code e-mail posts to the Worker relay (202 on success). `fxbot/auth.py`
-    no longer uses SMTP.
-  - `edge/`: Worker `klevs-edge` (`src/index.ts`, `KlevsContainer` with `defaultPort` 8000 and
-    `sleepAfter` 15 min; `src/internal.ts`, token-checked snapshot and e-mail routes;
-    `src/container-env.ts`). Wrangler config binds R2 `BACKUPS`, `send_email` `EMAIL`, and the
-    container (`max_instances` 1, `standard-2` provisional).
-- **Files**: `Dockerfile` (non-root, one uvicorn worker, port 8000, SQLite only), `.dockerignore`
-  (excludes secrets, databases, `edge/`, `worker/`, tests), `tests/test_deploy_files.py` (drift
-  checks: every env var read is documented, the Worker sets only variables the app reads, Wrangler
-  bindings, no SMTP path, no deploy/ directory).
-- **Tests**: `tests/test_replica.py` and `tests/test_mail.py` (19 tests together), with
-  `tests/fake_worker.py`, cover
-  restore, corruption, stale WAL, pending retry, bulk writes, and the relay contract. `edge/test/`
-  has 20 Worker tests. The admin test credentials are generated per run.
-- **Verified locally**: Python suite and ruff; Worker `tsc` and 20 unit tests; `wrangler deploy
-  --dry-run --containers-rollout=none` validates bindings and the container image path.
-- **Not verified**: Docker image build (Docker is not installed in the sandbox), a live deploy, the
-  container starting on Cloudflare, the container reaching its own public origin for
-  `/__internal/*` (the assumed design), a real R2 bucket, a real Email Service send.
-- **Cost (verified against the Cloudflare Containers pricing page, 5 Oct 2026)**: Workers Paid
-  $5/mo. `standard-2` running around the clock is about $92/mo (memory $38.66, CPU $51.39, disk
-  $2.13), so about $97/mo total before idle savings. Email Service and R2 prices are not verified.
-- **Gaps to close before launch**: a write acknowledged while R2 is unreachable is lost if the
-  container is evicted before the retry succeeds; `/api/health` exposes risk configuration
-  publicly; the 429 lockout response can reveal whether an account exists; the operator password
-  once shown in chat must be rotated; the D1/KV route needs an external signal engine (a
-  non-Cloudflare dependency); Yahoo Finance and Frankfurter are runtime data sources pending the
-  user's decision.
+### 10. Deployment on the existing Cloudflare route
+- **Decision (2026-10-23).** Deploy on the existing route only: the Worker in `worker/` (D1 for
+  accounts, payments and access; KV for caches) and the Pages function in `functions/`. Use only
+  resources the Cloudflare Free plan includes. No R2, Containers, Email Service or Durable Objects.
+  The Containers rebuild from earlier the same day was removed (it is in git history).
+- **Guides**: `docs/CLOUDFLARE_DEPLOYMENT.md` (what runs where, the CPU-limit risk, the optional
+  signal engine and reset e-mail, the variable reference, verification) and
+  `docs/CLOUDFLARE_REQUIREMENTS.md` (plans, egress, data stores, decisions, go-live gate).
+- **Admin credentials.** The test suite uses one fixed test admin, defined in
+  `tests/admin_credentials.py`. Nothing is generated per run. Production admin credentials are
+  Worker secrets only.
+- **Verified locally**: Python suite and ruff; Worker unit tests (`node --test worker/test/*.test.js`,
+  8 passing); PBKDF2 timing check (deployment guide, section 2).
+- **Not verified**: a live deploy, the remote D1 migration, the Pages build, the Cloudflare
+  dashboard screens, D1 and KV free-tier allowances.
+- **Blocker (open)**: Workers Free allows 10 ms of CPU per request (Cloudflare limits page, 12 Oct
+  2026). Password hashing uses PBKDF2 at 200,000 iterations. A local check took about 38 ms per
+  derivation, so sign-in and registration would likely exceed the Free limit. Not measured on
+  Cloudflare. Options: Workers Paid ($5/mo, a charged dependency) or no sign-in on the Free plan.
+- **Open (non-Cloudflare parts)**: the Python signal engine cannot run on a Worker within the Free
+  limit. It needs its own HTTPS host (`KFX_SIGNAL_ENGINE_ORIGIN`), and until then the market routes
+  return `503`. Password reset e-mail uses an operator-supplied endpoint (`KLEVS_RESET_EMAIL_URL`).
+  Yahoo Finance and Frankfurter are runtime data sources pending the user's decision.
+- **Gaps to close before launch**: `/api/health` exposes risk configuration publicly; the 429
+  lockout response can reveal whether an account exists; the operator password once shown in chat
+  must be rotated.
 
 ### 12. Review remediation (2026-10-18)
 - Removed same-bar backtest lookahead: signals use completed bars and entries fill at the next open.

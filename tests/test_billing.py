@@ -1,6 +1,5 @@
 """Payments: invoices, reference submission, operator confirmation, paid access."""
 
-import secrets
 import time
 
 import pytest
@@ -13,8 +12,9 @@ from fxbot.db import AccessGrant, Payment, db_session, reset_database
 from fxbot.server import app
 
 PW = "Str0ng!Pass99"
-ADMIN = "Ops@test.fx"
-ADMIN_PW = f"Ops-{secrets.token_hex(8)}#Aa9"   # generated per run
+from tests.admin_credentials import ADMIN_PW
+from tests.admin_credentials import ADMIN_USER as ADMIN
+
 WALLET = "bc1qexamplewalletaddress0001"
 
 

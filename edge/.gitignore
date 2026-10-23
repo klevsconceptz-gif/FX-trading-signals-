@@ -1,7 +1,0 @@
-node_modules/
-.build/
-.wrangler/
-.wrangler-out/
-.dev.vars
-.dev.vars.*
-!.dev.vars.example

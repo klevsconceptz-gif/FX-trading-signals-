@@ -9,7 +9,7 @@ Security model (stdlib hashing; database via SQLAlchemy — see ``fxbot/db.py``)
 * Session tokens are random 256-bit values; the database holds only their
   SHA-256 hash, so a leaked table cannot be replayed.
 * Reset codes are 7-digit, stored hashed, expire after 15 minutes and lock
-  after 5 wrong attempts.  The code is e-mailed (through the Cloudflare relay, see ``deliver_reset_code``);
+  after 5 wrong attempts.  The code is e-mailed (SMTP, see ``deliver_reset_code``);
   it is never returned in an API response unless ``KLEVS_DEV_RESET_CODES=1``
   (local development only).
 
@@ -25,12 +25,13 @@ import logging
 import os
 import re
 import secrets
+import smtplib
 import time
+from email.message import EmailMessage
 from typing import Any, Optional
 
 from sqlalchemy import delete, or_, select
 
-from . import mail
 from .db import User, UserSession, db_session
 
 log = logging.getLogger("klevs.auth")
@@ -356,14 +357,35 @@ def dev_reset_codes_enabled() -> bool:
 
 
 def deliver_reset_code(email: str, code: str) -> bool:
-    """E-mail a reset code through the Cloudflare e-mail relay (see ``fxbot.mail``).
+    """E-mail a reset code over SMTP.  Returns False when SMTP is not configured
+    (the code is then never shown to the user — the reset simply cannot finish).
 
-    Returns False when the relay is not configured or the send fails. The code
-    is then never shown to the user, so the reset simply cannot finish.
+    Environment: KLEVS_SMTP_HOST, KLEVS_SMTP_PORT (587), KLEVS_SMTP_USER,
+    KLEVS_SMTP_PASSWORD, KLEVS_SMTP_FROM.  STARTTLS is required.
     """
-    return mail.send(
-        email,
-        "klevs FX trading App — password reset code",
+    host = os.environ.get("KLEVS_SMTP_HOST", "").strip()
+    sender = os.environ.get("KLEVS_SMTP_FROM", "").strip()
+    if not host or not sender:
+        log.warning("reset code not sent: SMTP is not configured (KLEVS_SMTP_HOST / KLEVS_SMTP_FROM)")
+        return False
+    msg = EmailMessage()
+    msg["Subject"] = "klevs FX trading App — password reset code"
+    msg["From"] = sender
+    msg["To"] = email
+    msg.set_content(
         f"Your password reset code is {code}.\n\n"
-        f"It expires in {RESET_CODE_TTL // 60} minutes. If you did not request this, ignore this e-mail.",
+        f"It expires in {RESET_CODE_TTL // 60} minutes. If you did not request this, ignore this e-mail."
     )
+    port = int(os.environ.get("KLEVS_SMTP_PORT", "587"))
+    user = os.environ.get("KLEVS_SMTP_USER", "")
+    password = os.environ.get("KLEVS_SMTP_PASSWORD", "")
+    try:
+        with smtplib.SMTP(host, port, timeout=10) as smtp:
+            smtp.starttls()
+            if user:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+    except (OSError, smtplib.SMTPException):
+        log.exception("reset code e-mail failed for %s", email)
+        return False
+    return True

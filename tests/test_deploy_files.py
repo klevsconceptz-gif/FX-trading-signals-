@@ -1,10 +1,9 @@
-"""Static checks for the Cloudflare deployment files (Dockerfile, .dockerignore, edge/).
+"""Static checks for the deployment files on the existing Cloudflare route.
 
-These run offline and do not build the image or deploy anything. They catch drift:
-an environment variable the code reads but the docs do not mention, a Worker that
-sets a variable the app never reads, a Dockerfile COPY source that was renamed, a
-build context that would ship secrets, or a non-Cloudflare dependency creeping back
-into the deploy path.
+The deploy path is the Worker in worker/ (D1 and KV) plus the Pages function in
+functions/. These checks run offline. They catch drift: a variable the Worker or
+the app reads that the guide does not document, a binding that would bring in a
+paid or non-Cloudflare service, or a Pages proxy that no longer points at the Worker.
 """
 
 import json
@@ -12,64 +11,62 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DOC = ROOT / "docs" / "CLOUDFLARE_DEPLOYMENT.md"
+DEPLOY_DOC = ROOT / "docs" / "CLOUDFLARE_DEPLOYMENT.md"
 REQUIREMENTS = ROOT / "docs" / "CLOUDFLARE_REQUIREMENTS.md"
 ENV_PATTERN = r"\b((?:KLEVS|KFX)_[A-Z0-9_]+)\b"
 
 
-def _code_env_vars() -> set[str]:
+def _app_env_vars() -> set[str]:
     names: set[str] = set()
     for path in (ROOT / "fxbot").glob("*.py"):
         names.update(re.findall(ENV_PATTERN, path.read_text(encoding="utf-8")))
     return names
 
 
-def _container_settings() -> str:
-    """The object literal the Worker passes to the container (the only variables the container receives)."""
-    text = (ROOT / "edge" / "src" / "container-env.ts").read_text(encoding="utf-8")
-    start = text.index("const candidates")
-    return text[start:text.index("};", start)]
+def _worker_env_vars() -> set[str]:
+    names: set[str] = set()
+    for path in list((ROOT / "worker" / "src").glob("*.js")) + list((ROOT / "functions").rglob("*.js")):
+        names.update(re.findall(r"\benv\.([A-Z][A-Z0-9_]+)\b", path.read_text(encoding="utf-8")))
+    return names
 
 
-def _wrangler_config() -> dict:
-    # wrangler.jsonc uses whole-line // comments only; strip those and parse as JSON.
-    text = (ROOT / "edge" / "wrangler.jsonc").read_text(encoding="utf-8")
-    text = re.sub(r"(?m)^\s*//.*$", "", text)
-    return json.loads(text)
+def _worker_config() -> dict:
+    return json.loads((ROOT / "worker" / "wrangler.jsonc").read_text(encoding="utf-8"))
 
 
-def test_deployment_guide_documents_every_variable_the_code_reads():
-    doc = DOC.read_text(encoding="utf-8")
-    missing = {name for name in _code_env_vars() if name not in doc}
-    assert not missing, f"document these in {DOC.name}: {sorted(missing)}"
+def test_deployment_guide_documents_every_variable_the_app_reads():
+    doc = DEPLOY_DOC.read_text(encoding="utf-8")
+    missing = {name for name in _app_env_vars() if name not in doc}
+    assert not missing, f"document these in {DEPLOY_DOC.name}: {sorted(missing)}"
 
 
-def test_worker_sets_only_variables_the_app_reads():
-    keys = set(re.findall(r"^\s*((?:KLEVS|KFX)_[A-Z0-9_]+):", _container_settings(), flags=re.MULTILINE))
-    assert keys, "container-env.ts should name the variables it passes on"
-    unknown = keys - _code_env_vars()
-    assert not unknown, f"the container receives variables the app never reads: {sorted(unknown)}"
+def test_deployment_guide_documents_every_variable_the_worker_reads():
+    doc = DEPLOY_DOC.read_text(encoding="utf-8")
+    missing = {name for name in _worker_env_vars() if name not in doc}
+    assert not missing, f"document these in {DEPLOY_DOC.name}: {sorted(missing)}"
 
 
-def test_worker_never_sets_dev_reset_codes_or_hard_coded_secrets():
-    assert "KLEVS_DEV_RESET_CODES" not in _container_settings()
-    wrangler = (ROOT / "edge" / "wrangler.jsonc").read_text(encoding="utf-8")
-    for secret in ("KFX_ADMIN_PASSWORD", "INTERNAL_TOKEN", "KLEVS_INTERNAL_TOKEN"):
-        assert secret not in wrangler, f"{secret} must come from `wrangler secret put`, not wrangler.jsonc"
+def test_worker_binds_only_free_tier_cloudflare_resources():
+    config = _worker_config()
+    assert [b["binding"] for b in config["d1_databases"]] == ["klev"]
+    assert [b["binding"] for b in config["kv_namespaces"]] == ["voom"]
+    for paid_or_stored_elsewhere in ("r2_buckets", "containers", "send_email", "durable_objects", "routes"):
+        assert paid_or_stored_elsewhere not in config, (
+            f"worker/wrangler.jsonc must not bind {paid_or_stored_elsewhere}: it is not part of the existing deploy"
+        )
 
 
-def test_wrangler_binds_r2_email_and_the_container_as_cloudflare_resources():
-    config = _wrangler_config()
-    assert config["workers_dev"] is False
-    assert {b["binding"]: b["bucket_name"] for b in config["r2_buckets"]} == {"BACKUPS": "klevs-backups"}
-    assert [b["name"] for b in config["send_email"]] == ["EMAIL"]
-    container = config["containers"][0]
-    assert container["class_name"] == "KlevsContainer"
-    assert container["image"] == "../Dockerfile"
-    assert container["max_instances"] == 1, "SQLite has one writer: exactly one container instance"
-    assert config["durable_objects"]["bindings"] == [{"name": "KLEVS_CONTAINER", "class_name": "KlevsContainer"}]
-    assert any("KlevsContainer" in m.get("new_sqlite_classes", []) for m in config["migrations"])
-    assert set(config["vars"]) >= {"KLEVS_PUBLIC_ORIGIN", "KLEVS_MAIL_FROM"}
+def test_no_container_or_bucket_code_on_the_worker_route():
+    for path in list((ROOT / "worker").rglob("*.js")) + list((ROOT / "functions").rglob("*.js")):
+        text = path.read_text(encoding="utf-8")
+        for banned in ("BACKUPS", "send_email", "Container", "R2", "__internal"):
+            assert banned not in text, f"{path.relative_to(ROOT)} must not use {banned}"
+
+
+def test_pages_function_proxies_to_the_worker_and_declares_its_origin_variable():
+    text = (ROOT / "functions" / "api" / "[[path]].js").read_text(encoding="utf-8")
+    assert "klv-fx-trading-signals.klevco.workers.dev" in text
+    assert "KLEVS_API_ORIGIN" in text
 
 
 def test_dockerfile_copy_sources_exist():
@@ -79,24 +76,8 @@ def test_dockerfile_copy_sources_exist():
         if not line.startswith("COPY "):
             continue
         parts = line.split()[1:]
-        sources = [p for p in parts[:-1] if not p.startswith("--")]
-        for src in sources:
+        for src in [p for p in parts[:-1] if not p.startswith("--")]:
             assert (ROOT / src).exists(), f"Dockerfile COPY source missing: {src}"
-
-
-def test_dockerfile_runs_single_worker_as_non_root_on_port_8000():
-    text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert re.search(r'"--workers",\s*"1"', text), "uvicorn must run one worker"
-    assert re.search(r"^USER\s+klevs\s*$", text, flags=re.MULTILINE), "must not run as root"
-    assert re.search(r"^EXPOSE 8000$", text, flags=re.MULTILINE)
-    assert '"--port", "8000"' in text
-
-
-def test_dockerfile_bakes_in_no_secrets_and_no_tunnel():
-    text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert not re.search(r"^(ENV|ARG)\s+.*(PASSWORD|TOKEN|SECRET)", text, flags=re.MULTILINE | re.IGNORECASE)
-    for banned in ("cloudflared", "tunnel", "systemd", "psycopg"):
-        assert banned not in text.lower(), f"Dockerfile should not mention {banned}"
 
 
 def test_dockerignore_keeps_secrets_and_local_state_out_of_the_image():
@@ -105,18 +86,8 @@ def test_dockerignore_keeps_secrets_and_local_state_out_of_the_image():
         for line in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.strip().startswith("#")
     }
-    for pattern in (".env", ".env.*", ".dev.vars", ".dev.vars.*", ".git", ".venv", "data", "models", "*.db", "*.pkl", "edge"):
+    for pattern in (".env", ".env.*", ".git", ".venv", "data", "models", "*.db", "*.pkl"):
         assert pattern in lines, f".dockerignore should exclude {pattern}"
-
-
-def test_no_systemd_or_vm_deploy_files_remain():
-    assert not (ROOT / "deploy").exists(), "the VM/systemd deploy path was removed in favour of Cloudflare Containers"
-
-
-def test_app_code_has_no_smtp_path():
-    for path in list((ROOT / "fxbot").glob("*.py")) + list((ROOT / "edge" / "src").glob("*.ts")):
-        text = path.read_text(encoding="utf-8").lower()
-        assert "smtplib" not in text and "smtp" not in text, f"{path.name} still has an SMTP path"
 
 
 def test_every_external_host_in_code_is_in_the_requirements_doc():
@@ -129,7 +100,7 @@ def test_every_external_host_in_code_is_in_the_requirements_doc():
     assert not missing, f"add these hosts to {REQUIREMENTS.name}: {sorted(missing)}"
 
 
-def test_requirements_doc_names_every_cloudflare_service_the_path_uses():
+def test_requirements_doc_states_the_free_tier_limits_and_open_costs():
     doc = REQUIREMENTS.read_text(encoding="utf-8")
-    for service in ("Containers", "R2", "Email Service", "Workers"):
-        assert service in doc, f"{REQUIREMENTS.name} should name {service}"
+    for phrase in ("10 ms", "Workers Paid", "D1", "KV", "signal engine", "KLEVS_RESET_EMAIL_URL"):
+        assert phrase in doc, f"{REQUIREMENTS.name} should state: {phrase}"
