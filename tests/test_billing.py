@@ -1,5 +1,6 @@
 """Payments: invoices, reference submission, operator confirmation, paid access."""
 
+import secrets
 import time
 
 import pytest
@@ -13,7 +14,7 @@ from fxbot.server import app
 
 PW = "Str0ng!Pass99"
 ADMIN = "Ops@test.fx"
-ADMIN_PW = "not-a-real-Operator-pass-1"
+ADMIN_PW = f"Ops-{secrets.token_hex(8)}#Aa9"   # generated per run
 WALLET = "bc1qexamplewalletaddress0001"
 
 

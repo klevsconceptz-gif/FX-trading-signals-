@@ -14,18 +14,27 @@ tests
 scripts
 docs
 deploy
+edge
+worker
+functions
+node_modules
+dist
 output
 models
 data
-# Environment files may hold admin passwords and SMTP credentials. Never bake them into an image.
+# Environment files may hold admin passwords. Never bake them into an image.
 .env
 .env.*
+.dev.vars
+.dev.vars.*
+.wrangler
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
 *.pickle
 *.pkl
 *.joblib
-*.db
-*.sqlite
-*.sqlite3
 *.log
 Dockerfile
 .dockerignore

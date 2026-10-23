@@ -1,472 +1,189 @@
-# Deploying KLEVS behind Cloudflare
+# Deploying KLEVS on Cloudflare (Containers route)
 
-> **Legacy deployment route:** this runbook describes the earlier FastAPI-on-host/Tunnel architecture. The selected Worker API with D1/KV is documented in [`worker/README.md`](../worker/README.md). The Worker source and bindings are now in this repository; live Cloudflare migration/deployment still must be run in an authenticated Cloudflare environment.
+This is the Cloudflare-only deployment path. Every service it uses is a Cloudflare product:
 
-This guide puts the KLEVS FX signals app on the internet with Cloudflare in front of it.
-Cloudflare handles DNS, TLS, the WAF, and rate limiting. A **Cloudflare Tunnel** carries
-traffic to the app, so the origin server accepts **no inbound connections**.
-
-> **Verification status.** The steps below were checked against this repository as follows:
->
-> - Checked locally: the app starts with the production command, `/api/health` responds,
->   admin bootstrap works, and a restart with a new `KFX_ADMIN_PASSWORD` rotates the password.
->   The deploy-file checks in `tests/test_deploy_files.py` pass.
-> - **Not checked here:** the Docker image build (Docker is not installed in the build
->   sandbox), the `cloudflared` connector, a live PostgreSQL server, and the Cloudflare dashboard
->   screens. Cloudflare's UI labels change, so follow the names you see and treat the labels in this
->   guide as approximate. Run the checks in [section 11](#11-verify-the-deployment) before you
->   rely on the setup.
-
----
-
-## 1. Architecture and why
-
-```
- Browser ──HTTPS──▶ Cloudflare edge (DNS, TLS, WAF, rate limits, Access)
-                          │  outbound-only tunnel, opened by cloudflared
-                          ▼
-              origin host (VM or PaaS box)
-                cloudflared ──http://localhost:8000──▶ klevs (uvicorn, 1 worker)
-                                                          │
-                                                          ▼
-                                       PostgreSQL (KLEVS_DATABASE_URL)
-```
-
-Options that were considered:
-
-| Option | Verdict | Reason |
+| Piece | Cloudflare service | Where it lives |
 |---|---|---|
-| **Tunnel to a container or VM (this guide)** | Recommended | Runs the full Python stack unchanged. No inbound ports. Works on any Linux host. |
-| Native Python Workers | Not used | Workers Free allows 10 ms of CPU per request, and Paid allows 30 s by default (up to 5 min). Memory is capped at 128 MB per isolate. In our sandbox a cold market scan took about 44 s, and the app loads pandas, NumPy, and scikit-learn. Support for these libraries in Workers is not confirmed for this app. There is also no persistent SQLite on Workers. |
-| Cloudflare Containers | Not used yet | Needs the Workers Paid plan, plus a Worker and Durable Object wrapper that this repo does not have. Instances start on demand. Disk persistence is not documented, so the database must still live outside the container. |
+| Public entry point, TLS, WAF, rate limits | Worker custom domain, zone WAF | `edge/wrangler.jsonc` |
+| The FastAPI app (uvicorn, one worker) | Containers, bound to a Durable Object | `Dockerfile`, `edge/src/index.ts` |
+| SQLite database, restored and replicated | R2 bucket `klevs-backups` | `fxbot/replica.py`, `edge/src/internal.ts` |
+| Reset-code e-mail | Email Service, via a `send_email` binding | `fxbot/mail.py`, `edge/src/internal.ts` |
+| Operator console protection (optional) | Cloudflare Access | section 7 |
 
-Cloudflare provides the edge only. The application runs on a host you control. Sections 3 and 4
-cover that host.
+There is no SMTP server, no VM, no systemd unit, and no Tunnel on this path.
 
-### Optional Cloudflare Pages frontend
-
-The root `package.json` now provides `npm run build`, which packages the existing HTML, CSS, and
-JavaScript into `dist/`. Set the Pages project to **Root directory** `/`, **Build command**
-`npm run build`, and **Build output directory** `dist`. The output keeps the app routes at `/`,
-`/app`, and `/admin`.
-
-Pages still does **not** run this Python/FastAPI API. A Pages Function at
-`functions/api/[[path]].js` forwards `/api/*` requests to a separately hosted API. To use this
-option:
-
-1. Deploy the FastAPI app on the Linux origin host/container described in sections 3–6, behind a
-   Cloudflare Tunnel. Publish a separate API hostname (for example, `api.example.com`) to
-   `http://localhost:8000`.
-2. In the Pages project's production **and preview** variables, set `KLEVS_API_ORIGIN` to that
-   HTTPS origin only, for example `https://api.example.com` (no path, query, or credentials).
-   Do not point it at the Pages frontend hostname.
-3. Deploy the Pages project from a branch containing this build and function code. Requests stay
-   same-origin in the browser; the Pages Function forwards them server-side to FastAPI.
-
-The Pages Function is only a proxy: without the separate FastAPI service, account, signal, and
-admin API requests will not work. If you do not want to run a separate frontend, use the simpler
-single-host origin + Tunnel setup in this guide and do not use Pages.
+> **Scope and verification.** The sections below were checked as follows.
+>
+> - **Checked locally:** the Python suite (including the replica, mail and deploy-file tests); the Worker type-check and its 20 unit tests; a `wrangler deploy --dry-run --containers-rollout=none`, which validated the bindings and resolved the container image path.
+> - **Not checked here:** the Docker image build (Docker is not installed in the build sandbox, so the dry-run skips the image build), a live deploy, the Container starting in Cloudflare, the container reaching its own public origin, a real R2 bucket, a real Email Service send, and the Cloudflare dashboard screens. Run section 9 in a staging zone before you rely on the setup.
+> - **The Worker still needs the other non-Cloudflare runtime data sources** for live prices: Yahoo Finance (via `yfinance`) and Frankfurter (`api.frankfurter.dev`). They are not part of the deploy path, but they are outbound dependencies. See section 10.
 
 ---
+
+## 1. How it works
+
+```
+Browser ──HTTPS──▶ Worker klevs-edge (custom domain)
+                     │  /__internal/*  → token-checked R2 snapshot and e-mail routes
+                     │  everything else → KlevsContainer (one instance, sleeps after 15 min idle)
+                     ▼
+              Container: uvicorn fxbot.server:app (port 8000)
+                     │  on start: restore klevs.db from R2 if the local file is missing
+                     │  after each write: copy klevs.db to R2 (synchronously)
+                     │  reset codes: POST /__internal/email on the same origin
+                     ▼
+              R2 bucket klevs-backups, key klevs/klevs.db
+```
+
+- **One container instance** (`max_instances: 1`). SQLite has one writer, and the market engine keeps its cache in memory, so a second instance would hold a second copy.
+- **Idle shutdown.** The container stops after 15 minutes without requests (`sleepAfter = "15m"`). The next request starts it, restores the database from R2, and retrains the models. The cold start includes the restore plus a model retrain. An earlier estimate put the retrain at about 34 seconds. That is not yet measured on Cloudflare, so re-measure it.
+- **Internal routes** are the only route the container uses to reach Cloudflare services. They require the `X-Internal-Token` header (constant-time comparison) and return `401` otherwise. An unset token refuses every request.
 
 ## 2. Prerequisites
 
-The full checklist, with costs, egress allow-list, and go-live gate, is in
-[`CLOUDFLARE_REQUIREMENTS.md`](CLOUDFLARE_REQUIREMENTS.md). Complete it first.
+- A Cloudflare account on the **Workers Paid** plan. Containers are not available on Free.
+- A zone (domain) on Cloudflare that you will serve the app from.
+- Node.js 20 or later, and npm.
+- Wrangler, installed with the `edge/` package (`npm ci` in `edge/`).
+- Email Service enabled, with a sender domain onboarded. Until the domain is onboarded, the Worker cannot send reset codes.
+- **Docker (or a Docker-compatible CLI) on the machine that runs `wrangler deploy`.** Wrangler builds the container image locally before it uploads it, even for `--dry-run`. Set `WRANGLER_DOCKER_BIN` if the CLI is not on `PATH`.
 
-- A domain whose DNS is managed by Cloudflare (for example `klevs.example.com`).
-- A Cloudflare account. Tunnels, the WAF rate-limit rule, and Cloudflare Access are available on
-  the free plan, with these limits:
-  - **Rate limiting:** Free allows **1 rule** that matches on the request **path** only, counts per
-    IP, and uses a **10-second** period. Pro allows 2 rules and a period up to 60 seconds.
-    Business allows 5 rules and a period up to 10 minutes.
-  - **Access:** the Zero Trust free plan covers up to **50 users**.
-- A Linux host for the app: 2 vCPU and 2 GB RAM is a reasonable start. The market scan and the
-  per-pair model training are CPU-bound. The image is large because of pandas and
-  scikit-learn (expect roughly 1 GB; not measured here).
-- PostgreSQL 14 or newer, either managed or on another host.
-- Outbound access from the host: **TCP and UDP port 7844** to `region1.v2.argotunnel.com` and
-  `region2.v2.argotunnel.com` (required for the tunnel), plus HTTPS to `api.frankfurter.dev`, Yahoo
-  Finance when live data is on, and your SMTP server on port 587. No inbound ports are needed.
+## 3. Cost (verified against the Cloudflare pricing page, 5 Oct 2026)
 
----
+Source: `developers.cloudflare.com/containers/platform/pricing/`.
 
-## 3. Prepare the origin host
+- **Workers Paid:** $5 per month. It includes 25 GiB-hours of memory, 375 vCPU-minutes, and 200 GB-hours of disk each month.
+- **Overage rates:** memory $0.0000025 per GiB-second; CPU $0.000020 per vCPU-second, billed only while the container is active; disk $0.00000007 per GB-second.
+- **Instance `standard-2`** (1 vCPU, 6 GiB, 12 GB disk), which is the provisional size in `wrangler.jsonc`.
 
-Choose **A (Docker)** or **B (systemd)**. Both bind the app to loopback only.
+If the container runs around the clock, the total is about **$97 per month**: $5 for Workers Paid, plus about $92 for the container (memory $38.66, CPU $51.39, disk $2.13). Idle time reduces this, because memory and disk billing stops when the container sleeps. The sleep setting trades cost against the cold start in section 1.
 
-### A. Docker
+**Not verified:** Email Service and R2 pricing. Check the Email Service and R2 pricing pages before you budget for them. Email is billed per message beyond an included allowance, and R2 is billed per stored GB and per operation. At this scale both are expected to be small, but that is an estimate, not a checked figure.
 
-Build and start the image from the repository root. The Dockerfile is `Dockerfile`, and the
-build context excludes secrets and local data (see `.dockerignore`).
+## 4. Set up the resources
 
-```bash
-docker build -t klevs-fx:$(git rev-parse --short HEAD) -t klevs-fx:latest .
+Run these from the `edge/` directory unless noted. Each step is a one-off.
 
-docker volume create klevs-data
-docker volume create klevs-models
-
-sudo install -d -m 0750 /etc/klevs
-sudo install -m 0640 deploy/klevs.env.example /etc/klevs/klevs.env   # then edit it
-
-docker run -d --name klevs --restart unless-stopped \
-  --env-file /etc/klevs/klevs.env \
-  -p 127.0.0.1:8000:8000 \
-  -v klevs-data:/app/data -v klevs-models:/app/models \
-  klevs-fx:latest
-```
-
-Notes:
-
-- `-p 127.0.0.1:8000:8000` publishes the port **only on loopback**. Do not write `-p 8000:8000`.
-  Docker writes its own firewall rules and can expose a published port even when UFW says it is
-  closed.
-- `data/` holds the SQLite file if `KLEVS_DATABASE_URL` is unset. Keep the volume even when you
-  use PostgreSQL, because it keeps the app's working files.
-- Check that the container is healthy with `docker ps` (the image has a health check on
-  `/api/health`).
-
-### B. systemd on a VM (no Docker)
-
-```bash
-sudo useradd --system --home /opt/klevs --shell /usr/sbin/nologin klevs
-sudo install -d -o klevs -g klevs /opt/klevs /opt/klevs/data /opt/klevs/models
-sudo rsync -a --exclude .git --exclude .venv ./ /opt/klevs/    # or git clone into /opt/klevs
-cd /opt/klevs
-sudo -u klevs python3.11 -m venv .venv
-sudo -u klevs .venv/bin/pip install -r requirements.txt -r requirements-live.txt "psycopg[binary]>=3.1"
-
-sudo install -d -m 0750 -o root -g klevs /etc/klevs
-sudo install -m 0640 -o root -g klevs deploy/klevs.env.example /etc/klevs/klevs.env   # then edit it
-
-sudo cp deploy/klevs.service /etc/systemd/system/klevs.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now klevs
-systemctl status klevs --no-pager
-```
-
-The unit runs uvicorn on `127.0.0.1:8000` with one worker and systemd hardening. It can write
-only to `/opt/klevs/data` and `/opt/klevs/models`.
-
----
-
-## 4. Configure the application
-
-All settings come from environment variables. The full list, with comments, is in
-[`deploy/klevs.env.example`](../deploy/klevs.env.example). Copy it to `/etc/klevs/klevs.env` and
-fill in the values below.
-
-| Variable | Production value | Notes |
-|---|---|---|
-| `KLEVS_DATABASE_URL` | `postgresql+psycopg://USER:PASS@HOST:5432/klevs?sslmode=require` | Strongly recommended. Unset means SQLite at `data/klevs.db`. |
-| `KFX_ADMIN_USERNAME` / `KFX_ADMIN_PASSWORD` | Set both | Provisioned on **every** start. See below. |
-| `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | Optional | Email defaults to the username if it is an address. |
-| `KFX_LIVE_DATA` | `1` | `1` uses Yahoo Finance hourly bars. `0` forces the synthetic market. |
-| `KLEVS_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM` | Your mail provider | Verification and reset codes are emailed over STARTTLS. Without SMTP, codes are not delivered. |
-| `KLEVS_DEV_RESET_CODES` | **Leave unset** | Returns reset codes in API responses. Development only. |
-
-**The admin password is authoritative.** On every start the app sets the admin's password to
-`KFX_ADMIN_PASSWORD` and clears any login lockout. This was tested: restarting with a new value
-rejected the old password and accepted the new one. Consequences:
-
-- To rotate the admin password, change `KFX_ADMIN_PASSWORD` in the env file, then restart the
-  container or service.
-- Never leave an old or previously committed password in the env file.
-- The password that appeared in an earlier commit of this repository must be treated as
-  compromised. Rotate it before going live. Scrubbing Git history is optional and does not replace
-  rotation.
-- The password must meet the policy: at least 10 characters with upper case, lower case, a number,
-  and a symbol.
-
-Keep `/etc/klevs/klevs.env` readable only by root and the app user. Do not commit it.
-
----
-
-## 5. Database
-
-**Use PostgreSQL in production.** The app stores accounts, password hashes, login state, sessions,
-and payment records. These records must not depend on a container's disk.
-
-- Create a dedicated role and database. Give the role access to that database only.
-- Use `sslmode=require` when the database is on another host.
-- The app creates its tables at startup (`create_all`). It does not run migrations. It adds
-  missing tables but does not alter existing ones. **Back up before every upgrade** (section 12).
-- Use one app replica. The market engine keeps its caches in process memory, so two replicas would
-  each hold separate state.
-
-Check the driver resolves before you start the app. The image includes it, and this was confirmed
-in the sandbox:
-
-```bash
-python -c "from sqlalchemy import create_engine; print(create_engine('postgresql+psycopg://u:p@h/db').dialect.driver)"
-# psycopg
-```
-
----
-
-## 6. Create the Tunnel
-
-1. In the Cloudflare dashboard, open **Networking → Tunnels → Create a tunnel**. Choose
-   **Cloudflared** as the connector type. Name it `klevs-prod`.
-2. The dashboard shows an install command with a token. **Treat the token as a secret.** It grants
-   the ability to run this tunnel.
-3. On the origin host, install the connector as a service (VM):
-
-   ```bash
-   # Install cloudflared using the package for your distribution (see Cloudflare's install page).
-   # Use version 2026.5.2 or later. Its startup checks test DNS, port 7844, and api.cloudflare.com.
-   sudo cloudflared service install <TOKEN_FROM_DASHBOARD>
-   systemctl status cloudflared --no-pager
-   sudo cloudflared tunnel diag      # optional: re-run the connectivity checks
+1. **Install the Worker dependencies.**
+   ```sh
+   cd edge
+   npm ci
    ```
-
-   The Docker alternative keeps the token in an env file, not on the command line:
-
-   ```bash
-   printf 'TUNNEL_TOKEN=%s\n' '<TOKEN_FROM_DASHBOARD>' | sudo tee /etc/klevs/cloudflared.env >/dev/null
-   sudo chmod 0600 /etc/klevs/cloudflared.env
-   docker run -d --name cloudflared --restart unless-stopped --network host \
-     --env-file /etc/klevs/cloudflared.env \
-     cloudflare/cloudflared:latest tunnel --no-autoupdate run
+2. **Log in to Cloudflare** (opens a browser flow on your machine).
+   ```sh
+   npx wrangler login
    ```
+3. **Create the R2 bucket** that holds the database snapshot.
+   ```sh
+   npx wrangler r2 bucket create klevs-backups
+   ```
+4. **Onboard the sender domain** in the dashboard: *Email Service → Domains*. Then set the sender address in `wrangler.jsonc` under `vars.KLEVS_MAIL_FROM`, for example `noreply@yourdomain.example`.
+5. **Set your hostname.** In `wrangler.jsonc`, replace the placeholder `klevs.example.com` in both `routes[0].pattern` and `vars.KLEVS_PUBLIC_ORIGIN` with your hostname. The origin must not end with a slash.
+6. **Set the secrets.** Each command prompts for the value. Do not put values in files or in your shell history.
+   ```sh
+   npx wrangler secret put INTERNAL_TOKEN        # a long random string, e.g. 48 bytes from a password manager
+   npx wrangler secret put KFX_ADMIN_USERNAME    # the operator username
+   npx wrangler secret put KFX_ADMIN_PASSWORD    # the operator password (policy: see docs/ADMIN_LOGIN.md)
+   npx wrangler secret put KFX_ADMIN_EMAIL       # optional: needed if the username is not an e-mail address
+   ```
+   `KFX_ADMIN_PASSWORD` is applied on every container start and overwrites the stored password. To rotate it, change the secret and redeploy or restart the container.
+7. **Keep `KLEVS_DEV_RESET_CODES` unset.** It returns reset codes in API responses, which is for local development only. The Worker never sets it.
 
-   `--network host` lets the connector reach `localhost:8000`, which Docker published on loopback.
-4. Back in the dashboard, the tunnel should show **Healthy** after a few seconds. If it does not, run
-   `cloudflared tunnel diag` on the host. The most common cause is blocked egress on port 7844.
-5. Open the tunnel's **Published application routes** and add a route:
-   - **Hostname:** `klevs.example.com`
-   - **Service:** type `HTTP`, URL `localhost:8000` (the Service URL is `http://localhost:8000`).
-     The connector reaches it because it runs on the same host.
-   - Save. The dashboard creates a proxied DNS record for the hostname.
-6. Under **DNS → Records**, confirm the hostname is a proxied record (orange cloud). It should
-   point at the tunnel, not at a server IP.
+## 5. Deploy
 
-The Tunnel is outbound only. The connector opens connections to Cloudflare. No inbound firewall
-rule is needed for it.
-
----
-
-## 7. Cloudflare settings for the zone
-
-Open the zone (`example.com`) and set the following. Labels may vary slightly.
-
-**SSL/TLS**
-
-- **Overview → Encryption mode:** `Full (strict)`. Tunnel traffic is encrypted between Cloudflare
-  and `cloudflared` regardless of this setting, and the connector does not need an origin
-  certificate. Full (strict) is still the safe default for the zone.
-- **Edge Certificates → Always Use HTTPS:** on.
-- **Edge Certificates → Minimum TLS Version:** 1.2.
-- **Edge Certificates → HSTS:** enable only after the site works over HTTPS. Start with a short
-  max-age, such as 3 months, and raise it later. Do not enable "include subdomains" until you have
-  checked every subdomain.
-
-**Caching**
-
-- Cloudflare does not cache HTML or JSON by default. It caches static file types such as `.js` and
-  `.css`. Leave the defaults in place.
-- Do not add a cache rule that caches `/api/*`. The live signals must not be served from the edge.
-- After a deploy, if browsers keep an old `app.js` or `admin.js`, purge the cache for those files
-  under **Caching → Configuration → Custom purge**.
-
-**Security**
-
-- **Security → Bots:** enable Bot Fight Mode or the free equivalent. It is a reasonable default for
-  a login-bearing site.
-- Leave the WAF managed rules on at their default settings.
-
----
-
-## 8. Rate-limit the login endpoints
-
-The app has no per-IP limit. Its lockout is per account. An attacker can therefore try many
-accounts from one address. Add an edge rule for the authentication path. The rule covers
-`/api/auth/*`, which includes login, logout, forgot, reset, and the password-policy endpoint.
-
-In **Security → WAF → Rate limiting rules** (or the newer "Security rules" page, if that is where
-your account shows it), create a rule:
-
-- **Name:** `klevs-auth-rate`
-- **Expression (path):** `starts_with(http.request.uri.path, "/api/auth/")`
-- **Counting characteristics:** IP.
-
-Settings by plan:
-
-| Plan | Requests | Period | Mitigation timeout | Notes |
-|---|---|---|---|---|
-| **Free** | 10 | 10 s | 10 s | The only rule available. It is weak against slow guessing. |
-| **Pro** (recommended) | 20 | 60 s | 600 s | Lets you add a second rule, such as one for `/api/admin/*`. |
-
-The rule returns a Cloudflare 429 page. The app's own 429 is a different response, sent when an
-account is locked. Section 13 explains the account-existence leak that this rule does not fix.
-
----
-
-## 9. Protect the operator console with Cloudflare Access
-
-`/admin` and the `/api/admin/*` endpoints are for the operator. Put them behind Access so that
-only listed people reach the login page at all.
-
-1. **Zero Trust → Access → Applications → Add an application → Self-hosted.**
-2. **Application domain:** `klevs.example.com`. Add these paths, or one application per path if
-   your dashboard allows only one:
-   - `/admin`
-   - `/api/admin/*`
-3. **Identity provider:** Prefer your existing SSO provider. If using the one-time PIN by email,
-   set a longer **application session duration** in the Access app settings so it does not ask for
-   a new PIN on every visit. Choose a duration that fits your security requirements.
-4. **Policy:** Action `Allow`. Include only the operator email addresses.
-5. Save, then open `https://klevs.example.com/admin` in a private window. You should see the
-   Access login first.
-
-The Access session and KLEVS account are separate. The PIN only protects the operator routes above;
-normal KLEVS sign-in uses one account password and does not email a code. Access is a second layer,
-and the app's own admin login still applies behind it. The Access session duration is controlled in
-Cloudflare, not by this repository.
-
----
-
-## 10. Lock down the origin
-
-The goal is that the app is reachable only through the Tunnel.
-
-- **Firewall:** allow inbound SSH from your admin addresses only. Do not open ports 80, 443, or
-  8000 to the internet. The tunnel does not need them.
-- **Port binding:** the systemd unit binds to `127.0.0.1`, and the Docker command publishes to
-  `127.0.0.1` only. Confirm this after each change:
-
-  ```bash
-  sudo ss -ltnp | grep -E ':8000\b'   # expect 127.0.0.1:8000 only
-  ```
-
-- **Direct access test:** from a machine outside the host, the public IP must not answer on 8000
-  or 80. The request should time out or be refused.
-- **Trusted proxy headers:** the app does not read the client IP today, so the forwarded-header
-  setting does not change its behaviour. Logs will show `127.0.0.1` as the client, because every
-  request arrives through the connector. The real client address is in the `CF-Connecting-IP`
-  header. If you later add IP-based logic, read `CF-Connecting-IP` **only** from the connector,
-  and never trust `X-Forwarded-For` from the internet.
-
----
-
-## 11. Verify the deployment
-
-Replace `klevs.example.com` with your hostname. Run these from a machine outside the host.
-
-```bash
-H=https://klevs.example.com
-
-# 1. The app answers through Cloudflare.
-curl -sI $H/ | head -n 1                              # HTTP/2 200
-curl -s $H/api/health; echo                            # {"status":"ok",...}
-
-# 2. HTTP redirects to HTTPS.
-curl -sI http://klevs.example.com/ | grep -i '^location'   # https://...
-
-# 3. Live data is on, if you expect it.
-curl -s $H/api/health | grep -o '"data_source":"[^"]*"'
-
-# 4. The API is not cached at the edge.
-curl -sI $H/api/health | grep -i cf-cache-status       # DYNAMIC (or BYPASS), not HIT
-
-# 5. Admin API refuses anonymous callers.
-curl -s -o /dev/null -w "%{http_code}\n" $H/api/admin/users   # 401 or 403
-
-# 6. Rate limit fires. Expect 429 with a Cloudflare page (server: cloudflare).
-for i in $(seq 1 15); do
-  curl -s -o /dev/null -w "%{http_code} " -H 'content-type: application/json' \
-    -d '{"identifier":"nobody@example.com","password":"wrong-password"}' $H/api/auth/login
-done; echo
-
-# 7. Origin is not reachable directly. Run from an outside machine against the server's public IP.
-curl -m 5 http://<PUBLIC_IP>:8000/api/health || echo "good: not reachable"
+```sh
+cd edge
+npm test                      # Worker unit tests (20)
+npm run deploy:dry-run        # validates bindings; add --containers-rollout=none if Docker is not installed
+npm run deploy                # builds the image and deploys the Worker and the container
 ```
 
-Also check in a browser: login works, the dashboard loads, the admin console asks for Access
-first, and logout ends the session.
+Wrangler builds the container from `../Dockerfile`. The build context is the repository root, and `.dockerignore` keeps secrets, databases and the test suite out of the image.
 
-Known exposure to review: `/api/health` is public and returns the risk and signal configuration
-(equity, risk per trade, and so on). Decide whether that is acceptable before launch. Restricting
-it means a code change, which is not included in this guide.
+## 6. Environment reference
 
----
+Every variable the app reads, and where it comes from on this route.
 
-## 12. Operations
+| Variable | Set by | Required | Purpose |
+|---|---|---|---|
+| `KFX_ADMIN_USERNAME` | secret | yes, for an operator account | Operator login name |
+| `KFX_ADMIN_PASSWORD` | secret | yes, with the username | Operator password. Authoritative on every start |
+| `KFX_ADMIN_EMAIL` | secret | optional | Operator e-mail, needed when the username is not an address |
+| `KFX_ADMIN_PHONE` | secret | optional | Operator phone number |
+| `KFX_LIVE_DATA` | Worker (default `1`) | no | `1` uses live prices, `0` uses the synthetic market only |
+| `KLEVS_INTERNAL_TOKEN` | Worker, from the `INTERNAL_TOKEN` secret | set automatically | Authenticates the container to `/__internal/*` |
+| `KLEVS_REPLICA_URL` | Worker, from `KLEVS_PUBLIC_ORIGIN` | set automatically | Snapshot route on the public origin |
+| `KLEVS_EMAIL_URL` | Worker, from `KLEVS_PUBLIC_ORIGIN` | set automatically | E-mail route on the public origin |
+| `KLEVS_DATABASE_URL` | nothing | leave unset | Defaults to SQLite at `/app/data/klevs.db`. PostgreSQL is not used on this route |
+| `KLEVS_DEV_RESET_CODES` | nothing | must stay unset | Development only. Would expose reset codes |
+| `KFX_SIGNAL_ENGINE_TOKEN` | nothing | not used here | Only for the D1/KV Worker route in `worker/README.md` |
 
-**Logs**
+Empty values are dropped, so the app sees them as unset.
 
-- Docker: `docker logs -f klevs` and `docker logs -f cloudflared`.
-- systemd: `journalctl -u klevs -f` and `journalctl -u cloudflared -f`.
+## 7. Protect the edge
 
-**Upgrade**
+- **Login rate limit.** On the zone, add a WAF rate-limiting rule for the path `/api/auth/*`, per IP. The Free plan allows one path-based rule with a 10-second window. Paid plans allow more rules and longer windows. Check the WAF rate-limiting page for your plan, since the limits change.
+- **Operator console.** Put Cloudflare Access in front of `/admin` and `/api/admin/*` on your hostname. Access adds a second sign-in before the app's own login. The Free plan of Zero Trust covers up to 50 users.
+- **The 429 response** from the rate limit can reveal whether an account exists. The rate-limit rule does not fix that. Treat it as an open gap.
+- **Public health endpoint.** `/api/health` returns the risk and signal configuration (equity, risk per trade, weights). It is public. Restrict it at the edge if that configuration is sensitive.
 
-```bash
-cd /path/to/repo && git pull
-# Back up first (see Backups below), then:
-docker build -t klevs-fx:$(git rev-parse --short HEAD) -t klevs-fx:latest .
-docker stop klevs && docker rm klevs
-docker run -d --name klevs --restart unless-stopped --env-file /etc/klevs/klevs.env \
-  -p 127.0.0.1:8000:8000 -v klevs-data:/app/data -v klevs-models:/app/models klevs-fx:latest
-```
+## 8. Database: replication and recovery
 
-For systemd, run `git pull`, reinstall requirements if they changed, then `sudo systemctl restart klevs`.
+- **Restore on start.** When the container starts and no local `klevs.db` exists, it downloads the snapshot from R2, checks it with `PRAGMA quick_check`, and renames it into place. A missing snapshot is normal on the first start. Any other failure stops startup, so the app never serves an empty database by accident.
+- **Replicate on write.** After each commit that changes data (including bulk updates and deletes), the container uploads a consistent copy to R2 before the request returns.
+- **Failure handling.** If the upload fails, the replica is marked `pending`, and a background thread retries every 15 seconds. `/api/health` reports `replica: disabled`, `ok` or `pending`.
+- **Known limit.** A write that succeeds while R2 is unreachable is acknowledged to the user before it is replicated. If the container is evicted before the retry succeeds, that write is lost. Watch for `pending` in `/api/health` and alert on it if you cannot accept that loss window.
+- **Restore test.** Once a week, in staging, delete the container's data (redeploy, or restart with the snapshot removed from R2), and confirm the accounts and payments come back.
 
-Keep the previous image tag (the git short SHA) so you can roll back by starting that tag.
+## 9. Verify the deployment
 
-**Backups**
+Run these against your hostname, not `workers.dev` (which is disabled).
 
-- PostgreSQL: `pg_dump --format=custom --file klevs-$(date +%F).dump "$KLEVS_DATABASE_URL"`. Store
-  the dump off the host, encrypted.
-- SQLite (only if you chose it): `sqlite3 data/klevs.db ".backup 'klevs-backup.db'"`, run while the
-  app is stopped or with the file copied in full.
-- `models/` is regenerated from the data. It does not need a backup.
+1. `curl -s https://<your-host>/api/health` returns `200`, with `"replica": "ok"` after the first write.
+2. Log in as the operator through the sign-in dialog. `/admin` opens the console.
+3. Register a test account, request a password reset, and confirm the e-mail arrives. This is the only check of the Email Service path.
+4. Redeploy the container. The accounts and payments from before the redeploy are still there.
+5. Confirm with the dashboard that the container runs one instance and that `max_instances` is `1`.
+6. Confirm that `/__internal/snapshot` returns `401` without the token.
 
-**Restore drill:** restore a backup into a scratch database and start the app against it once
-before you rely on the backup.
+If step 3 fails, check the Worker logs for `e-mail relay refused` (sender domain not onboarded, or daily quota) and `e-mail relay could not be reached`.
 
----
+## 10. Open items before go-live
 
-## 13. Launch checklist and open items
+- **Container reaching its public origin.** The container calls `https://<host>/__internal/*` over the public internet. This is the assumed design, and it is not yet checked on Cloudflare. If the container cannot reach that origin, switch the two URLs to a route that stays inside Cloudflare, and retest section 9.
+- **Instance size.** `standard-2` (1 vCPU, 6 GiB) is provisional. Measure peak memory during a model retrain and a scan, then adjust `instance_type`.
+- **Live data sources.** Yahoo Finance (`yfinance`) and Frankfurter (`api.frankfurter.dev`) are outbound dependencies of the signal engine. They are not part of the deploy path, and they are pending your decision. Set `KFX_LIVE_DATA=0` to run on the synthetic market only.
+- **Admin credentials.** An operator password was once committed to the repository and displayed in chat. Rotate it before go-live. Set the new value with `wrangler secret put KFX_ADMIN_PASSWORD`.
+- **Public health detail.** See section 7.
 
-These are not solved by this guide. Resolve them before taking real payments or real users.
+## 11. Operations
 
-- [ ] **Rotate the admin password** that appeared in an earlier commit (section 4).
-- [ ] **Account-existence leak on lockout.** When an account is locked, the login endpoint returns
-  429 with a lockout message. That response can reveal whether an account exists. The edge rule
-  (section 8) limits per-IP guessing, but it does not remove this leak. The mitigation is an open
-  decision.
-- [ ] **Payment details.** The wallet and bank details shown to customers still need confirming.
-  Review them before launch.
-- [ ] **Pricing wording** on the public pages needs final approval.
-- [ ] **Unbuilt Pro and Elite features.** Do not advertise features the app does not yet deliver.
-- [ ] **Public `/api/health` detail** (section 11).
-- [ ] **Tested build.** Build the image and run the verification steps on a real host with Docker and
-  `cloudflared` installed. This guide was not tested end to end in the sandbox.
+- **Logs.** Worker and container logs are in the Cloudflare dashboard (observability is enabled in `wrangler.jsonc`). The app logs to stdout. The `klevs.replica`, `klevs.mail` and `klevs.auth` loggers report replication, relay and reset-code events without recipients or message bodies.
+- **Rollback.** `npx wrangler rollback` returns the Worker to the previous version. Check that the container image rolls back with it.
+- **Changing secrets** does not require a rebuild. `wrangler secret put` followed by a redeploy or a container restart is enough.
+- **Stopping the app.** `npx wrangler delete` removes the Worker. The R2 bucket and its snapshot remain until you delete them.
 
----
-
-## 14. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Likely cause and fix |
 |---|---|
-| Tunnel shows **Down** or **Inactive** | The connector is not running or the token is wrong. Check `systemctl status cloudflared` or `docker logs cloudflared`. |
-| Cloudflare **502** | The route points at the wrong URL, or the app is down. Check that the Service is `http://localhost:8000` and that `curl http://127.0.0.1:8000/api/health` works on the host. |
-| Cloudflare **1033** or **530** | The tunnel is not connected. Check the connector logs. |
-| App container exits on start | A missing admin variable or a weak admin password. The log shows the reason. Both `KFX_ADMIN_USERNAME` and `KFX_ADMIN_PASSWORD` must be set, and the password must meet the policy. |
-| Admin login fails after a restart | `KFX_ADMIN_PASSWORD` in the env file is the active password. Use that value. |
-| `data_source` shows synthetic | `KFX_LIVE_DATA` is `0`, or Yahoo Finance is unreachable. The app falls back to synthetic data and shows the reason in the dashboard. |
-| Permission denied on `/app/data` or `/app/models` | The volume is owned by the wrong user. The image uses UID 10001. For a bind mount, run `sudo chown -R 10001:10001` on the host directory. |
-| Browser shows an old UI after a deploy | Purge the edge cache for `app.js`, `admin.js`, and the style files (section 7). |
-| Reset codes never arrive | SMTP is not configured. Set the `KLEVS_SMTP_*` variables. Do not use `KLEVS_DEV_RESET_CODES` in production. |
+| `wrangler deploy` says the Docker CLI is needed | Install Docker, start the daemon, or set `WRANGLER_DOCKER_BIN`. To deploy only the Worker for now, use `--containers-rollout=none` |
+| `/api/health` shows `replica: disabled` | `KLEVS_REPLICA_URL` or `KLEVS_INTERNAL_TOKEN` is missing. Check `KLEVS_PUBLIC_ORIGIN` and the `INTERNAL_TOKEN` secret |
+| `/api/health` shows `replica: pending` | The R2 upload is failing. Check that the bucket exists and the Worker has the `BACKUPS` binding |
+| Container fails to start with a restore error | The snapshot in R2 failed the integrity check. Restore a known-good snapshot to `klevs/klevs.db`, or delete it to start empty (this loses data) |
+| Reset codes never arrive | The sender domain is not onboarded, or the daily quota is used up. Check Email Service and the Worker logs |
+| Login returns 401 for the operator | `KFX_ADMIN_PASSWORD` is wrong, or the container has not restarted since the secret changed |
+| First request after idle is slow | Expected: cold start, database restore and model retrain |
 
----
+## Appendix: files on this route
 
-## Appendix: files in this repository
-
-| File | Purpose |
-|---|---|
-| `Dockerfile` | Production image: Python 3.11 slim, non-root user, health check, one uvicorn worker on port 8000. |
-| `.dockerignore` | Keeps `.env` files, databases, models, Git data, and tests out of the image. |
-| `deploy/klevs.env.example` | Every environment variable, with production guidance. Contains no real secrets. |
-| `deploy/klevs.service` | systemd unit for running the app on a VM without Docker. |
-| `tests/test_deploy_files.py` | Checks that the template documents every variable the code reads, that COPY sources exist, that the build context excludes secrets, and that the unit binds to loopback. |
+- `Dockerfile`, `.dockerignore`: the app image. Non-root, one uvicorn worker, port 8000.
+- `edge/wrangler.jsonc`: bindings, container, vars. Placeholder hostname until you set yours.
+- `edge/src/index.ts`: the Worker and the `KlevsContainer` class.
+- `edge/src/container-env.ts`: the environment passed to the container.
+- `edge/src/internal.ts`: the token-checked snapshot and e-mail routes.
+- `edge/test/`: Worker unit tests (`npm test` in `edge/`).
+- `fxbot/replica.py`, `fxbot/mail.py`: the app side of the snapshot and e-mail routes.
+- `tests/test_replica.py`, `tests/test_mail.py`, `tests/fake_worker.py`: Python tests against an in-process fake of the Worker.
+- `tests/test_deploy_files.py`: drift checks for the files above.
+- `worker/`, `functions/`, `worker/README.md`: the separate D1/KV Worker route, documented in its own README. It needs the external signal engine described there, which is a non-Cloudflare dependency.

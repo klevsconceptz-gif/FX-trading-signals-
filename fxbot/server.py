@@ -48,7 +48,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import billing
+from . import billing, replica
 from .auth import (  # noqa: F401  (re-exported for tests)
     ACCOUNTS,
     LockedError,
@@ -66,6 +66,9 @@ from .config import AppConfig
 from .db import User
 from .engine import MarketEngine
 from .universe import BY_SYMBOL, UNIVERSE
+
+# Container logs go to stdout. The klevs.* loggers (replica, mail, auth) are INFO-level.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -279,7 +282,7 @@ def auth_forgot(req: ForgotRequest) -> dict[str, Any]:
     # delivery status is logged, never returned: the response must not depend on the account
     delivered = deliver_reset_code(req.email.strip().lower(), code)
     if not delivered:
-        logging.getLogger("klevs.auth").warning("reset code was not delivered (SMTP not configured or failed)")
+        logging.getLogger("klevs.auth").warning("reset code was not delivered (e-mail relay not configured or failed)")
     payload: dict[str, Any] = {"ok": True, "message": message}
     if dev_reset_codes_enabled():
         payload["dev_code"] = code          # local development only (KLEVS_DEV_RESET_CODES=1)
@@ -449,6 +452,7 @@ def health() -> dict[str, Any]:
         "data_source": _engine.data.source_label,
         "universe_size": len(UNIVERSE),
         "config": _engine.cfg.to_dict(),
+        "replica": replica.status(),
     }
 
 
@@ -580,6 +584,11 @@ def _bootstrap_admin_from_env() -> Optional[str]:
     return username
 
 
+# Open the database before the first request. With a replica configured this restores the
+# SQLite file from R2 first, and a bad snapshot stops the process here instead of serving an empty database.
+from .db import get_engine as _open_database
+
+_open_database()
 _bootstrap_admin_from_env()
 
 

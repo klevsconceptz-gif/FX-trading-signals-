@@ -1,139 +1,91 @@
-# Requirements: deploying KLEVS behind Cloudflare
+# Requirements: deploying KLEVS on Cloudflare
 
-This is the checklist to complete before following
-[`CLOUDFLARE_DEPLOYMENT.md`](CLOUDFLARE_DEPLOYMENT.md). Items marked **measure** are not
-yet known for this app and must be checked on the real host. Items marked **not tested**
-were not run in the build sandbox.
+This is the checklist for the Cloudflare-only route described in `docs/CLOUDFLARE_DEPLOYMENT.md`. Use it before you start and again before go-live.
 
 ## 1. Cloudflare account and plans
 
-| Requirement | Needed for | Plan and cost |
-|---|---|---|
-| Cloudflare account, with the domain added as a zone and its nameservers moved to Cloudflare | DNS, TLS, WAF, rate limits | Free to create |
-| **Pro plan** on the zone (recommended) | Login rate limit with 2 rules and a 60 s counting window | $20/mo billed annually, $25/mo billed monthly. The Free plan allows 1 rule with a 10 s window only. |
-| Zero Trust organisation (create a team name) | Tunnel and Access | Free for up to 50 users |
-| Access identity provider: SSO preferred; email one-time PIN is an alternative. Set a longer Access session duration to reduce repeat PIN prompts. | Gate `/admin` and `/api/admin/*` | Included with Zero Trust |
-| Cloudflare Tunnel with a remotely managed tunnel | Route the hostname to the origin | Included with Zero Trust |
+| Need | Plan | Why | Price (checked 5 Oct 2026, Cloudflare pricing and Containers pricing pages) |
+|---|---|---|---|
+| Workers and Containers | **Workers Paid** | Containers are not on the Free plan | $5 per month, with included allowances |
+| Containers usage | Workers Paid (overage) | `standard-2` runs at 1 vCPU and 6 GiB | About $92 per month if it runs around the clock (see the deployment guide, section 3) |
+| Email Service | Included with the account, check current limits | Reset-code e-mail through the `send_email` binding | **Not verified:** check the Email Service pricing and limits page |
+| R2 bucket for the database snapshot | Included with the account, check current limits | Holds `klevs/klevs.db` | **Not verified:** check the R2 pricing page |
+| Zone WAF rate limiting | Free allows one path-based rule. Paid plans allow more rules and longer windows | Limits login attempts on `/api/auth/*` | Check the WAF rate-limiting page for your plan |
+| Cloudflare Access (optional) | Zero Trust Free covers up to 50 users | A second sign-in in front of `/admin` | Check the Zero Trust plans page |
 
-Not required: Workers, Containers, R2, or any Cloudflare-hosted database.
+Docker, or a Docker-compatible CLI, must be installed on the machine that runs `wrangler deploy`. Wrangler builds the container image locally.
 
 ## 2. Domain and DNS
 
-- A domain you control, with its nameservers set to the two Cloudflare nameservers shown
-  when you add the zone.
-- One hostname for the app, for example `klevs.example.com`. The Tunnel creates a proxied
-  DNS record for it. Do not create an A record that points to the origin.
-- Plan for `http://` to redirect to `https://` (Always Use HTTPS, set in the guide).
+- A zone on Cloudflare for the hostname you will serve the app from.
+- The hostname becomes a Worker custom domain (`routes` in `edge/wrangler.jsonc`). `workers_dev` is off, so the app is not on `*.workers.dev`.
+- A sender domain onboarded in Email Service, with SPF and DKIM records that Cloudflare creates. The sender address is `KLEVS_MAIL_FROM`.
 
-## 3. Origin host
+## 3. Compute: the container
 
-| Item | Requirement | Status |
-|---|---|---|
-| Operating system | Linux, x86_64. Ubuntu 22.04 or 24.04 LTS is the intended target. | Not tested |
-| CPU and memory | 2 vCPU and 4 GB RAM recommended. The market scan and the per-pair model training are CPU-bound. | **Measure** the peak memory during a cold scan with `docker stats` or `systemd-cgtop`. |
-| Disk | At least 20 GB. The image is large (pandas, scikit-learn). | Image size **not measured**. |
-| Container runtime | Docker Engine, current release, **or** Python 3.11 for the systemd path | Docker not tested in the sandbox |
-| Clock | Time synchronised with NTP. Login lockout and session expiry depend on time. | Standard |
-| Inbound network | **None** from the internet. SSH only from listed admin addresses. | Required |
-| Listener | The app binds to `127.0.0.1:8000` (systemd) or is published on `127.0.0.1:8000` (Docker). | Verify with `ss -ltnp` |
+- **Image.** Built from the repository `Dockerfile` (Python 3.11 slim, non-root, one uvicorn worker, port 8000). Wrangler builds it; no registry account is needed.
+- **Instance size.** `standard-2` (1 vCPU, 6 GiB memory, 12 GB disk) is provisional. Measure peak memory during a model retrain and a scan before you settle on it.
+- **Concurrency.** `max_instances` is 1. SQLite has one writer, and the market cache lives in memory.
+- **Idle behaviour.** The container sleeps after 15 minutes without requests. A cold start restores the database and retrains the models, so the first request after idle is slow.
 
-## 4. Outbound network access (egress allow-list)
+## 4. Outbound network access (egress)
 
-The origin host must reach these destinations. If the host sits behind an egress filter,
-allow them before you start.
+The container makes these outbound calls.
 
-| Destination | Port and protocol | Used by |
-|---|---|---|
-| `region1.v2.argotunnel.com`, `region2.v2.argotunnel.com` | **7844 TCP and UDP** | `cloudflared` tunnel connection (QUIC on UDP, HTTP/2 on TCP fallback) |
-| `api.cloudflare.com` | 443 TCP | `cloudflared` connectivity checks (version 2026.5.2 and later) |
-| `_v2-origintunneld._tcp.argotunnel.com`, `cftunnel.com`, `h2.cftunnel.com`, `quic.cftunnel.com` | 7844 | Only needed when an SNI-enforcing firewall sits in the path |
-| `api.frankfurter.dev` | 443 HTTPS | Daily ECB reference rates. The app uses these when yfinance is unavailable. |
-| Yahoo Finance hosts used by the `yfinance` library, for example `query1.finance.yahoo.com` and `query2.finance.yahoo.com` | 443 HTTPS | Hourly FX and metal bars when `KFX_LIVE_DATA=1`. The exact host list depends on the library version. Test after install. |
-| Your SMTP provider, for example `smtp.example.com` | 587 TCP with STARTTLS | Verification and reset codes |
-| PostgreSQL host | 5432 TCP (or your port) | Operator database, if it is on another host |
+| Destination | Protocol | Used for | Status |
+|---|---|---|---|
+| Your Worker's public origin (`KLEVS_PUBLIC_ORIGIN`), `/__internal/snapshot` and `/__internal/email` | HTTPS, 443 | Snapshot restore and replication; reset-code e-mail, via the token | Assumed to work from a container. **Not yet checked on Cloudflare.** See the deployment guide, section 10 |
+| `api.frankfurter.dev` | HTTPS, 443 | Daily reference rates (live data, optional) | Runtime data source, pending your decision |
+| Yahoo Finance, through `yfinance` | HTTPS, 443 | Hourly bars (live data, optional) | Runtime data source, pending your decision. Set `KFX_LIVE_DATA=0` to turn it off |
 
-Build-time only (not needed on the running host): `pypi.org`, `files.pythonhosted.org`,
-and the container registry used for the base image.
-
-Check the tunnel path before you install the connector:
-
-```bash
-dig +short region1.v2.argotunnel.com
-nc -vz -w 5 <ONE_OF_THE_IPS_FROM_DIG> 7844   # TCP
-# Or run the built-in check after install (cloudflared 2026.5.2 or later):
-cloudflared tunnel diag
-```
+There is no SMTP server, no database server, no Tunnel connector, and no other outbound host on this path.
 
 ## 5. Application software
 
-| Component | Version | Source |
-|---|---|---|
-| Python | 3.11 (the image uses `python:3.11-slim`) | `Dockerfile` |
-| Core packages | numpy ≥ 1.26, pandas ≥ 2.1, scikit-learn ≥ 1.4, fastapi ≥ 0.110, uvicorn[standard] ≥ 0.29, httpx ≥ 0.27, SQLAlchemy 2.x | `requirements.txt` |
-| Live market data | yfinance ≥ 1.7, < 2 | `requirements-live.txt` (installed by default in the image) |
-| PostgreSQL driver | psycopg[binary] ≥ 3.1 | Installed in the image and in the systemd setup |
-| Connector | cloudflared 2026.5.2 or later recommended | Cloudflare package or `cloudflare/cloudflared` image |
-
-The driver resolution for `postgresql+psycopg://` was checked in the sandbox. A live
-PostgreSQL connection was **not tested**.
-
-**Cloudflare Pages can host only the frontend, not the Python runtime.** The repository's
-`package.json` builds static assets into `dist/`, and a Pages Function can forward `/api/*` to the
-separately hosted FastAPI service. The API, database, and market engine still need the Linux origin
-host plus Tunnel described in `CLOUDFLARE_DEPLOYMENT.md`.
+- Built into the image: Python dependencies from `requirements.txt`, and `requirements-live.txt` (`yfinance`) unless the image is built with `INSTALL_LIVE=0`.
+- Worker: Node.js 20 or later for building and testing `edge/`. The Worker depends on `@cloudflare/containers`, `wrangler`, and TypeScript, all pinned in `edge/package.json`.
+- Local checks: `pytest` (Python suite), `npm test` in `edge/`, and `wrangler deploy --dry-run --containers-rollout=none`.
 
 ## 6. Data stores
 
-| Store | Requirement | Notes |
+| Store | Where | Notes |
 |---|---|---|
-| Operator database | PostgreSQL, reachable from the origin, with a dedicated role and database | Strongly recommended. Holds accounts, password hashes, sessions, and payment records. SQLite is the fallback and needs a persistent volume. |
-| Backups | Off-host storage for database dumps | Required before launch. See the Backups section of the guide. |
-| Model cache | `models/` directory, writable | Regenerable. It does not need a backup. |
+| SQLite `klevs.db` | Container disk, `/app/data/klevs.db` | Restored from R2 on start, replicated after each write, owner-only permissions |
+| R2 bucket `klevs-backups` | Cloudflare R2, key `klevs/klevs.db` | Created with `wrangler r2 bucket create`. Bound to the Worker as `BACKUPS` |
+| Models | Container disk, `/app/models` | Regenerable. Rebuilt on start if missing |
 
-The app creates its tables at startup and does not run migrations. Take a backup before
-each upgrade.
+Known limit: a write that succeeds while R2 is unreachable is not protected until the background retry succeeds. See the deployment guide, section 8.
 
 ## 7. Configuration and secrets
 
-Every variable is documented in [`deploy/klevs.env.example`](../deploy/klevs.env.example).
+| Name | Where it is set | Required | Purpose |
+|---|---|---|---|
+| `INTERNAL_TOKEN` | `wrangler secret put` | yes | Shared secret for the internal routes |
+| `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD` | `wrangler secret put` | yes, for an operator | Operator account, applied on every start |
+| `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | `wrangler secret put` | optional | Operator contact details |
+| `KLEVS_PUBLIC_ORIGIN`, `KLEVS_MAIL_FROM` | `vars` in `edge/wrangler.jsonc` | yes | Public origin and sender address. Not secret |
+| `KFX_LIVE_DATA` | Worker default `1` | no | Set `0` for the synthetic market only |
+| `KLEVS_DEV_RESET_CODES` | nothing | must not be set | Development only |
 
-| Variable | Required? | Value |
-|---|---|---|
-| `KLEVS_DATABASE_URL` | Yes for production | `postgresql+psycopg://…?sslmode=require` |
-| `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD` | Yes, both | Admin login. The password is set again on every start. |
-| `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | No | Email defaults to the username when it is an address. |
-| `KFX_LIVE_DATA` | Yes (set `1` for production, or `0` for synthetic only) | The app defaults to live when unset. |
-| `KLEVS_SMTP_HOST`, `KLEVS_SMTP_PORT`, `KLEVS_SMTP_USER`, `KLEVS_SMTP_PASSWORD`, `KLEVS_SMTP_FROM` | Yes, for email codes | Without SMTP the reset and verification codes are not delivered. |
-| `KLEVS_DEV_RESET_CODES` | **Must be unset** | Returns codes in API responses. Development only. |
-| `TUNNEL_TOKEN` (Docker connector) or the token in the `cloudflared service install` command | Yes | Treat as a secret. It runs the tunnel. |
-
-Secrets to rotate before launch: the admin password that was committed in an earlier
-commit. Store secrets in `/etc/klevs/` with owner `root` and group `klevs`, mode `0640`.
-Never commit them.
+No secret values are stored in the repository. `.dev.vars` is git-ignored and is for local development only.
 
 ## 8. Decisions and inputs needed from you
 
-- [ ] Production hostname (for example `klevs.example.com`)
-- [ ] Operator email addresses for the Access policy
-- [ ] Access identity method (one-time PIN or SSO provider)
-- [ ] SMTP provider and sender address
-- [ ] PostgreSQL location (managed or self-hosted) and backup location
-- [ ] Whether to keep `/api/health` public (it returns the risk and signal configuration)
-- [ ] Response to the account-existence leak on the 429 lockout (open)
-- [ ] Wallet and bank details shown on the payment page (open)
+- [ ] Hostname to serve the app from (replace `klevs.example.com` in `edge/wrangler.jsonc`).
+- [ ] Sender domain and address for e-mail, onboarded in Email Service.
+- [ ] Whether to keep live market data (Yahoo Finance, Frankfurter) or run on the synthetic market only.
+- [ ] Whether to put Cloudflare Access in front of the operator console.
+- [ ] Acceptable loss window if R2 is unreachable during a write (section 6).
+- [ ] Whether the D1/KV Worker route in `worker/` stays as an alternative. Its signal routes need an external engine, which is a non-Cloudflare dependency.
 
 ## 9. Go-live gate
 
-All of these must be true before real users sign up:
-
-- [ ] Tunnel shows **Healthy** and the hostname returns the app over HTTPS.
-- [ ] `https://<host>/api/health` returns 200 and `cf-cache-status` is not `HIT`.
-- [ ] Direct access to the origin's public IP on ports 80, 443 and 8000 fails.
-- [ ] `/api/admin/users` returns 401 or 403 without a login.
-- [ ] The Access login page appears before `/admin`.
-- [ ] A burst of login attempts returns Cloudflare's 429 page.
-- [ ] `KLEVS_DEV_RESET_CODES` is unset in the running environment.
-- [ ] The admin password has been rotated since the earlier commit.
-- [ ] A database backup has been taken and restored once into a scratch database.
-- [ ] Memory use during a cold scan is measured and fits the chosen instance.
-- [ ] The Docker image has been built and started on a host, which is not yet tested.
+- [ ] `npm test` passes in `edge/`, and the Python suite passes.
+- [ ] `wrangler deploy --dry-run` succeeds with Docker available, so the image builds.
+- [ ] A staging deploy starts the container, and `/api/health` reports `replica: ok` after a write.
+- [ ] The container reaches its public origin for `/__internal/snapshot` and `/__internal/email`.
+- [ ] A reset-code e-mail arrives in a real inbox.
+- [ ] Data survives a container restart (the restore test in the deployment guide).
+- [ ] The operator password has been rotated since it was last shown anywhere.
+- [ ] The login rate-limit rule is in place on `/api/auth/*`.
+- [ ] `/api/health` exposure (risk configuration) has been reviewed.

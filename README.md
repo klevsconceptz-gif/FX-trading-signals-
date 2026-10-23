@@ -46,7 +46,19 @@ python -m scripts.backtest --symbol EURUSD
 python -m scripts.train
 ```
 
-## Cloudflare Worker API
+## Cloudflare deployment
+
+There are two Cloudflare routes in this repository:
+
+- **Containers route (Cloudflare only, recommended).** The FastAPI app runs as a Cloudflare
+  Container behind the Worker in [`edge/`](edge/). Its SQLite database is restored from and
+  replicated to R2, and reset codes go out through Cloudflare Email Service. There is no SMTP,
+  VM or Tunnel. See [`docs/CLOUDFLARE_DEPLOYMENT.md`](docs/CLOUDFLARE_DEPLOYMENT.md) and
+  [`docs/CLOUDFLARE_REQUIREMENTS.md`](docs/CLOUDFLARE_REQUIREMENTS.md).
+- **D1/KV Worker route.** A separate Worker that serves accounts and payments from D1 and KV.
+  Its signal routes need an external engine, which is a non-Cloudflare dependency.
+
+### D1/KV Worker route
 
 A D1/KV-backed Worker entrypoint and Wrangler config are in [`worker/`](worker/README.md). The Pages Function at `functions/api/[[path]].js` proxies same-origin API requests to `https://klv-fx-trading-signals.klevco.workers.dev` by default for production and preview builds; set the Pages variable `KLEVS_API_ORIGIN` to override it. The Worker binds D1 and KV using the configured resource IDs and implements account, admin, payment, access, and audit APIs; signal scan, instructions, pair detail, and backtest routes require the separate `KFX_SIGNAL_ENGINE_ORIGIN` adapter described in the Worker guide. Remote migrations, Cloudflare secrets, and deployment must still be applied in an authenticated Cloudflare environment.
 
@@ -77,8 +89,9 @@ password. Login accepts any of the first three as the identifier. Password polic
 **PBKDF2-HMAC-SHA256 (200k iterations)** with a per-user salt. Forgot password sends a 7-digit
 code to the account email. Only its hash is stored, it expires in 15 minutes and it locks out
 after 5 wrong attempts. The code is never returned in an API response unless the local-only
-flag `KLEVS_DEV_RESET_CODES=1` is set. Set the SMTP variables `KLEVS_SMTP_*` to deliver the
-code by email. Login locks out for 15 minutes after 10 failures. Session tokens are stored
+flag `KLEVS_DEV_RESET_CODES=1` is set. On the Containers route, the code is e-mailed through the
+Cloudflare Email Service binding. Elsewhere, the app posts it to the Worker relay when
+`KLEVS_EMAIL_URL` and `KLEVS_INTERNAL_TOKEN` are set. Login locks out for 15 minutes after 10 failures. Session tokens are stored
 only as SHA-256 hashes. Rotating the environment-provisioned admin password revokes all
 existing admin sessions.
 

@@ -1,8 +1,7 @@
 """Accounts, sessions, lockout and forgot-password (database-backed)."""
 
-import smtplib
+import secrets
 import time
-from typing import ClassVar
 
 import pytest
 from sqlalchemy import select
@@ -21,7 +20,8 @@ from fxbot.db import User, UserSession, db_session, reset_database
 from fxbot.server import app
 
 ADMIN_USER = "Admin@test.fx"
-ADMIN_PW = "Test-Admin#2026"
+# generated per run: the suite never carries a fixed admin password
+ADMIN_PW = f"Tst-{secrets.token_hex(8)}#Aa9"
 PW = "Str0ng!Pass99"
 
 
@@ -36,7 +36,7 @@ def client():
 def fresh_database(monkeypatch):
     """Every test starts with an empty database and no dev reset codes."""
     monkeypatch.delenv("KLEVS_DEV_RESET_CODES", raising=False)
-    monkeypatch.delenv("KLEVS_SMTP_HOST", raising=False)
+    monkeypatch.delenv("KLEVS_EMAIL_URL", raising=False)
     reset_database()
     yield
 
@@ -253,40 +253,16 @@ def test_reset_rejects_weak_new_password(client, monkeypatch):
     assert r.status_code == 422
 
 
-class _FakeSMTP:
-    sent: ClassVar[list] = []
-
-    def __init__(self, host, port, timeout=None):
-        self.host, self.port = host, port
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def starttls(self):
-        pass
-
-    def login(self, user, password):
-        pass
-
-    def send_message(self, msg):
-        _FakeSMTP.sent.append(msg)
-
-
-def test_reset_code_is_emailed_over_smtp(client, monkeypatch):
+def test_reset_code_is_sent_through_the_mail_relay(client, monkeypatch):
     _register(client)
-    _FakeSMTP.sent = []
-    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
-    monkeypatch.setenv("KLEVS_SMTP_HOST", "smtp.example.com")
-    monkeypatch.setenv("KLEVS_SMTP_FROM", "noreply@klevsfx.example")
+    sent = []
+    monkeypatch.setattr(auth_mod.mail, "send", lambda to, subject, text: sent.append((to, subject, text)) or True)
     body = client.post("/api/auth/forgot", json={"email": "trader@example.com"}).json()
     assert "delivered" not in body and "dev_code" not in body
-    assert len(_FakeSMTP.sent) == 1
-    msg = _FakeSMTP.sent[0]
-    assert msg["To"] == "trader@example.com"
-    assert "reset code is " in msg.get_content()
+    assert len(sent) == 1
+    to, _subject, text = sent[0]
+    assert to == "trader@example.com"
+    assert "reset code is " in text
 
 
 # -- admin account --------------------------------------------------------------

@@ -29,6 +29,8 @@ from sqlalchemy import Float, ForeignKey, Integer, String, Text, create_engine, 
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
+from . import replica
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SQLITE_PATH = ROOT / "data" / "klevs.db"
 
@@ -132,6 +134,8 @@ class AdminAuditEvent(Base):
 _lock = threading.Lock()
 _engine: Optional[Engine] = None
 _factory: Optional[sessionmaker] = None
+# File behind the SQLite engine, when replication applies (None for PostgreSQL and :memory:).
+_sqlite_path: Optional[str] = None
 
 
 def database_url() -> str:
@@ -144,7 +148,7 @@ def database_url() -> str:
 
 def init_engine(url: Optional[str] = None) -> Engine:
     """(Re)configure the global engine and create any missing tables."""
-    global _engine, _factory
+    global _engine, _factory, _sqlite_path
     with _lock:
         url = url or database_url()
         sqlite = url.startswith("sqlite")
@@ -161,11 +165,16 @@ def init_engine(url: Optional[str] = None) -> Engine:
                 cur.execute("PRAGMA journal_mode=WAL")
                 cur.close()
 
-        Base.metadata.create_all(engine)
+        _sqlite_path = None
         if sqlite and ":memory:" not in url:
             path = url.split("sqlite:///", 1)[-1]
-            if path and Path(path).exists():
-                os.chmod(path, 0o600)            # owner-only: it holds password hashes
+            if path:
+                _sqlite_path = path
+                # Restore from the R2 replica before the first connection. Raises on a bad snapshot.
+                replica.restore(path)
+        Base.metadata.create_all(engine)
+        if _sqlite_path and Path(_sqlite_path).exists():
+            os.chmod(_sqlite_path, 0o600)        # owner-only: it holds password hashes
         _engine = engine
         _factory = sessionmaker(bind=engine, expire_on_commit=False)
         return engine
@@ -179,18 +188,37 @@ def get_engine() -> Engine:
 
 @contextmanager
 def db_session() -> Iterator[Session]:
-    """Transaction scope: commits on success, rolls back on any exception."""
+    """Transaction scope: commits on success, rolls back on any exception.
+
+    When the database is SQLite and a replica is configured, a commit that
+    changed any row is copied to the replica before this returns. Bulk
+    UPDATE and DELETE statements count too, because the check reads the
+    connection's change counter rather than the ORM's dirty list.
+    """
     if _factory is None:
         init_engine()
     session = _factory()
+    replicated = _sqlite_path is not None and replica.enabled()
+    changes_before = 0
+    dbapi_conn = None
+    if replicated:
+        dbapi_conn = session.connection().connection.dbapi_connection
+        changes_before = dbapi_conn.total_changes
+    wrote = False
     try:
         yield session
+        if replicated:
+            wrote = dbapi_conn.total_changes != changes_before or bool(
+                session.new or session.dirty or session.deleted
+            )
         session.commit()
     except Exception:
         session.rollback()
         raise
     finally:
         session.close()
+    if wrote:
+        replica.replicate(_sqlite_path)
 
 
 def reset_database() -> None:

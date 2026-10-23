@@ -1,0 +1,6 @@
+# Copy to edge/.dev.vars for local `npm run dev` only. Never commit the real file.
+# Every value below is a placeholder. Use test-only values locally.
+INTERNAL_TOKEN=replace-with-a-long-random-string
+KFX_ADMIN_USERNAME=operator@example.test
+KFX_ADMIN_EMAIL=operator@example.test
+KFX_ADMIN_PASSWORD=Local-Only-Strong#2026

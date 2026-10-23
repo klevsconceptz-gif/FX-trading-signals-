@@ -167,38 +167,49 @@ reference only.
   exists; the Pro/Elite feature list still names items that are not built (for example
   webhooks and multi-account profiles).
 
-### 10. Deployment packaging and hosting options
-- **Guide**: `docs/CLOUDFLARE_DEPLOYMENT.md`. Architecture: Cloudflare DNS, TLS, WAF and
-  rate limiting in front; a Cloudflare Tunnel to an origin host running the app in Docker
-  or under systemd; no inbound ports. Covers PostgreSQL, Tunnel setup, zone settings,
-  the `/api/auth/*` rate-limit rule per plan, Cloudflare Access in front of `/admin` and
-  `/api/admin/*`, origin lockdown, verification, backups and troubleshooting.
-- **Requirements**: `docs/CLOUDFLARE_REQUIREMENTS.md` lists the accounts and plans, origin
-  specs (memory still to be measured), the egress allow-list (including TCP/UDP 7844 for
-  the tunnel), configuration, data stores, decisions still needed, and a go-live gate.
-- **Files**: `Dockerfile` (non-root, one uvicorn worker, health check on `/api/health`),
-  `.dockerignore` (excludes `.env`, databases, models, Git data), `deploy/klevs.env.example`
-  (every `KLEVS_`/`KFX_` variable, no secrets), `deploy/klevs.service` (systemd, bound to
-  `127.0.0.1`), `tests/test_deploy_files.py` (drift checks for the above).
-- **Verified locally**: production uvicorn command starts; `/api/health`, admin login and
-  `/admin` respond; a restart with a new `KFX_ADMIN_PASSWORD` rotates the admin password
-  (the env value is authoritative on every start). Full suite passes.
-- **Not verified**: Docker image build, `cloudflared` connector, live PostgreSQL, Cloudflare
-  dashboard screens. The guide says so.
-- **Estimated monthly cost** (third-party price trackers, not vendor-verified for the
-  origin VM and database): Cloudflare path ~$74 (Pro $20/yr billing, Tunnel and Access
-  free up to 50 users, 2 vCPU/4 GB VM ~$24, managed PostgreSQL 2 GB ~$30). Render ~$90
-  (Pro workspace $25, 1 CPU/2 GB web $25, 1 CPU/2 GB Postgres $40; prices from
-  render.com/pricing). AWS-native ~$90 (EC2 t3.medium ~$30, RDS db.t4g.small ~$23,
-  ALB ~$22, WAF ~$8, storage and transfer extra).
-- **Gaps to close before launch**: login rate limiting moves into the app if the edge
-  rule is not used; `/admin` protection needs Access, an app-level allowlist or an SSO
-  proxy; `/api/health` exposes risk configuration publicly; the 429 lockout response can
-  reveal whether an account exists; the admin password committed in an earlier commit
-  must be rotated.
-- **Repo note**: the local branch was re-pointed to `origin/arena/641dff05-fx-trading-signals`
-  (`3a5413f`) after the local clone was found at `main`'s base commit. The working tree was
-  verified identical to that commit before the reset.
+### 10. Cloudflare-only deployment (Containers route)
+- **Decision.** Deployment uses Cloudflare services only: Workers (custom domain and token-checked
+  internal routes), Containers (the FastAPI app, one instance), R2 (SQLite snapshot), and Email
+  Service (reset codes). No SMTP, VM, systemd or Tunnel remains on this path. Rebuilt on
+  2026-10-23 at the user's request, with the existing D1/KV Worker route kept alongside it.
+- **Guide**: `docs/CLOUDFLARE_DEPLOYMENT.md` (set-up, secrets, deploy, environment reference,
+  database replication and recovery, verification, open items, troubleshooting).
+- **Requirements**: `docs/CLOUDFLARE_REQUIREMENTS.md` (plans and prices, container sizing, egress
+  list, data stores, configuration, decisions still needed, go-live gate).
+- **Code**:
+  - `fxbot/replica.py`: restores `klevs.db` from R2 when the local file is missing (quick_check,
+    stale WAL removed), replicates after each write-bearing commit, and retries every 15 s.
+    `/api/health` reports `replica: disabled | ok | pending`.
+  - `fxbot/db.py`: restore before the first connection; replication after a commit that changed
+    any row, including bulk UPDATE and DELETE (the connection's change counter is checked).
+  - `fxbot/mail.py`: reset-code e-mail posts to the Worker relay (202 on success). `fxbot/auth.py`
+    no longer uses SMTP.
+  - `edge/`: Worker `klevs-edge` (`src/index.ts`, `KlevsContainer` with `defaultPort` 8000 and
+    `sleepAfter` 15 min; `src/internal.ts`, token-checked snapshot and e-mail routes;
+    `src/container-env.ts`). Wrangler config binds R2 `BACKUPS`, `send_email` `EMAIL`, and the
+    container (`max_instances` 1, `standard-2` provisional).
+- **Files**: `Dockerfile` (non-root, one uvicorn worker, port 8000, SQLite only), `.dockerignore`
+  (excludes secrets, databases, `edge/`, `worker/`, tests), `tests/test_deploy_files.py` (drift
+  checks: every env var read is documented, the Worker sets only variables the app reads, Wrangler
+  bindings, no SMTP path, no deploy/ directory).
+- **Tests**: `tests/test_replica.py` and `tests/test_mail.py` (19 tests together), with
+  `tests/fake_worker.py`, cover
+  restore, corruption, stale WAL, pending retry, bulk writes, and the relay contract. `edge/test/`
+  has 20 Worker tests. The admin test credentials are generated per run.
+- **Verified locally**: Python suite and ruff; Worker `tsc` and 20 unit tests; `wrangler deploy
+  --dry-run --containers-rollout=none` validates bindings and the container image path.
+- **Not verified**: Docker image build (Docker is not installed in the sandbox), a live deploy, the
+  container starting on Cloudflare, the container reaching its own public origin for
+  `/__internal/*` (the assumed design), a real R2 bucket, a real Email Service send.
+- **Cost (verified against the Cloudflare Containers pricing page, 5 Oct 2026)**: Workers Paid
+  $5/mo. `standard-2` running around the clock is about $92/mo (memory $38.66, CPU $51.39, disk
+  $2.13), so about $97/mo total before idle savings. Email Service and R2 prices are not verified.
+- **Gaps to close before launch**: a write acknowledged while R2 is unreachable is lost if the
+  container is evicted before the retry succeeds; `/api/health` exposes risk configuration
+  publicly; the 429 lockout response can reveal whether an account exists; the operator password
+  once shown in chat must be rotated; the D1/KV route needs an external signal engine (a
+  non-Cloudflare dependency); Yahoo Finance and Frankfurter are runtime data sources pending the
+  user's decision.
 
 ### 12. Review remediation (2026-10-18)
 - Removed same-bar backtest lookahead: signals use completed bars and entries fill at the next open.

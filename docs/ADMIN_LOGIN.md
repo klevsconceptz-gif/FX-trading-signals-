@@ -44,6 +44,6 @@ The existing FastAPI service also supports admin bootstrap from its own runtime 
 - **Pages API calls fail or target the wrong Worker:** check `KLEVS_API_ORIGIN` if set; with no override, the Pages Function uses `https://klv-fx-trading-signals.klevco.workers.dev`.
 - **Admin page loads but API calls fail:** verify the Worker deployment, D1/KV bindings, remote D1 migration, and Pages API origin.
 - **Scan, instructions, pair or backtest returns 503:** configure a separate HTTPS `KFX_SIGNAL_ENGINE_ORIGIN` and the matching `KFX_SIGNAL_ENGINE_TOKEN` secret on the Worker and FastAPI host; do not point the origin back to the Worker itself.
-- **Password reset message arrives but no email:** configure the Worker reset-mail HTTP endpoint and token as described in `worker/README.md`.
+- **Password reset message arrives but no email:** on the Containers route, check the sender domain in Email Service and the Worker logs (see `docs/CLOUDFLARE_DEPLOYMENT.md`, section 9). On the D1/KV route, configure the Worker reset-mail HTTP endpoint and token as described in `worker/README.md`.
 
 If a password is exposed, rotate it in the API runtime and redeploy. Do not use test credentials from the repository.
