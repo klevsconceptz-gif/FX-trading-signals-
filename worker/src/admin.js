@@ -3,6 +3,8 @@
 // in the audit trail or returned by any view.
 import { ApiError, requireDatabase } from "./http.js";
 import { publicUser } from "./auth.js";
+import { auditStatement } from "./audit.js";
+import { ROLE_ADMIN, ROLE_USER, effectiveRole, isBootstrapUsername, isReservedIdentity } from "./roles.js";
 import { createPayment, paymentView } from "./billing.js";
 import {
   emailIsValid,
@@ -14,7 +16,10 @@ import {
   usernameIsValid,
 } from "./security.js";
 
-const ROLES = new Set(["user", "admin"]);
+// Only one account can be an admin (the bootstrap account from Worker secrets), so the API
+// accepts the user role only.
+const ROLES = new Set([ROLE_USER]);
+const ADMIN_ROLE_REFUSED = "the admin role belongs to the single bootstrap admin set in Worker secrets; no other account can hold it";
 const GRANT_STATUSES = new Set(["active", "revoked"]);
 const MAX_GRANT_DAYS = 366;
 
@@ -30,15 +35,11 @@ function requireNote(value) {
   return note;
 }
 
-function bootstrapUsername(env) {
-  return String(env.KFX_ADMIN_USERNAME || "").trim().toLowerCase();
-}
 
 // The bootstrap admin is seeded from Worker secrets on every admin sign-in, so its identity and
 // status cannot be changed from the console.
 function isBootstrap(env, username) {
-  const bootstrap = bootstrapUsername(env);
-  return Boolean(bootstrap) && String(username).toLowerCase() === bootstrap;
+  return isBootstrapUsername(env, username);
 }
 
 function text(value) {
@@ -47,7 +48,7 @@ function text(value) {
 
 function userView(env, row) {
   return {
-    ...publicUser(row),
+    ...publicUser(row, env),
     email: row.email,
     phone: row.phone || "",
     disabled: Number(row.disabled_at || 0) > 0,
@@ -89,27 +90,6 @@ async function getGrant(db, grantId) {
   return row;
 }
 
-function auditStatement(db, { operator, action, target, summary, note = null, paymentId = null, grantId = null, reference = null }) {
-  return db.prepare(`
-    INSERT INTO admin_audit_events
-      (event_key, occurred_at, actor_username, action, target_user_id, target_username,
-       payment_id, grant_id, reference, summary, note)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    `${action}:${randomToken(12)}`,
-    nowSeconds(),
-    operator,
-    action,
-    target ? Number(target.id) : null,
-    target ? target.username : null,
-    paymentId,
-    grantId,
-    reference,
-    summary,
-    note,
-  );
-}
-
 async function assertUnique(db, column, value, exceptUserId) {
   const row = await db.prepare(`SELECT id FROM users WHERE ${column} = ? AND id <> ? LIMIT 1`)
     .bind(value, exceptUserId).first();
@@ -136,7 +116,9 @@ export async function adminCreateUser(env, operator, body) {
   if (!password || password.length > 128) throw new ApiError(422, "password must be 1-128 characters");
   const policyError = passwordPolicyError(password);
   if (policyError) throw new ApiError(422, policyError);
-  if (!ROLES.has(role)) throw new ApiError(422, "role must be 'user' or 'admin'");
+  if (role === ROLE_ADMIN) throw new ApiError(422, ADMIN_ROLE_REFUSED);
+  if (!ROLES.has(role)) throw new ApiError(422, "role must be 'user'");
+  if (isReservedIdentity(env, username, email)) throw new ApiError(422, "this username or email is reserved for the bootstrap admin");
 
   const db = requireDatabase(env);
   const usernameKey = username.toLowerCase();
@@ -250,7 +232,8 @@ export async function adminUpdateUser(env, userId, actor, body) {
   }
   if (body.role !== undefined) {
     const role = String(body.role);
-    if (!ROLES.has(role)) throw new ApiError(422, "role must be 'user' or 'admin'");
+    if (role === ROLE_ADMIN) throw new ApiError(422, ADMIN_ROLE_REFUSED);
+    if (!ROLES.has(role)) throw new ApiError(422, "role must be 'user'");
     if (role !== user.role) {
       if (Number(actor.id) === userId && role === "user") throw new ApiError(409, "you cannot remove your own admin role");
       next.role = role;

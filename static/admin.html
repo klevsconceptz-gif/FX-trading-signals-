@@ -67,7 +67,7 @@
   <section id="tab-users" class="hidden">
     <div class="card">
       <h2>Create account</h2>
-      <p class="note">Creates an account directly. Give the initial password to the user through a channel you trust. Use the reset below if they lose it.</p>
+      <p class="note">Creates a user account. The operator (admin) role belongs to the single bootstrap admin set in Worker secrets, so no account can be created as admin here. Creates an account directly. Give the initial password to the user through a channel you trust. Use the reset below if they lose it.</p>
       <div class="grid2">
         <label class="f">Username (3–32 characters)
           <input id="nu-username" maxlength="32" autocomplete="off" />
@@ -80,9 +80,6 @@
         </label>
         <label class="f">Initial password (policy applies)
           <input id="nu-password" type="password" autocomplete="new-password" />
-        </label>
-        <label class="f">Role
-          <select id="nu-role"><option value="user" selected>User</option><option value="admin">Operator (admin)</option></select>
         </label>
         <label class="f">Reason (required, in the audit trail)
           <input id="nu-note" maxlength="300" />
@@ -152,9 +149,6 @@
         </label>
         <label class="f">Phone
           <input id="ad-phone" maxlength="20" />
-        </label>
-        <label class="f">Role
-          <select id="ad-role"><option value="user">User</option><option value="admin">Operator (admin)</option></select>
         </label>
       </div>
       <div class="grid2" style="margin-top:10px">
@@ -257,6 +251,7 @@
   </section>
 </main>
 
+<script src="/static/runtime.js"></script>
 <script src="/static/auth.js"></script>
 <script src="/static/admin.js"></script>
 </body>

@@ -118,6 +118,16 @@ def policy_error(password: str) -> Optional[str]:
     return "password must include " + ", ".join(pretty[m] for m in missing)
 
 
+def _reserved_identity(username: str, email: str) -> bool:
+    """The bootstrap admin's username and email (KFX_ADMIN_USERNAME, KFX_ADMIN_EMAIL) belong to
+    that account only, so public sign-up cannot take them."""
+    bootstrap = os.environ.get("KFX_ADMIN_USERNAME", "").strip().lower()
+    if not bootstrap:
+        return False
+    bootstrap_email = (os.environ.get("KFX_ADMIN_EMAIL") or os.environ.get("KFX_ADMIN_USERNAME") or "").strip().lower()
+    return username.lower() == bootstrap or email.lower() == bootstrap_email
+
+
 def _digits(value: str) -> str:
     return re.sub(r"[^\d+]", "", value)
 
@@ -139,6 +149,8 @@ class AccountStore:
         username, email, phone = username.strip(), email.strip().lower(), phone.strip()
         if not USERNAME_RE.match(username):
             raise ValueError("username must be 3-32 characters: letters, numbers, _ . - only")
+        if _reserved_identity(username, email):
+            raise ValueError("this username or email is reserved")
         if not EMAIL_RE.match(email):
             raise ValueError("invalid email address")
         if not PHONE_RE.match(phone):
@@ -303,6 +315,10 @@ class AccountStore:
                 if phone:
                     user.phone = phone
             s.flush()
+            # Sole-admin rule (as in the Worker): the bootstrap account is the only admin, so any
+            # other admin row is demoted to a user here.
+            for other in s.scalars(select(User).where(User.role == "admin", User.id != user.id)).all():
+                other.role = "user"
             return user
 
 

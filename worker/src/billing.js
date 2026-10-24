@@ -1,4 +1,5 @@
 import { ApiError, requireDatabase } from "./http.js";
+import { effectiveRole } from "./roles.js";
 import { hashPassword, passwordPolicyError, randomToken } from "./security.js";
 
 export const PLANS = Object.freeze({
@@ -351,12 +352,12 @@ export async function adminListUsers(env) {
     username: user.username,
     email: user.email,
     phone: user.phone,
-    role: user.role,
+    role: effectiveRole(env, user),
     disabled: Number(user.disabled_at || 0) > 0,
     created_at: Number(user.created_at),
     access: {
-      active: user.role === "admin" || user.grant_plan !== null,
-      plan: user.role === "admin" ? "admin" : user.grant_plan,
+      active: effectiveRole(env, user) === "admin" || user.grant_plan !== null,
+      plan: effectiveRole(env, user) === "admin" ? "admin" : user.grant_plan,
       expires_at: user.grant_expires_at == null ? null : Number(user.grant_expires_at),
     },
   })) };

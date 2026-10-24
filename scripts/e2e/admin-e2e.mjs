@@ -135,15 +135,18 @@ async function main() {
   check("admin updates username, email and phone (200)", patched.status === 200 && patched.json?.user?.username === renamed, `status ${patched.status} ${JSON.stringify(patched.json)}`);
   check("updated username signs in", (await login(renamed, newPass)).status === 200);
 
+  // Sole admin: nothing in the API can make a second admin, by create or by edit.
   const promote = await call("PATCH", `/api/admin/users/${userId}`, { token: admin, body: { role: "admin", note: "promote" } });
-  check("admin promotes a user to admin", promote.status === 200 && promote.json?.user?.role === "admin", `status ${promote.status}`);
-  const promotedToken = tokenOf(await login(renamed, newPass));
-  check("a promoted account keeps its session after promotion", (await call("GET", "/api/me", { token: promotedToken })).status === 200);
-  const selfDemote = await call("PATCH", `/api/admin/users/${userId}`, { token: promotedToken, body: { role: "user", note: "self" } });
-  check("an admin cannot remove their own admin role (409)", selfDemote.status === 409, `status ${selfDemote.status}`);
-  const demote = await call("PATCH", `/api/admin/users/${userId}`, { token: admin, body: { role: "user", note: "demote" } });
-  check("admin demotes back to user", demote.status === 200 && demote.json?.user?.role === "user", `status ${demote.status}`);
-  check("demotion ends the old admin session (401)", (await call("GET", "/api/admin/users", { token: promotedToken })).status === 401);
+  check("an account cannot be promoted to admin (422)", promote.status === 422 && /bootstrap admin/.test(promote.json?.detail || ""), `status ${promote.status}`);
+  const createAdmin = await call("POST", "/api/admin/users", {
+    token: admin, body: { username: `op_${suffix}`, email: `op_${suffix}@example.test`, password: userPass, role: "admin", note: "second admin" },
+  });
+  check("a new account cannot be created as admin (422)", createAdmin.status === 422, `status ${createAdmin.status}`);
+  const roleOfUser = await call("GET", "/api/me", { token: tokenOf(await login(renamed, newPass)) });
+  check("the ordinary account still signs in as a user", roleOfUser.json?.user?.role === "user", JSON.stringify(roleOfUser.json?.user));
+  const everyone = await call("GET", "/api/admin/users", { token: admin });
+  const admins = (everyone.json?.users || []).filter((u) => u.role === "admin");
+  check("exactly one admin account exists: the bootstrap admin", admins.length === 1 && admins[0].username === ADMIN_USER, `admins: ${admins.map((u) => u.username).join(", ")}`);
 
   check("bootstrap admin cannot be demoted (409)",
     (await call("PATCH", "/api/admin/users/1", { token: admin, body: { role: "user", note: "guard" } })).status === 409);

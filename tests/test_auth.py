@@ -406,3 +406,25 @@ def test_password_reset_revokes_existing_sessions(client, monkeypatch):
     assert r.status_code == 200
     assert client.get("/api/me", headers=_bearer(old)).status_code == 401   # old token is dead
     assert client.get("/api/me", headers=_bearer(r.json()["token"])).status_code == 200
+
+
+def test_seed_admin_demotes_every_other_admin_row(monkeypatch):
+    other = ACCOUNTS.register("legacy_admin", "legacy@test.fx", "+15550003333", PW)
+    with db_session() as s:
+        s.get(User, other.id).role = "admin"
+    admin = ACCOUNTS.seed_admin(ADMIN_USER, ADMIN_PW)
+    with db_session() as s:
+        assert s.get(User, other.id).role == "user"
+        admins = s.scalars(select(User).where(User.role == "admin")).all()
+        assert [a.id for a in admins] == [admin.id], "the bootstrap admin is the only admin"
+
+
+def test_bootstrap_username_and_email_are_reserved_from_sign_up(monkeypatch):
+    monkeypatch.setenv("KFX_ADMIN_USERNAME", "opsadmin")
+    monkeypatch.setenv("KFX_ADMIN_EMAIL", "ops@test.fx")
+    with pytest.raises(ValueError, match="reserved"):
+        ACCOUNTS.register("OpsAdmin", "someone@test.fx", "+15550004444", PW)
+    with pytest.raises(ValueError, match="reserved"):
+        ACCOUNTS.register("someone", "OPS@test.fx", "+15550004444", PW)
+    assert ACCOUNTS.register("someone", "someone@test.fx", "+15550004444", PW).role == "user"
+

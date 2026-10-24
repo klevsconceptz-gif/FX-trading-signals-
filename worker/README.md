@@ -59,7 +59,7 @@ The operator console (`/admin` on the Pages site, `static/admin.html`) signs in 
 
 | Area | Routes |
 | --- | --- |
-| Accounts | `GET /api/admin/users`, `POST /api/admin/users`, `GET /api/admin/users/{id}`, `PATCH /api/admin/users/{id}` (username, email, phone, role, `disabled`), `DELETE /api/admin/users/{id}` |
+| Accounts | `GET /api/admin/users`, `POST /api/admin/users`, `GET /api/admin/users/{id}`, `PATCH /api/admin/users/{id}` (username, email, phone, `disabled`; `role` may only be `user`), `DELETE /api/admin/users/{id}` |
 | Passwords and access | `POST /api/admin/users/{id}/reset-password`, `POST /api/admin/users/{id}/grant`, `POST /api/admin/users/{id}/revoke` (all grants of the account) |
 | Grants | `GET /api/admin/grants[?user_id=&status=]`, `PATCH /api/admin/grants/{id}` (`expires_in_days`), `POST /api/admin/grants/{id}/revoke` |
 | Payments | `GET /api/admin/payments[?status=]`, `POST /api/admin/payments` (create an invoice), `GET /api/admin/payments/{id}`, `POST /api/admin/payments/{id}/confirm\|reject\|cancel` |
@@ -71,10 +71,12 @@ Rules the Worker enforces, whatever the console shows:
 - A refused request writes nothing. Repeating a decision, such as cancelling a cancelled invoice or revoking a revoked grant, returns 409.
 - The bootstrap admin (the account named by `KFX_ADMIN_USERNAME`) cannot be edited, disabled, demoted or deleted in the console. Its username, email, phone, role and status come from the Worker secrets, and its password is set by `KFX_ADMIN_PASSWORD`. Changing the secret and redeploying changes the password on the next sign-in.
 - An operator cannot disable, demote or delete their own account.
+- **Sole admin.** The bootstrap account named by `KFX_ADMIN_USERNAME` is the only admin. The API refuses `role: "admin"` on create and on PATCH (422), so no console or API path can add one. At sign-in the Worker demotes any other stored admin row to `user` and writes a `role_changed` audit row in the same batch. Public sign-up and the console refuse the bootstrap username and email, because an ordinary account holding them would block the admin's sign-in.
+- **Native apps.** The Capacitor apps are allowed by CORS from `capacitor://localhost` and `https://localhost` only. They authenticate with the bearer token from `/api/auth/login`, not cookies.
 - An account can be deleted only when it has no payment and no access-grant records. Otherwise disable it. Disabling ends its sessions and blocks sign-in, and keeps all records.
 - Payment records and audit events are never deleted from the console.
 
-Tests: `npm run worker:test` covers the guard rules offline. `npm run e2e:admin` runs about 85 checks against a running Worker (`BASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`), including sign-in, lockout, reset, the role matrix, CRUD and the audit trail. It creates test accounts, invoices and grants, so run it against the local Worker or a staging Worker, never production.
+Tests: `npm run worker:test` covers the guard rules offline. `npm run e2e:admin` runs about 84 checks against a running Worker (`BASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`), including sign-in, lockout, reset, the role matrix, CRUD and the audit trail. It creates test accounts, invoices and grants, so run it against the local Worker or a staging Worker, never production.
 
 ## Production setup and deployment
 

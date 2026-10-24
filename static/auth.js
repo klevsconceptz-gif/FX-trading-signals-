@@ -6,6 +6,11 @@
 "use strict";
 
 (function () {
+  // Page routes: /app, /admin and / on the web, bundled files inside the Android and iOS shells.
+  function appRoute(name) {
+    if (window.KLEVS) return window.KLEVS.route(name);
+    return { home: "/", app: "/app", admin: "/admin" }[name] || "/";
+  }
   const KEY = "kfx_sub";
 
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
@@ -318,7 +323,7 @@
       return;
     }
     if (s.role === "admin") {
-      window.location.href = "/admin";
+      window.location.href = appRoute("admin");
       return;
     }
     if (s.access_active) return finishSuccess(s, title || "You're in!");
@@ -518,7 +523,7 @@
     });
     $(el, "#auth-close").addEventListener("click", close);
     $(el, "#auth-open-app").addEventListener("click", () => {
-      window.location.href = readSession()?.role === "admin" ? "/admin" : "/app";
+      window.location.href = readSession()?.role === "admin" ? appRoute("admin") : appRoute("app");
     });
 
     /* plan + method controls */
@@ -627,7 +632,7 @@
   async function logout() {
     try { await API.post("/api/auth/logout", {}); } catch (_) { /* already gone */ }
     writeSession(null);
-    window.location.href = "/";
+    window.location.href = appRoute("home");
   }
 
   window.Auth = {

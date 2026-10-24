@@ -35,6 +35,8 @@ GET  /api/admin/audit-log            recent operator activity
 The full admin CRUD (create, edit and delete accounts, edit grants, create and cancel
 invoices) is served by the Cloudflare Worker in worker/src/admin.js, the production admin
 backend. This FastAPI app keeps the set above for local or self-hosted use.
+The sole-admin rule holds here too: the bootstrap account (KFX_ADMIN_USERNAME) is the only
+admin, and sign-in demotes any other admin row to a user.
 """
 
 from __future__ import annotations

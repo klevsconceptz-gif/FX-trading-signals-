@@ -273,14 +273,45 @@ async function handleApi(request, env) {
   return errorResponse(404, "not found");
 }
 
+// The native Android and iOS shells (Capacitor) load the app from these origins and send the
+// bearer token in a header, so they are the only cross-origin callers allowed. The web app is
+// same-origin through the Pages proxy and needs no CORS.
+const NATIVE_APP_ORIGINS = new Set(["capacitor://localhost", "https://localhost"]);
+
+function nativeCorsHeaders(request) {
+  const origin = request.headers.get("Origin");
+  if (!origin || !NATIVE_APP_ORIGINS.has(origin)) return null;
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Max-Age": "600",
+    Vary: "Origin",
+  };
+}
+
+function withHeaders(response, extra) {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(extra)) headers.set(name, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 export default {
   async fetch(request, env) {
-    try {
-      return await handleApi(request, env);
-    } catch (error) {
-      if (error instanceof ApiError) return errorResponse(error.status, error.detail);
-      console.error("Worker API request failed", error?.name || "Error");
-      return errorResponse(500, "internal server error");
+    const cors = nativeCorsHeaders(request);
+    if (cors && request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: cors });
     }
+    let response;
+    try {
+      response = await handleApi(request, env);
+    } catch (error) {
+      if (error instanceof ApiError) response = errorResponse(error.status, error.detail);
+      else {
+        console.error("Worker API request failed", error?.name || "Error");
+        response = errorResponse(500, "internal server error");
+      }
+    }
+    return cors ? withHeaders(response, cors) : response;
   },
 };

@@ -252,22 +252,19 @@ function renderAccountDetail({ user, grants, payments }) {
   const bootstrap = user.managed_by_env;
   const hasRecords = grants.length > 0 || payments.length > 0;
 
-  $("#acct-title").textContent = `Account · ${user.username}`;
+  $("#acct-title").textContent = `Account · ${user.username} · ${user.role === "admin" ? "operator (admin)" : "user"}`;
   $("#acct-notice").textContent = bootstrap
     ? "This is the bootstrap admin. Its username, email, phone, role and status come from Worker secrets and cannot be changed here. Its password is set by KFX_ADMIN_PASSWORD."
     : self
-      ? "This is your own account. You can change your details, but you cannot disable, demote or delete yourself."
+      ? "This is your own account. You can change your details, but you cannot disable or delete yourself."
       : "";
   $("#ad-username").value = user.username;
   $("#ad-email").value = user.email || "";
   $("#ad-phone").value = user.phone || "";
-  $("#ad-role").value = user.role;
   $("#ad-note").value = "";
 
   const locked = bootstrap;
-  ["#ad-username", "#ad-email", "#ad-phone", "#ad-role"].forEach((sel) => {
-    $(sel).disabled = locked || (sel === "#ad-role" && self);
-  });
+  ["#ad-username", "#ad-email", "#ad-phone"].forEach((sel) => { $(sel).disabled = locked; });
   $("#acct-save").disabled = locked;
   $("#acct-toggle").textContent = user.disabled ? "Enable account" : "Disable account";
   $("#acct-toggle").disabled = locked || self;
@@ -317,7 +314,6 @@ async function saveAccount() {
     username: $("#ad-username").value.trim(),
     email: $("#ad-email").value.trim(),
     phone: $("#ad-phone").value.trim(),
-    role: $("#ad-role").value,
     note,
   };
   const ok = await write(() => api("PATCH", `/api/admin/users/${openAccountId}`, body), (m) => { $("#acct-msg").textContent = m; });
@@ -430,13 +426,13 @@ $("#nu-submit").addEventListener("click", async () => {
     email: $("#nu-email").value.trim(),
     phone: $("#nu-phone").value.trim(),
     password: $("#nu-password").value,
-    role: $("#nu-role").value,
+    role: "user",
     note: $("#nu-note").value.trim(),
   };
   if (!body.username || !body.email) { msg.textContent = "Enter a username and email."; return; }
   if (!body.password) { msg.textContent = "Enter an initial password."; return; }
   if (body.note.length < 3) { msg.textContent = "A reason of at least 3 characters is required."; return; }
-  if (!window.confirm(`Create the ${body.role === "admin" ? "operator" : "user"} account ${body.username}?`)) return;
+  if (!window.confirm(`Create the user account ${body.username}?`)) return;
   const result = await write(() => api("POST", "/api/admin/users", body), (m) => { msg.textContent = m; });
   if (result) {
     msg.textContent = `Account ${body.username} created.`;
@@ -584,6 +580,7 @@ async function loadSettings() {
 
 const AUDIT_ACTIONS = {
   user_created: "Account created",
+  role_changed: "Role changed",
   user_updated: "Account updated",
   user_deleted: "Account deleted",
   password_reset: "Password reset",

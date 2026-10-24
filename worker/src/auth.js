@@ -1,4 +1,6 @@
 import { ApiError, getBearerToken, requireDatabase, requireKV } from "./http.js";
+import { auditStatement } from "./audit.js";
+import { ROLE_ADMIN, ROLE_USER, effectiveRole, isReservedIdentity, withEffectiveRole } from "./roles.js";
 import {
   PASSWORD_RULES,
   adminUsernameIsValid,
@@ -25,13 +27,14 @@ function nowSeconds() {
   return Date.now() / 1000;
 }
 
-export function publicUser(user) {
+// env is passed wherever a role is reported, so the role is always the effective one.
+export function publicUser(user, env) {
   return {
     id: user.id,
     username: user.username,
     email: user.email,
     phone: user.phone || "",
-    role: user.role,
+    role: env ? effectiveRole(env, user) : user.role,
   };
 }
 
@@ -58,7 +61,32 @@ async function getUserById(db, userId) {
   `).bind(userId).first();
 }
 
-async function ensureAdmin(env) {
+export async function ensureAdmin(env) {
+  const result = await ensureBootstrapAdmin(env);
+  if (result) await demoteOtherAdmins(env, result);
+  return result;
+}
+
+// Sole-admin rule: any stored admin row other than the bootstrap account becomes a user, in the
+// same batch as an audit row, so the change is recorded.
+async function demoteOtherAdmins(env, bootstrapUser) {
+  const db = requireDatabase(env);
+  const others = await db.prepare("SELECT id, username FROM users WHERE role = ? AND id <> ?")
+    .bind(ROLE_ADMIN, bootstrapUser.id).all();
+  for (const row of others.results || []) {
+    await db.batch([
+      db.prepare("UPDATE users SET role = ? WHERE id = ? AND role = ?").bind(ROLE_USER, row.id, ROLE_ADMIN),
+      auditStatement(db, {
+        operator: "system",
+        action: "role_changed",
+        target: { id: row.id, username: row.username },
+        summary: "Role changed from admin to user: only the bootstrap admin may hold the admin role",
+      }),
+    ]);
+  }
+}
+
+async function ensureBootstrapAdmin(env) {
   const username = String(env.KFX_ADMIN_USERNAME || "").trim();
   const password = String(env.KFX_ADMIN_PASSWORD || "");
   if (!username && !password) return null;
@@ -152,7 +180,7 @@ export async function issueSession(env, user) {
     INSERT INTO user_sessions(token_hash, user_id, password_version, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?)
   `).bind(tokenHash, user.id, passwordVersion, createdAt, expiresAt).run();
-  const cached = { user: publicUser(user), password_version: passwordVersion };
+  const cached = { user: publicUser(user, env), password_version: passwordVersion };
   await kv.put(`session:${tokenHash}`, JSON.stringify(cached), { expirationTtl: SESSION_CACHE_SECONDS });
   return token;
 }
@@ -181,7 +209,7 @@ export async function currentUser(env, request) {
 
   const cached = await kv.get(key, { type: "json" });
   if (cached?.user?.id === session.user_id && cached.password_version === session.current_password_version) {
-    return cached.user;
+    return withEffectiveRole(env, cached.user);
   }
   const user = await getUserById(db, session.user_id);
   if (!user) {
@@ -189,10 +217,10 @@ export async function currentUser(env, request) {
     await kv.delete(key);
     return null;
   }
-  await kv.put(key, JSON.stringify({ user: publicUser(user), password_version: user.password_version }), {
+  await kv.put(key, JSON.stringify({ user: publicUser(user, env), password_version: user.password_version }), {
     expirationTtl: Math.min(SESSION_CACHE_SECONDS, Math.max(1, Math.floor(session.expires_at - timestamp))),
   });
-  return publicUser(user);
+  return publicUser(user, env);
 }
 
 export async function revokeSession(env, request) {
@@ -227,7 +255,7 @@ export async function accessStatus(env, user) {
 const PLAN_NAMES = Object.freeze({ starter: "Starter", pro: "Pro", elite: "Elite" });
 
 export async function sessionPayload(env, user) {
-  return { user: publicUser(user), access: await accessStatus(env, user) };
+  return { user: publicUser(user, env), access: await accessStatus(env, user) };
 }
 
 export async function registerAccount(env, body) {
@@ -243,6 +271,7 @@ export async function registerAccount(env, body) {
   if (!password || password.length > 128) throw new ApiError(422, "password must be 1-128 characters");
   const policyError = passwordPolicyError(password);
   if (policyError) throw new ApiError(422, policyError);
+  if (isReservedIdentity(env, username, email)) throw new ApiError(422, "this username or email is reserved");
 
   const db = requireDatabase(env);
   requireKV(env);

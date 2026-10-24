@@ -21,7 +21,7 @@ def test_pages_build_command_and_api_proxy_are_configured():
     landing = (ROOT / "static" / "landing.html").read_text(encoding="utf-8")
     assert '<a href="/admin">Operator sign in</a>' in landing
     auth = (ROOT / "static" / "auth.js").read_text(encoding="utf-8")
-    assert re.search(r'if\s*\(s\.role === "admin"\)\s*\{\s*window\.location\.href = "/admin";', auth)
+    assert re.search(r'if\s*\(s\.role === "admin"\)\s*\{\s*window\.location\.href = appRoute\("admin"\);', auth)
 
 
 def test_pages_static_build_preserves_app_routes_when_node_is_available():

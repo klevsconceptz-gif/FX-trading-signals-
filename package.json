@@ -8,6 +8,8 @@
   },
   "scripts": {
     "build": "node scripts/build-static.mjs",
+    "build:mobile": "node scripts/build-mobile.mjs",
+    "mobile:sync": "npm run build:mobile && cap sync",
     "worker:dev": "wrangler dev --config worker/wrangler.jsonc",
     "worker:test": "node --test worker/test/*.test.js",
     "e2e:admin": "node scripts/e2e/admin-e2e.mjs",
@@ -18,6 +20,12 @@
     "cloudflare:bootstrap:test": "node --test scripts/test/*.test.mjs"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "wrangler": "^4.151.1"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3"
   }
 }

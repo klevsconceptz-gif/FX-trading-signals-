@@ -30,8 +30,9 @@ $("#btn-login").addEventListener("click", () => window.Auth.open("login"));
   btn.classList.remove("ghost");
   btn.classList.add("primary");
   btn.onclick = () => {
-    if (isAdmin) window.location.href = "/admin";
-    else if (session.access_active) window.location.href = "/app";
+    var route = window.KLEVS ? window.KLEVS.route : function (name) { return { admin: "/admin", app: "/app" }[name] || "/"; };
+    if (isAdmin) window.location.href = route("admin");
+    else if (session.access_active) window.location.href = route("app");
     else window.Auth.open("plan");
   };
 })();
