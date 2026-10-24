@@ -164,3 +164,25 @@ def test_admin_console_served(client):
     r = client.get("/admin")
     assert r.status_code == 200
     assert "Operator console" in r.text
+
+
+def test_admin_sign_in_uses_shared_user_flow(client):
+    # The operator console has no sign-in form of its own: it opens the shared sign-in modal.
+    html = client.get("/admin").text
+    assert '/static/auth.js' in html
+    assert 'id="lg-open"' in html
+    assert 'id="login-form"' not in html
+    admin_js = client.get("/static/admin.js").text
+    assert 'window.Auth.open("login", { operator: true })' in admin_js
+    assert 'login-form' not in admin_js
+    auth_js = client.get("/static/auth.js").text
+    assert "state.operatorOnly" in auth_js
+    assert "This account is not an operator account." in auth_js
+
+
+def test_admin_console_resets_passwords_with_a_reason(client):
+    html = client.get("/admin").text
+    assert 'id="rp-submit"' in html and 'id="rp-password"' in html and 'id="rp-note"' in html
+    admin_js = client.get("/static/admin.js").text
+    assert "/reset-password" in admin_js
+    assert "password_reset" in admin_js

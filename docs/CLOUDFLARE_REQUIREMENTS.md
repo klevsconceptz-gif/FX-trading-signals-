@@ -1,139 +1,109 @@
-# Requirements: deploying KLEVS behind Cloudflare
+# Requirements: deploying KLEVS on the existing Cloudflare route
 
-This is the checklist to complete before following
-[`CLOUDFLARE_DEPLOYMENT.md`](CLOUDFLARE_DEPLOYMENT.md). Items marked **measure** are not
-yet known for this app and must be checked on the real host. Items marked **not tested**
-were not run in the build sandbox.
+The checklist for the deployment described in `docs/CLOUDFLARE_DEPLOYMENT.md`. The application runs
+on the Cloudflare Free plan, except where the table says otherwise. The signal generator runs as a
+scheduled job outside Cloudflare, because it cannot run inside a Worker request.
 
 ## 1. Cloudflare account and plans
 
-| Requirement | Needed for | Plan and cost |
-|---|---|---|
-| Cloudflare account, with the domain added as a zone and its nameservers moved to Cloudflare | DNS, TLS, WAF, rate limits | Free to create |
-| **Pro plan** on the zone (recommended) | Login rate limit with 2 rules and a 60 s counting window | $20/mo billed annually, $25/mo billed monthly. The Free plan allows 1 rule with a 10 s window only. |
-| Zero Trust organisation (create a team name) | Tunnel and Access | Free for up to 50 users |
-| Access identity provider: SSO preferred; email one-time PIN is an alternative. Set a longer Access session duration to reduce repeat PIN prompts. | Gate `/admin` and `/api/admin/*` | Included with Zero Trust |
-| Cloudflare Tunnel with a remotely managed tunnel | Route the hostname to the origin | Included with Zero Trust |
+| Need | Plan | Used for | Status |
+|---|---|---|---|
+| Workers | Free (100,000 requests/day, 10 ms CPU per request) | The API Worker (`worker/`) | Checked on Cloudflare's limits page (12 Oct 2026). CPU is the risk for sign-in: see the deployment guide, section 2 |
+| Workers | Workers Paid ($5 per month, 5 minutes CPU per request) | Only if sign-in needs more CPU than the Free plan allows | **A charged dependency.** Decision pending |
+| D1 | Included with the account | Accounts, sessions, payments, access, audit log, signal snapshots (`signal_cache`) | **Free-tier allowances not verified here** |
+| KV | Included with the account | Short-lived session data | **Free-tier allowances not verified here** |
+| Pages | Included with the account | Static site and `/api` proxy | Not verified here |
+| Zone and DNS | Your existing zone | Hostname for the Pages site and the API proxy | Required |
 
-Not required: Workers, Containers, R2, or any Cloudflare-hosted database.
+Not used on this route: R2, Containers, Email Service, Durable Objects, Tunnel.
 
 ## 2. Domain and DNS
 
-- A domain you control, with its nameservers set to the two Cloudflare nameservers shown
-  when you add the zone.
-- One hostname for the app, for example `klevs.example.com`. The Tunnel creates a proxied
-  DNS record for it. Do not create an A record that points to the origin.
-- Plan for `http://` to redirect to `https://` (Always Use HTTPS, set in the guide).
+- A zone on Cloudflare for the hostname that serves the app.
+- The Worker's `workers_dev` is on in `worker/wrangler.jsonc`, so the API also has a
+  `*.workers.dev` URL. The Pages function calls that URL by default.
 
-## 3. Origin host
+## 3. Signal generation (scheduled publisher)
 
-| Item | Requirement | Status |
-|---|---|---|
-| Operating system | Linux, x86_64. Ubuntu 22.04 or 24.04 LTS is the intended target. | Not tested |
-| CPU and memory | 2 vCPU and 4 GB RAM recommended. The market scan and the per-pair model training are CPU-bound. | **Measure** the peak memory during a cold scan with `docker stats` or `systemd-cgtop`. |
-| Disk | At least 20 GB. The image is large (pandas, scikit-learn). | Image size **not measured**. |
-| Container runtime | Docker Engine, current release, **or** Python 3.11 for the systemd path | Docker not tested in the sandbox |
-| Clock | Time synchronised with NTP. Login lockout and session expiry depend on time. | Standard |
-| Inbound network | **None** from the internet. SSH only from listed admin addresses. | Required |
-| Listener | The app binds to `127.0.0.1:8000` (systemd) or is published on `127.0.0.1:8000` (Docker). | Verify with `ss -ltnp` |
+The signal engine (`fxbot/`, Python) runs as a scheduled publisher rather than inside the Worker.
 
-## 4. Outbound network access (egress allow-list)
+| Item | Why | Requirements | Status |
+|---|---|---|---|
+| Publisher `scripts/publish_signals.py`, run by `.github/workflows/signals.yml` | A full scan takes about 27 seconds, which cannot run in a Worker request | Python 3.11 with `requirements.txt` and `requirements-live.txt`; about one run per hour | Built. Not run live yet |
+| Scheduled runs | GitHub runs scheduled workflows only from the default branch | The change merged to `main` | Pending merge. Start manually before then |
 
-The origin host must reach these destinations. If the host sits behind an egress filter,
-allow them before you start.
+## 4. Build and deploy pipeline
 
-| Destination | Port and protocol | Used by |
-|---|---|---|
-| `region1.v2.argotunnel.com`, `region2.v2.argotunnel.com` | **7844 TCP and UDP** | `cloudflared` tunnel connection (QUIC on UDP, HTTP/2 on TCP fallback) |
-| `api.cloudflare.com` | 443 TCP | `cloudflared` connectivity checks (version 2026.5.2 and later) |
-| `_v2-origintunneld._tcp.argotunnel.com`, `cftunnel.com`, `h2.cftunnel.com`, `quic.cftunnel.com` | 7844 | Only needed when an SNI-enforcing firewall sits in the path |
-| `api.frankfurter.dev` | 443 HTTPS | Daily ECB reference rates. The app uses these when yfinance is unavailable. |
-| Yahoo Finance hosts used by the `yfinance` library, for example `query1.finance.yahoo.com` and `query2.finance.yahoo.com` | 443 HTTPS | Hourly FX and metal bars when `KFX_LIVE_DATA=1`. The exact host list depends on the library version. Test after install. |
-| Your SMTP provider, for example `smtp.example.com` | 587 TCP with STARTTLS | Verification and reset codes |
-| PostgreSQL host | 5432 TCP (or your port) | Operator database, if it is on another host |
+| Item | Where | Used for | Status |
+|---|---|---|---|
+| GitHub Actions: `.github/workflows/cloudflare-deploy.yml` | GitHub | Tests, migrations, Worker and secrets, Pages deploy (manual start) | Built. Not run live yet |
+| GitHub Actions: `.github/workflows/signals.yml` | GitHub | The hourly signal publish | Built. Not run live yet |
+| GitHub environment `production` | GitHub | Holds the build secrets; can require a reviewer | Set up by you (deployment guide, section 4a) |
+| Build secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, and optional admin and reset values | GitHub environment secrets | Passed to `wrangler secret put` on stdin, and to Wrangler for the publish. Never written into the build output | Set up by you |
+| Variables: `CLOUDFLARE_PAGES_PROJECT` (`klv-fx-trading-signals`, required), `KLEVS_API_ORIGIN` (optional) | GitHub environment variables | Pages target, health check | Set up by you |
+| Cloudflare API token | Cloudflare | Permissions: Workers Scripts, D1, KV, Pages (edit), account read. One account | Created by you |
+| Pages project | Cloudflare | Hosts `dist/`, proxies `/api` to the Worker (`functions/`, uploaded from the repo root) | Created by `scripts/cloudflare_bootstrap.mjs` if missing |
+| D1 database `klev`, KV namespace `voom` | Cloudflare | Bindings in `worker/wrangler.jsonc` | Found or created by `scripts/cloudflare_bootstrap.mjs`. Stale IDs fail the deploy until updated with `--write-config` |
+| Wrangler and Node test scripts | npm | `npm run cloudflare:bootstrap`, `npm run cloudflare:bootstrap:test` | Built; offline tests run in CI |
 
-Build-time only (not needed on the running host): `pypi.org`, `files.pythonhosted.org`,
-and the container registry used for the base image.
-
-Check the tunnel path before you install the connector:
-
-```bash
-dig +short region1.v2.argotunnel.com
-nc -vz -w 5 <ONE_OF_THE_IPS_FROM_DIG> 7844   # TCP
-# Or run the built-in check after install (cloudflared 2026.5.2 or later):
-cloudflared tunnel diag
-```
+**Non-Cloudflare dependencies:** GitHub Actions (runners for the deploy and the hourly publish),
+`actions/*`, the npm and PyPI registries, and the live data sources below. The application itself
+runs only on Cloudflare.
 
 ## 5. Application software
 
-| Component | Version | Source |
-|---|---|---|
-| Python | 3.11 (the image uses `python:3.11-slim`) | `Dockerfile` |
-| Core packages | numpy ≥ 1.26, pandas ≥ 2.1, scikit-learn ≥ 1.4, fastapi ≥ 0.110, uvicorn[standard] ≥ 0.29, httpx ≥ 0.27, SQLAlchemy 2.x | `requirements.txt` |
-| Live market data | yfinance ≥ 1.7, < 2 | `requirements-live.txt` (installed by default in the image) |
-| PostgreSQL driver | psycopg[binary] ≥ 3.1 | Installed in the image and in the systemd setup |
-| Connector | cloudflared 2026.5.2 or later recommended | Cloudflare package or `cloudflare/cloudflared` image |
-
-The driver resolution for `postgresql+psycopg://` was checked in the sandbox. A live
-PostgreSQL connection was **not tested**.
-
-**Cloudflare Pages can host only the frontend, not the Python runtime.** The repository's
-`package.json` builds static assets into `dist/`, and a Pages Function can forward `/api/*` to the
-separately hosted FastAPI service. The API, database, and market engine still need the Linux origin
-host plus Tunnel described in `CLOUDFLARE_DEPLOYMENT.md`.
+- Worker: Node.js 20 or later. Dependencies are in the root `package.json` (`wrangler`).
+- Worker tests: `node --test worker/test/*.test.js` (20 tests).
+- Publisher and FastAPI app: Python 3.11 with `requirements.txt`. `requirements-live.txt` adds `yfinance`.
+- Python tests: `pytest`, and `ruff check fxbot tests scripts`.
 
 ## 6. Data stores
 
-| Store | Requirement | Notes |
+| Store | Where | Notes |
 |---|---|---|
-| Operator database | PostgreSQL, reachable from the origin, with a dedicated role and database | Strongly recommended. Holds accounts, password hashes, sessions, and payment records. SQLite is the fallback and needs a persistent volume. |
-| Backups | Off-host storage for database dumps | Required before launch. See the Backups section of the guide. |
-| Model cache | `models/` directory, writable | Regenerable. It does not need a backup. |
-
-The app creates its tables at startup and does not run migrations. Take a backup before
-each upgrade.
+| D1 database `klev` | Cloudflare D1 | Schema in `worker/migrations/0001_initial.sql` (accounts, payments, access, audit) and `0002_signal_cache.sql` (signal snapshots). Migrations via `npm run worker:migrate:remote` |
+| KV namespace `voom` | Cloudflare KV | Session metadata, short-lived |
+| `signal_cache` table in D1 | Cloudflare D1 | One row per output (`scan`, `instructions`, `pair:<SYMBOL>`), overwritten on each publish. The Worker serves only the rows of the committed run, and only while they are fresh |
+| SQLite `klevs.db` | FastAPI host disk | Only if the FastAPI app is used. Not replicated by this route |
 
 ## 7. Configuration and secrets
 
-Every variable is documented in [`deploy/klevs.env.example`](../deploy/klevs.env.example).
+See the variable reference in the deployment guide, section 8. Secrets are set with
+`wrangler secret put` or as GitHub `production` secrets, and are never committed.
+`KLEVS_DEV_RESET_CODES` must stay unset in production.
 
-| Variable | Required? | Value |
-|---|---|---|
-| `KLEVS_DATABASE_URL` | Yes for production | `postgresql+psycopg://…?sslmode=require` |
-| `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD` | Yes, both | Admin login. The password is set again on every start. |
-| `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | No | Email defaults to the username when it is an address. |
-| `KFX_LIVE_DATA` | Yes (set `1` for production, or `0` for synthetic only) | The app defaults to live when unset. |
-| `KLEVS_SMTP_HOST`, `KLEVS_SMTP_PORT`, `KLEVS_SMTP_USER`, `KLEVS_SMTP_PASSWORD`, `KLEVS_SMTP_FROM` | Yes, for email codes | Without SMTP the reset and verification codes are not delivered. |
-| `KLEVS_DEV_RESET_CODES` | **Must be unset** | Returns codes in API responses. Development only. |
-| `TUNNEL_TOKEN` (Docker connector) or the token in the `cloudflared service install` command | Yes | Treat as a secret. It runs the tunnel. |
+## 8. Live market data (runtime sources)
 
-Secrets to rotate before launch: the admin password that was committed in an earlier
-commit. Store secrets in `/etc/klevs/` with owner `root` and group `klevs`, mode `0640`.
-Never commit them.
+| Destination | Made by | Used for | Status |
+|---|---|---|---|
+| Yahoo Finance, through `yfinance` (a community client) | Publisher on the GitHub runner | Hourly bars for the signals | **Chosen (live).** Check the terms of use before publishing (deployment guide, section 5) |
+| `api.frankfurter.dev` | Publisher on the GitHub runner | Daily reference rates | **Chosen (live).** Same check |
+| `KLEVS_RESET_EMAIL_URL` (your HTTPS endpoint) | Worker | Reset e-mail, with a bearer token | Optional. Not chosen |
+| SMTP server (`KLEVS_SMTP_HOST`) | FastAPI app | Reset e-mail, if the FastAPI app is used for it | Optional. Not chosen |
 
-## 8. Decisions and inputs needed from you
+The publisher refuses to publish any synthetic fallback, so a failed live fetch leaves the last
+live snapshot in place.
 
-- [ ] Production hostname (for example `klevs.example.com`)
-- [ ] Operator email addresses for the Access policy
-- [ ] Access identity method (one-time PIN or SSO provider)
-- [ ] SMTP provider and sender address
-- [ ] PostgreSQL location (managed or self-hosted) and backup location
-- [ ] Whether to keep `/api/health` public (it returns the risk and signal configuration)
-- [ ] Response to the account-existence leak on the 429 lockout (open)
-- [ ] Wallet and bank details shown on the payment page (open)
+## 9. Decisions
 
-## 9. Go-live gate
+- [x] Signal generation: a scheduled publisher writes snapshots to D1, and the Worker serves them.
+  Chosen. This replaces the earlier plan to port the engine to JavaScript, which has not started.
+- [x] Live market data: Yahoo Finance and Frankfurter. Chosen. Terms still to check (section 8).
+- [x] Scheduler: GitHub Actions, hourly. Chosen.
+- [x] Pages project name: `klv-fx-trading-signals`. Chosen.
+- [x] Sign-in on the Free plan: PBKDF2 lowered to 100,000 iterations (chosen 2026-10-24). Not yet proven under the 10 ms CPU limit; confirm in staging (deployment guide, section 2).
+- [x] Disclaimer: the app generates signals and a risk matrix only and does not place trades. Shown in the footer.
+- [ ] Reset e-mail: choose a provider and endpoint. Without one, operators reset passwords in the admin console.
+- [ ] Hostname and zone for the Pages site and the API proxy.
+- [ ] Create the GitHub `production` environment with its secrets and variables. The Cloudflare resources are created by the deploy workflow.
 
-All of these must be true before real users sign up:
+## 10. Go-live gate
 
-- [ ] Tunnel shows **Healthy** and the hostname returns the app over HTTPS.
-- [ ] `https://<host>/api/health` returns 200 and `cf-cache-status` is not `HIT`.
-- [ ] Direct access to the origin's public IP on ports 80, 443 and 8000 fails.
-- [ ] `/api/admin/users` returns 401 or 403 without a login.
-- [ ] The Access login page appears before `/admin`.
-- [ ] A burst of login attempts returns Cloudflare's 429 page.
-- [ ] `KLEVS_DEV_RESET_CODES` is unset in the running environment.
-- [ ] The admin password has been rotated since the earlier commit.
-- [ ] A database backup has been taken and restored once into a scratch database.
-- [ ] Memory use during a cold scan is measured and fits the chosen instance.
-- [ ] The Docker image has been built and started on a host, which is not yet tested.
+- [ ] `node --test worker/test/*.test.js` (20) and the Python suite pass. The deploy workflow's test job passes.
+- [ ] The remote D1 migrations `0001` and `0002` apply to `klev`.
+- [ ] A staging deploy: sign-up and sign-in succeed (no CPU-limit error in the logs).
+- [ ] **Publish signals** succeeds on live data, and `/api/health` reports `signals.state: fresh`.
+- [ ] A paid test account gets `200` from `/api/scan`, `/api/instructions` and `/api/pair/EURUSD`. Before the first publish, it gets `503`.
+- [ ] Admin sign-in opens `/admin`. An admin password reset works and ends the user's sessions.
+- [ ] Reset e-mail arrives (if reset e-mail is enabled).
+- [ ] The terms of the live data sources have been checked and accepted.

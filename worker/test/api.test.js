@@ -6,7 +6,15 @@ const json = async (response) => response.json();
 
 function localEnv({ database = true, kv = true } = {}) {
   return {
-    klev: database ? { prepare: (sql) => ({ first: async () => sql.includes("SELECT 1") ? { ok: 1 } : null }) } : undefined,
+    klev: database ? {
+      prepare: (sql) => {
+        const statement = {
+          bind: () => statement,
+          first: async () => (sql.includes("SELECT 1") ? { ok: 1 } : null),
+        };
+        return statement;
+      },
+    } : undefined,
     voom: kv ? {
       get: async () => null,
       put: async () => {},
@@ -15,11 +23,12 @@ function localEnv({ database = true, kv = true } = {}) {
   };
 }
 
-test("health checks D1 and KV and reports the absent signal adapter as degraded", async () => {
+test("health checks D1 and KV and reports a missing signal snapshot as degraded", async () => {
   const response = await worker.fetch(new Request("https://api.example/api/health"), localEnv());
   const body = await json(response);
   assert.equal(response.status, 200);
   assert.equal(body.status, "degraded");
+  assert.equal(body.signals.state, "missing");
   assert.equal(body.config.persistence, "Cloudflare D1");
   assert.equal(body.config.session_cache, "Cloudflare KV");
   assert.equal(body.universe_size, 32);

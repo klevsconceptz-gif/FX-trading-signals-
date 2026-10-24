@@ -1,472 +1,260 @@
-# Deploying KLEVS behind Cloudflare
+# Deploying KLEVS on the existing Cloudflare route
 
-> **Legacy deployment route:** this runbook describes the earlier FastAPI-on-host/Tunnel architecture. The selected Worker API with D1/KV is documented in [`worker/README.md`](../worker/README.md). The Worker source and bindings are now in this repository; live Cloudflare migration/deployment still must be run in an authenticated Cloudflare environment.
+This guide covers the deployment in this repository: the Worker in `worker/` (D1 for accounts,
+payments, access and signal snapshots; KV for short-lived session data), the Pages function in
+`functions/`, and a scheduled publisher that generates the signals. The application runs on
+Cloudflare's Free plan, with three exceptions listed in section 1. No R2 bucket, no Containers, no
+Email Service, no VM, and no Tunnel.
 
-This guide puts the KLEVS FX signals app on the internet with Cloudflare in front of it.
-Cloudflare handles DNS, TLS, the WAF, and rate limiting. A **Cloudflare Tunnel** carries
-traffic to the app, so the origin server accepts **no inbound connections**.
+The step-by-step Worker setup (migrations, secrets, deploy) is in
+[`worker/README.md`](../worker/README.md). This guide adds the limits, the open items, and the
+variable list.
 
-> **Verification status.** The steps below were checked against this repository as follows:
->
-> - Checked locally: the app starts with the production command, `/api/health` responds,
->   admin bootstrap works, and a restart with a new `KFX_ADMIN_PASSWORD` rotates the password.
->   The deploy-file checks in `tests/test_deploy_files.py` pass.
-> - **Not checked here:** the Docker image build (Docker is not installed in the build
->   sandbox), the `cloudflared` connector, a live PostgreSQL server, and the Cloudflare dashboard
->   screens. Cloudflare's UI labels change, so follow the names you see and treat the labels in this
->   guide as approximate. Run the checks in [section 11](#11-verify-the-deployment) before you
->   rely on the setup.
+> **Verification status.** Checked locally: the Python suite (including the publisher's refusal and
+> SQL rules); the Worker unit tests (`node --test worker/test/*.test.js`, 20 passing, including the
+> snapshot freshness and commit rules); the deploy and publish workflows' structure and their secret
+> handling; a PBKDF2 timing check (section 2); and a live-data refusal in the build sandbox, which has
+> no access to Yahoo Finance. **Not checked here:** a live deploy, the remote D1 migrations, a live
+> publish from GitHub, the Pages build, and the Cloudflare dashboard screens.
 
 ---
 
-## 1. Architecture and why
+## 1. What runs where
 
-```
- Browser ──HTTPS──▶ Cloudflare edge (DNS, TLS, WAF, rate limits, Access)
-                          │  outbound-only tunnel, opened by cloudflared
-                          ▼
-              origin host (VM or PaaS box)
-                cloudflared ──http://localhost:8000──▶ klevs (uvicorn, 1 worker)
-                                                          │
-                                                          ▼
-                                       PostgreSQL (KLEVS_DATABASE_URL)
-```
-
-Options that were considered:
-
-| Option | Verdict | Reason |
+| Function | Runs on | Status on the Free plan |
 |---|---|---|
-| **Tunnel to a container or VM (this guide)** | Recommended | Runs the full Python stack unchanged. No inbound ports. Works on any Linux host. |
-| Native Python Workers | Not used | Workers Free allows 10 ms of CPU per request, and Paid allows 30 s by default (up to 5 min). Memory is capped at 128 MB per isolate. In our sandbox a cold market scan took about 44 s, and the app loads pandas, NumPy, and scikit-learn. Support for these libraries in Workers is not confirmed for this app. There is also no persistent SQLite on Workers. |
-| Cloudflare Containers | Not used yet | Needs the Workers Paid plan, plus a Worker and Durable Object wrapper that this repo does not have. Instances start on demand. Disk persistence is not documented, so the database must still live outside the container. |
+| Static site and `/api` proxy | Pages (`functions/api/[[path]].js`) | Works |
+| Sign-up, sign-in, sessions, password change | Worker + D1 | **At risk**: CPU limit (section 2) |
+| Payments, access grants, admin console, audit log, admin password reset | Worker + D1 | **At risk**, for the same reason |
+| Settings, universe list | Worker + D1 | Works |
+| Signal generation (scan, instructions, pair detail) | Scheduled publisher on GitHub Actions (hourly) writes a snapshot to D1; the Worker serves it | Works after the first publish. `503` before it, and `503` once the snapshot is older than the age limit (section 5) |
+| Backtests (`/api/backtest`) | Not served by this deployment | `503`. Run `scripts/backtest.py` locally |
+| Password reset e-mail | Operator-supplied HTTPS endpoint (`KLEVS_RESET_EMAIL_URL`) | No e-mail until configured. Operators can reset a password in the admin console instead |
 
-Cloudflare provides the edge only. The application runs on a host you control. Sections 3 and 4
-cover that host.
+Three items are outside the Cloudflare Free plan: the **sign-in CPU limit** (section 2), the
+**GitHub Actions runner** that generates the signals (section 4a), and the **live market data
+sources** (section 5). Each is a decision for you (section 7).
 
-### Optional Cloudflare Pages frontend
+## 2. The Free-plan CPU limit (open blocker)
 
-The root `package.json` now provides `npm run build`, which packages the existing HTML, CSS, and
-JavaScript into `dist/`. Set the Pages project to **Root directory** `/`, **Build command**
-`npm run build`, and **Build output directory** `dist`. The output keeps the app routes at `/`,
-`/app`, and `/admin`.
+Cloudflare's limits page (updated 12 Oct 2026) lists **10 ms of CPU time per HTTP request** on the
+Free plan, and 5 minutes on Workers Paid.
 
-Pages still does **not** run this Python/FastAPI API. A Pages Function at
-`functions/api/[[path]].js` forwards `/api/*` requests to a separately hosted API. To use this
-option:
+Password hashing is the problem. The Worker stores passwords with PBKDF2-SHA256 at 200,000
+iterations (`worker/src/security.js`). In a local Node WebCrypto check (median of repeated runs), one
+derivation took about **31 ms** at 200,000 iterations, about three times the Free limit. Login,
+registration, password changes and admin password resets would therefore likely fail with a CPU-limit
+error (Cloudflare error 1102) on the Free plan. The code's minimum iteration count is 100,000, which
+still takes roughly 16 ms in the same check, so lowering it to the floor is not enough.
 
-1. Deploy the FastAPI app on the Linux origin host/container described in sections 3–6, behind a
-   Cloudflare Tunnel. Publish a separate API hostname (for example, `api.example.com`) to
-   `http://localhost:8000`.
-2. In the Pages project's production **and preview** variables, set `KLEVS_API_ORIGIN` to that
-   HTTPS origin only, for example `https://api.example.com` (no path, query, or credentials).
-   Do not point it at the Pages frontend hostname.
-3. Deploy the Pages project from a branch containing this build and function code. Requests stay
-   same-origin in the browser; the Pages Function forwards them server-side to FastAPI.
+**Not measured on Cloudflare.** Confirm it with the Worker's invocation logs after a staging deploy.
+Signal reads are small and are not affected. Options:
 
-The Pages Function is only a proxy: without the separate FastAPI service, account, signal, and
-admin API requests will not work. If you do not want to run a separate frontend, use the simpler
-single-host origin + Tunnel setup in this guide and do not use Pages.
+1. **Workers Paid**, which raises the limit to 5 minutes of CPU per request (default 30 seconds).
+   The plan costs $5 per month. This is a charged dependency.
+2. **Keep the Free plan and lower the iteration count to 100,000.** Chosen by the owner on
+   2026-10-24. New hashes use 100,000 iterations (`worker/src/security.js`). Existing hashes at
+   200,000 still verify, since the stored count is read at login, so no forced migration is needed.
+   This weakens password hashing somewhat. At 100,000 one derivation is still about 16 ms locally,
+   above the 10 ms limit, so sign-in may still fail on Free. Staging must show whether it does.
+3. **Keep the Free plan and accept that sign-in does not work** on the Worker route.
 
----
+## 3. Prerequisites
 
-## 2. Prerequisites
+- A Cloudflare account and a zone (domain) for the app.
+- A GitHub repository with Actions enabled, and a `production` environment (section 4a).
+- Node.js 20 or later, with npm, for the Worker and Wrangler.
+- Python 3.11 for the publisher (`requirements.txt` and `requirements-live.txt`).
 
-The full checklist, with costs, egress allow-list, and go-live gate, is in
-[`CLOUDFLARE_REQUIREMENTS.md`](CLOUDFLARE_REQUIREMENTS.md). Complete it first.
+## 4. Deploy the Cloudflare side
 
-- A domain whose DNS is managed by Cloudflare (for example `klevs.example.com`).
-- A Cloudflare account. Tunnels, the WAF rate-limit rule, and Cloudflare Access are available on
-  the free plan, with these limits:
-  - **Rate limiting:** Free allows **1 rule** that matches on the request **path** only, counts per
-    IP, and uses a **10-second** period. Pro allows 2 rules and a period up to 60 seconds.
-    Business allows 5 rules and a period up to 10 minutes.
-  - **Access:** the Zero Trust free plan covers up to **50 users**.
-- A Linux host for the app: 2 vCPU and 2 GB RAM is a reasonable start. The market scan and the
-  per-pair model training are CPU-bound. The image is large because of pandas and
-  scikit-learn (expect roughly 1 GB; not measured here).
-- PostgreSQL 14 or newer, either managed or on another host.
-- Outbound access from the host: **TCP and UDP port 7844** to `region1.v2.argotunnel.com` and
-  `region2.v2.argotunnel.com` (required for the tunnel), plus HTTPS to `api.frankfurter.dev`, Yahoo
-  Finance when live data is on, and your SMTP server on port 587. No inbound ports are needed.
+### 4a. Automated deploy and signals, with build secrets (recommended)
 
----
+Two workflows:
 
-## 3. Prepare the origin host
+- `.github/workflows/cloudflare-deploy.yml` (manual start). It runs the tests, applies the remote D1
+  migrations (`0001`, `0002`), deploys the Worker, sets the Worker secrets, deploys the Pages site,
+  and checks `/api/health`.
+- `.github/workflows/signals.yml` (hourly, and manual start). It runs the publisher (section 5).
 
-Choose **A (Docker)** or **B (systemd)**. Both bind the app to loopback only.
+**One-time setup**
 
-### A. Docker
+1. Cloudflare resources: nothing to create by hand. The deploy workflow runs
+   `scripts/cloudflare_bootstrap.mjs`, which finds or creates the D1 database `klev`, the KV namespace
+   `voom`, and the Pages project `CLOUDFLARE_PAGES_PROJECT` through the Cloudflare REST API. It creates
+   only what is missing. If an ID in `worker/wrangler.jsonc` does not match the account, the job stops
+   before any migration or deploy. To check first, without creating anything, run locally:
+   `CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… npm run cloudflare:bootstrap -- --check`.
+   If the IDs need updating, run it without `--check` and `--write-config`, then commit the file.
+2. In GitHub, create the environment `production`. Add these **environment secrets**:
 
-Build and start the image from the repository root. The Dockerfile is `Dockerfile`, and the
-build context excludes secrets and local data (see `.dockerignore`).
-
-```bash
-docker build -t klevs-fx:$(git rev-parse --short HEAD) -t klevs-fx:latest .
-
-docker volume create klevs-data
-docker volume create klevs-models
-
-sudo install -d -m 0750 /etc/klevs
-sudo install -m 0640 deploy/klevs.env.example /etc/klevs/klevs.env   # then edit it
-
-docker run -d --name klevs --restart unless-stopped \
-  --env-file /etc/klevs/klevs.env \
-  -p 127.0.0.1:8000:8000 \
-  -v klevs-data:/app/data -v klevs-models:/app/models \
-  klevs-fx:latest
-```
-
-Notes:
-
-- `-p 127.0.0.1:8000:8000` publishes the port **only on loopback**. Do not write `-p 8000:8000`.
-  Docker writes its own firewall rules and can expose a published port even when UFW says it is
-  closed.
-- `data/` holds the SQLite file if `KLEVS_DATABASE_URL` is unset. Keep the volume even when you
-  use PostgreSQL, because it keeps the app's working files.
-- Check that the container is healthy with `docker ps` (the image has a health check on
-  `/api/health`).
-
-### B. systemd on a VM (no Docker)
-
-```bash
-sudo useradd --system --home /opt/klevs --shell /usr/sbin/nologin klevs
-sudo install -d -o klevs -g klevs /opt/klevs /opt/klevs/data /opt/klevs/models
-sudo rsync -a --exclude .git --exclude .venv ./ /opt/klevs/    # or git clone into /opt/klevs
-cd /opt/klevs
-sudo -u klevs python3.11 -m venv .venv
-sudo -u klevs .venv/bin/pip install -r requirements.txt -r requirements-live.txt "psycopg[binary]>=3.1"
-
-sudo install -d -m 0750 -o root -g klevs /etc/klevs
-sudo install -m 0640 -o root -g klevs deploy/klevs.env.example /etc/klevs/klevs.env   # then edit it
-
-sudo cp deploy/klevs.service /etc/systemd/system/klevs.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now klevs
-systemctl status klevs --no-pager
-```
-
-The unit runs uvicorn on `127.0.0.1:8000` with one worker and systemd hardening. It can write
-only to `/opt/klevs/data` and `/opt/klevs/models`.
-
----
-
-## 4. Configure the application
-
-All settings come from environment variables. The full list, with comments, is in
-[`deploy/klevs.env.example`](../deploy/klevs.env.example). Copy it to `/etc/klevs/klevs.env` and
-fill in the values below.
-
-| Variable | Production value | Notes |
+| Secret | Required | Purpose |
 |---|---|---|
-| `KLEVS_DATABASE_URL` | `postgresql+psycopg://USER:PASS@HOST:5432/klevs?sslmode=require` | Strongly recommended. Unset means SQLite at `data/klevs.db`. |
-| `KFX_ADMIN_USERNAME` / `KFX_ADMIN_PASSWORD` | Set both | Provisioned on **every** start. See below. |
-| `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | Optional | Email defaults to the username if it is an address. |
-| `KFX_LIVE_DATA` | `1` | `1` uses Yahoo Finance hourly bars. `0` forces the synthetic market. |
-| `KLEVS_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM` | Your mail provider | Verification and reset codes are emailed over STARTTLS. Without SMTP, codes are not delivered. |
-| `KLEVS_DEV_RESET_CODES` | **Leave unset** | Returns reset codes in API responses. Development only. |
-
-**The admin password is authoritative.** On every start the app sets the admin's password to
-`KFX_ADMIN_PASSWORD` and clears any login lockout. This was tested: restarting with a new value
-rejected the old password and accepted the new one. Consequences:
-
-- To rotate the admin password, change `KFX_ADMIN_PASSWORD` in the env file, then restart the
-  container or service.
-- Never leave an old or previously committed password in the env file.
-- The password that appeared in an earlier commit of this repository must be treated as
-  compromised. Rotate it before going live. Scrubbing Git history is optional and does not replace
-  rotation.
-- The password must meet the policy: at least 10 characters with upper case, lower case, a number,
-  and a symbol.
-
-Keep `/etc/klevs/klevs.env` readable only by root and the app user. Do not commit it.
-
----
-
-## 5. Database
-
-**Use PostgreSQL in production.** The app stores accounts, password hashes, login state, sessions,
-and payment records. These records must not depend on a container's disk.
-
-- Create a dedicated role and database. Give the role access to that database only.
-- Use `sslmode=require` when the database is on another host.
-- The app creates its tables at startup (`create_all`). It does not run migrations. It adds
-  missing tables but does not alter existing ones. **Back up before every upgrade** (section 12).
-- Use one app replica. The market engine keeps its caches in process memory, so two replicas would
-  each hold separate state.
-
-Check the driver resolves before you start the app. The image includes it, and this was confirmed
-in the sandbox:
-
-```bash
-python -c "from sqlalchemy import create_engine; print(create_engine('postgresql+psycopg://u:p@h/db').dialect.driver)"
-# psycopg
-```
-
----
-
-## 6. Create the Tunnel
-
-1. In the Cloudflare dashboard, open **Networking → Tunnels → Create a tunnel**. Choose
-   **Cloudflared** as the connector type. Name it `klevs-prod`.
-2. The dashboard shows an install command with a token. **Treat the token as a secret.** It grants
-   the ability to run this tunnel.
-3. On the origin host, install the connector as a service (VM):
-
-   ```bash
-   # Install cloudflared using the package for your distribution (see Cloudflare's install page).
-   # Use version 2026.5.2 or later. Its startup checks test DNS, port 7844, and api.cloudflare.com.
-   sudo cloudflared service install <TOKEN_FROM_DASHBOARD>
-   systemctl status cloudflared --no-pager
-   sudo cloudflared tunnel diag      # optional: re-run the connectivity checks
-   ```
-
-   The Docker alternative keeps the token in an env file, not on the command line:
-
-   ```bash
-   printf 'TUNNEL_TOKEN=%s\n' '<TOKEN_FROM_DASHBOARD>' | sudo tee /etc/klevs/cloudflared.env >/dev/null
-   sudo chmod 0600 /etc/klevs/cloudflared.env
-   docker run -d --name cloudflared --restart unless-stopped --network host \
-     --env-file /etc/klevs/cloudflared.env \
-     cloudflare/cloudflared:latest tunnel --no-autoupdate run
-   ```
-
-   `--network host` lets the connector reach `localhost:8000`, which Docker published on loopback.
-4. Back in the dashboard, the tunnel should show **Healthy** after a few seconds. If it does not, run
-   `cloudflared tunnel diag` on the host. The most common cause is blocked egress on port 7844.
-5. Open the tunnel's **Published application routes** and add a route:
-   - **Hostname:** `klevs.example.com`
-   - **Service:** type `HTTP`, URL `localhost:8000` (the Service URL is `http://localhost:8000`).
-     The connector reaches it because it runs on the same host.
-   - Save. The dashboard creates a proxied DNS record for the hostname.
-6. Under **DNS → Records**, confirm the hostname is a proxied record (orange cloud). It should
-   point at the tunnel, not at a server IP.
-
-The Tunnel is outbound only. The connector opens connections to Cloudflare. No inbound firewall
-rule is needed for it.
-
----
-
-## 7. Cloudflare settings for the zone
-
-Open the zone (`example.com`) and set the following. Labels may vary slightly.
-
-**SSL/TLS**
-
-- **Overview → Encryption mode:** `Full (strict)`. Tunnel traffic is encrypted between Cloudflare
-  and `cloudflared` regardless of this setting, and the connector does not need an origin
-  certificate. Full (strict) is still the safe default for the zone.
-- **Edge Certificates → Always Use HTTPS:** on.
-- **Edge Certificates → Minimum TLS Version:** 1.2.
-- **Edge Certificates → HSTS:** enable only after the site works over HTTPS. Start with a short
-  max-age, such as 3 months, and raise it later. Do not enable "include subdomains" until you have
-  checked every subdomain.
-
-**Caching**
-
-- Cloudflare does not cache HTML or JSON by default. It caches static file types such as `.js` and
-  `.css`. Leave the defaults in place.
-- Do not add a cache rule that caches `/api/*`. The live signals must not be served from the edge.
-- After a deploy, if browsers keep an old `app.js` or `admin.js`, purge the cache for those files
-  under **Caching → Configuration → Custom purge**.
-
-**Security**
-
-- **Security → Bots:** enable Bot Fight Mode or the free equivalent. It is a reasonable default for
-  a login-bearing site.
-- Leave the WAF managed rules on at their default settings.
-
----
-
-## 8. Rate-limit the login endpoints
-
-The app has no per-IP limit. Its lockout is per account. An attacker can therefore try many
-accounts from one address. Add an edge rule for the authentication path. The rule covers
-`/api/auth/*`, which includes login, logout, forgot, reset, and the password-policy endpoint.
-
-In **Security → WAF → Rate limiting rules** (or the newer "Security rules" page, if that is where
-your account shows it), create a rule:
-
-- **Name:** `klevs-auth-rate`
-- **Expression (path):** `starts_with(http.request.uri.path, "/api/auth/")`
-- **Counting characteristics:** IP.
-
-Settings by plan:
-
-| Plan | Requests | Period | Mitigation timeout | Notes |
-|---|---|---|---|---|
-| **Free** | 10 | 10 s | 10 s | The only rule available. It is weak against slow guessing. |
-| **Pro** (recommended) | 20 | 60 s | 600 s | Lets you add a second rule, such as one for `/api/admin/*`. |
-
-The rule returns a Cloudflare 429 page. The app's own 429 is a different response, sent when an
-account is locked. Section 13 explains the account-existence leak that this rule does not fix.
-
----
-
-## 9. Protect the operator console with Cloudflare Access
-
-`/admin` and the `/api/admin/*` endpoints are for the operator. Put them behind Access so that
-only listed people reach the login page at all.
-
-1. **Zero Trust → Access → Applications → Add an application → Self-hosted.**
-2. **Application domain:** `klevs.example.com`. Add these paths, or one application per path if
-   your dashboard allows only one:
-   - `/admin`
-   - `/api/admin/*`
-3. **Identity provider:** Prefer your existing SSO provider. If using the one-time PIN by email,
-   set a longer **application session duration** in the Access app settings so it does not ask for
-   a new PIN on every visit. Choose a duration that fits your security requirements.
-4. **Policy:** Action `Allow`. Include only the operator email addresses.
-5. Save, then open `https://klevs.example.com/admin` in a private window. You should see the
-   Access login first.
-
-The Access session and KLEVS account are separate. The PIN only protects the operator routes above;
-normal KLEVS sign-in uses one account password and does not email a code. Access is a second layer,
-and the app's own admin login still applies behind it. The Access session duration is controlled in
-Cloudflare, not by this repository.
-
----
-
-## 10. Lock down the origin
-
-The goal is that the app is reachable only through the Tunnel.
-
-- **Firewall:** allow inbound SSH from your admin addresses only. Do not open ports 80, 443, or
-  8000 to the internet. The tunnel does not need them.
-- **Port binding:** the systemd unit binds to `127.0.0.1`, and the Docker command publishes to
-  `127.0.0.1` only. Confirm this after each change:
-
-  ```bash
-  sudo ss -ltnp | grep -E ':8000\b'   # expect 127.0.0.1:8000 only
-  ```
-
-- **Direct access test:** from a machine outside the host, the public IP must not answer on 8000
-  or 80. The request should time out or be refused.
-- **Trusted proxy headers:** the app does not read the client IP today, so the forwarded-header
-  setting does not change its behaviour. Logs will show `127.0.0.1` as the client, because every
-  request arrives through the connector. The real client address is in the `CF-Connecting-IP`
-  header. If you later add IP-based logic, read `CF-Connecting-IP` **only** from the connector,
-  and never trust `X-Forwarded-For` from the internet.
-
----
-
-## 11. Verify the deployment
-
-Replace `klevs.example.com` with your hostname. Run these from a machine outside the host.
-
-```bash
-H=https://klevs.example.com
-
-# 1. The app answers through Cloudflare.
-curl -sI $H/ | head -n 1                              # HTTP/2 200
-curl -s $H/api/health; echo                            # {"status":"ok",...}
-
-# 2. HTTP redirects to HTTPS.
-curl -sI http://klevs.example.com/ | grep -i '^location'   # https://...
-
-# 3. Live data is on, if you expect it.
-curl -s $H/api/health | grep -o '"data_source":"[^"]*"'
-
-# 4. The API is not cached at the edge.
-curl -sI $H/api/health | grep -i cf-cache-status       # DYNAMIC (or BYPASS), not HIT
-
-# 5. Admin API refuses anonymous callers.
-curl -s -o /dev/null -w "%{http_code}\n" $H/api/admin/users   # 401 or 403
-
-# 6. Rate limit fires. Expect 429 with a Cloudflare page (server: cloudflare).
-for i in $(seq 1 15); do
-  curl -s -o /dev/null -w "%{http_code} " -H 'content-type: application/json' \
-    -d '{"identifier":"nobody@example.com","password":"wrong-password"}' $H/api/auth/login
-done; echo
-
-# 7. Origin is not reachable directly. Run from an outside machine against the server's public IP.
-curl -m 5 http://<PUBLIC_IP>:8000/api/health || echo "good: not reachable"
-```
-
-Also check in a browser: login works, the dashboard loads, the admin console asks for Access
-first, and logout ends the session.
-
-Known exposure to review: `/api/health` is public and returns the risk and signal configuration
-(equity, risk per trade, and so on). Decide whether that is acceptable before launch. Restricting
-it means a code change, which is not included in this guide.
-
----
-
-## 12. Operations
-
-**Logs**
-
-- Docker: `docker logs -f klevs` and `docker logs -f cloudflared`.
-- systemd: `journalctl -u klevs -f` and `journalctl -u cloudflared -f`.
-
-**Upgrade**
-
-```bash
-cd /path/to/repo && git pull
-# Back up first (see Backups below), then:
-docker build -t klevs-fx:$(git rev-parse --short HEAD) -t klevs-fx:latest .
-docker stop klevs && docker rm klevs
-docker run -d --name klevs --restart unless-stopped --env-file /etc/klevs/klevs.env \
-  -p 127.0.0.1:8000:8000 -v klevs-data:/app/data -v klevs-models:/app/models klevs-fx:latest
-```
-
-For systemd, run `git pull`, reinstall requirements if they changed, then `sudo systemctl restart klevs`.
-
-Keep the previous image tag (the git short SHA) so you can roll back by starting that tag.
-
-**Backups**
-
-- PostgreSQL: `pg_dump --format=custom --file klevs-$(date +%F).dump "$KLEVS_DATABASE_URL"`. Store
-  the dump off the host, encrypted.
-- SQLite (only if you chose it): `sqlite3 data/klevs.db ".backup 'klevs-backup.db'"`, run while the
-  app is stopped or with the file copied in full.
-- `models/` is regenerated from the data. It does not need a backup.
-
-**Restore drill:** restore a backup into a scratch database and start the app against it once
-before you rely on the backup.
-
----
-
-## 13. Launch checklist and open items
-
-These are not solved by this guide. Resolve them before taking real payments or real users.
-
-- [ ] **Rotate the admin password** that appeared in an earlier commit (section 4).
-- [ ] **Account-existence leak on lockout.** When an account is locked, the login endpoint returns
-  429 with a lockout message. That response can reveal whether an account exists. The edge rule
-  (section 8) limits per-IP guessing, but it does not remove this leak. The mitigation is an open
-  decision.
-- [ ] **Payment details.** The wallet and bank details shown to customers still need confirming.
-  Review them before launch.
-- [ ] **Pricing wording** on the public pages needs final approval.
-- [ ] **Unbuilt Pro and Elite features.** Do not advertise features the app does not yet deliver.
-- [ ] **Public `/api/health` detail** (section 11).
-- [ ] **Tested build.** Build the image and run the verification steps on a real host with Docker and
-  `cloudflared` installed. This guide was not tested end to end in the sandbox.
-
----
-
-## 14. Troubleshooting
-
-| Symptom | Likely cause and fix |
+| `CLOUDFLARE_API_TOKEN` | Yes | API token for the deploy and the publisher (permissions below) |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | The Cloudflare account that owns the Worker, D1, KV and Pages |
+| `KFX_ADMIN_USERNAME` | Set both, or neither | Admin login name. If both admin values are empty, the deploy step skips them. Setting only one fails the job |
+| `KFX_ADMIN_PASSWORD` | Set both, or neither | Admin password. Must meet the password policy |
+| `KFX_ADMIN_EMAIL` | No | Admin e-mail, if the username is not an address |
+| `KFX_ADMIN_PHONE` | No | Admin phone number |
+| `KLEVS_RESET_EMAIL_TOKEN` | No | Token for the reset-e-mail endpoint (section 6) |
+
+3. Add these **environment variables** (not secret):
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `CLOUDFLARE_PAGES_PROJECT` | Yes | `klv-fx-trading-signals` (the Pages project from step 1) |
+| `KLEVS_API_ORIGIN` | No | API origin used by the health check. Defaults to the workers.dev URL |
+
+4. Give the API token only what the deploy and the publisher need: Workers Scripts (edit), D1
+   (edit), Workers KV storage (edit), Cloudflare Pages (edit), and account settings (read). Scope it
+   to the one account.
+5. Run **Deploy to Cloudflare** once. It applies migration `0002`, which the publisher needs. Then run
+   **Publish signals** (section 5).
+
+**How the secrets are handled.** The admin password is a build secret. It is not compiled into
+`dist/` or the Worker bundle. The deploy step passes it to `wrangler secret put` on stdin, and the
+log shows only the secret name. Setting only one of the admin pair fails the job. Rotate a secret by
+changing its GitHub secret and running the workflow again. The publisher never prints a secret.
+
+**Dependency note.** GitHub Actions runs both workflows, so it is a non-Cloudflare dependency of the
+build and signal path. The application itself runs only on Cloudflare. Cloudflare's own
+Git-connected builds would remove the GitHub runner for the deploy, but they are not set up here.
+Nothing in the signal path can run on Cloudflare's Free compute, so the scheduled job is the chosen
+design (section 5).
+
+### 4b. Deploy by hand
+
+Follow [`worker/README.md`](../worker/README.md), section "Production setup and deployment". In
+short:
+
+1. Apply the D1 migrations to the remote database: `npm run worker:migrate:remote`.
+2. Store the admin bootstrap values as Worker secrets (`KFX_ADMIN_USERNAME`,
+   `KFX_ADMIN_PASSWORD`, and `KFX_ADMIN_EMAIL` if the username is not an address). These are
+   secrets, not `vars`.
+3. Deploy the Worker: `npm run worker:deploy`.
+4. Deploy the Pages site. The function proxies `/api/*` to the Worker, and `KLEVS_API_ORIGIN`
+   overrides the default origin if you need one.
+5. Publish signals (section 5), with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set in your
+   shell: `python -m scripts.publish_signals`.
+
+The Worker is named `klv-fx-trading-signals` in `worker/wrangler.jsonc`. Check the target account
+before any remote migration or deploy.
+
+## 5. Signals: the scheduled publisher
+
+The Python engine takes about 27 seconds per full-market scan (measured in the build sandbox on the
+synthetic market). A Worker request cannot run that within its CPU limit. So the signals are
+generated by a job that runs outside the Worker and writes the result to D1:
+
+1. `.github/workflows/signals.yml` runs `scripts/publish_signals.py` every hour, at minute 7.
+2. The publisher scans the market on **live data** (Yahoo Finance through `yfinance`, and the
+   Frankfurter API). The data source is `KFX_LIVE_DATA=1`, set in the workflow.
+3. **The publisher refuses to publish anything that is not live.** If live data is unavailable, the
+   run fails and the last live snapshot stays in place. The synthetic fallback never reaches D1.
+4. It writes three kinds of rows to the D1 table `signal_cache` (migration `0002`): one per
+   instrument (`pair:<SYMBOL>`), the instructions, and the full scan. All rows of one run share a run
+   ID. The `scan` row is written last and marks the run as committed.
+5. The Worker serves paid users from those rows. It returns `503` when no snapshot has been
+   published, when the snapshot is older than `KFX_SIGNAL_MAX_AGE_SECONDS` (default 7200 seconds, two
+   hours), or when a pair or the instructions belong to a run other than the committed one. It never
+   shows old advice as current.
+
+**Limits to know before you rely on it**
+
+- **Freshness** is the schedule: up to about an hour old, plus any runner delay.
+- **GitHub runs scheduled workflows only from the default branch.** The hourly schedule takes effect
+  once this change is merged to `main`. Until then, start **Publish signals** manually.
+- **Backtests are not served.** `/api/backtest` returns `503` on this deployment.
+- **The `refresh` parameter no longer forces a rescan.** The schedule runs the scan.
+- **Live data terms.** `yfinance` is a community client for Yahoo Finance data, not an official
+  Yahoo API. Frankfurter is a public reference-rate API. Check that their terms allow what you
+  publish, and keep the risk disclaimers on every page that shows advice (the app footer states
+  "generates signals and a risk matrix only · does not place trades · not financial advice").
+- **Schema first.** Migration `0002` must be applied before the first publish. The deploy workflow
+  applies it; by hand, run `npm run worker:migrate:remote`.
+
+**Check a publish locally without touching D1:** `python -m scripts.publish_signals --dry-run --out
+signals.sql` builds the SQL and does not apply it. On a machine with no access to Yahoo Finance, the
+run exits with `refusing to publish: ... not live`. That is the expected safe result.
+
+## 6. Reset e-mail (optional), and the admin reset
+
+Set `KLEVS_RESET_EMAIL_URL` (an HTTPS endpoint with no credentials in the URL) and
+`KLEVS_RESET_EMAIL_TOKEN` on the Worker. The Worker calls the endpoint with `POST {to, subject, text}`
+and the header `Authorization: Bearer <token>`. The e-mail carries the 7-digit reset code. If the
+endpoint is unset or fails, the reset request still returns the same neutral message, the code is
+never delivered, and the reset cannot finish. The Worker logs a warning. The endpoint and its
+provider are yours to choose, and so is the cost.
+
+**Without an e-mail endpoint**, an operator resets the password in the admin console (**Reset a
+password**). Enter the username or e-mail, the new password you choose, and a reason. The reason goes
+to the audit trail, and the password is never logged. The reset ends every session of that account.
+Give the new password to the user through a channel you trust. Sessions of that account end at once. The reset is not available for the
+bootstrap admin (`KFX_ADMIN_PASSWORD`), which you change as a Worker secret. Hashing the password runs
+on the Worker, so it counts toward the CPU limit in section 2.
+
+## 7. Decisions before go-live
+
+- **Sign-in on the Free plan.** Decided: the iteration count is lowered to 100,000 (section 2).
+  Existing hashes stored at 200,000 still verify, because the stored count is read at login. The
+  open question is whether one derivation at 100,000 (about 16 ms locally) fits the Free limit on
+  Cloudflare. Confirm in staging.
+- **Live data terms.** Confirm that publishing Yahoo Finance data (through `yfinance`) and Frankfurter
+  rates is acceptable for your product (section 5).
+- **Reset e-mail provider.** Choose one, or rely on the admin console reset.
+
+## 8. Variable reference
+
+Worker (set with `wrangler secret put` or in `vars`):
+
+| Name | Kind | Purpose |
+|---|---|---|
+| `KFX_ADMIN_USERNAME` | secret | Admin account, provisioned on each start |
+| `KFX_ADMIN_PASSWORD` | secret | Admin password, applied on each start |
+| `KFX_ADMIN_EMAIL` | secret | Admin e-mail, if the username is not an address |
+| `KFX_ADMIN_PHONE` | secret | Optional admin phone number |
+| `KFX_SIGNAL_MAX_AGE_SECONDS` | var | Oldest signal snapshot the Worker serves (default 7200, maximum 86400) |
+| `KLEVS_RESET_EMAIL_URL` | var | HTTPS endpoint that sends reset e-mail |
+| `KLEVS_RESET_EMAIL_TOKEN` | secret | Token for the reset-e-mail endpoint |
+| `KLEVS_API_ORIGIN` | Pages variable | Overrides the Worker origin the Pages function proxies to |
+
+Publisher (GitHub `production` environment; `KFX_LIVE_DATA` is set in the workflow):
+
+| Name | Kind | Purpose |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | secret | Lets Wrangler write the signal snapshot to D1 |
+| `CLOUDFLARE_ACCOUNT_ID` | secret | The account that owns the D1 database |
+
+FastAPI app (set on the host that runs `fxbot.server`, for local or self-hosted use):
+
+| Name | Purpose |
 |---|---|
-| Tunnel shows **Down** or **Inactive** | The connector is not running or the token is wrong. Check `systemctl status cloudflared` or `docker logs cloudflared`. |
-| Cloudflare **502** | The route points at the wrong URL, or the app is down. Check that the Service is `http://localhost:8000` and that `curl http://127.0.0.1:8000/api/health` works on the host. |
-| Cloudflare **1033** or **530** | The tunnel is not connected. Check the connector logs. |
-| App container exits on start | A missing admin variable or a weak admin password. The log shows the reason. Both `KFX_ADMIN_USERNAME` and `KFX_ADMIN_PASSWORD` must be set, and the password must meet the policy. |
-| Admin login fails after a restart | `KFX_ADMIN_PASSWORD` in the env file is the active password. Use that value. |
-| `data_source` shows synthetic | `KFX_LIVE_DATA` is `0`, or Yahoo Finance is unreachable. The app falls back to synthetic data and shows the reason in the dashboard. |
-| Permission denied on `/app/data` or `/app/models` | The volume is owned by the wrong user. The image uses UID 10001. For a bind mount, run `sudo chown -R 10001:10001` on the host directory. |
-| Browser shows an old UI after a deploy | Purge the edge cache for `app.js`, `admin.js`, and the style files (section 7). |
-| Reset codes never arrive | SMTP is not configured. Set the `KLEVS_SMTP_*` variables. Do not use `KLEVS_DEV_RESET_CODES` in production. |
+| `KFX_LIVE_DATA` | `1` (default) for live market data, `0` for the synthetic market |
+| `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | Admin bootstrap for the FastAPI app |
+| `KFX_SIGNAL_ENGINE_TOKEN` | Used by the FastAPI internal engine route only. The Cloudflare deployment does not use it |
+| `KLEVS_DATABASE_URL` | Database URL for the FastAPI app. Unset uses SQLite at `data/klevs.db` |
+| `KLEVS_DEV_RESET_CODES` | Development only. Must stay unset in production (it returns reset codes) |
+| `KLEVS_SMTP_HOST`, `KLEVS_SMTP_PORT`, `KLEVS_SMTP_USER`, `KLEVS_SMTP_PASSWORD`, `KLEVS_SMTP_FROM` | Reset e-mail for the FastAPI app, over STARTTLS. An external mail provider |
 
----
+## 9. Verify
 
-## Appendix: files in this repository
+1. `curl -s https://<your-host>/api/health` returns `200`. Its `signals.state` is `missing` before the
+   first publish and `fresh` after it.
+2. Sign in as the admin. The console at `/admin` opens and lists payments.
+3. Sign up with a test account. If it fails with a CPU-limit error, see section 2.
+4. Give a test account paid access. `/api/scan` returns `503` before the first publish and `200` after.
+5. Request a reset code. Expect an e-mail only if `KLEVS_RESET_EMAIL_URL` is set.
 
-| File | Purpose |
+## 10. Troubleshooting
+
+| Symptom | Likely cause |
 |---|---|
-| `Dockerfile` | Production image: Python 3.11 slim, non-root user, health check, one uvicorn worker on port 8000. |
-| `.dockerignore` | Keeps `.env` files, databases, models, Git data, and tests out of the image. |
-| `deploy/klevs.env.example` | Every environment variable, with production guidance. Contains no real secrets. |
-| `deploy/klevs.service` | systemd unit for running the app on a VM without Docker. |
-| `tests/test_deploy_files.py` | Checks that the template documents every variable the code reads, that COPY sources exist, that the build context excludes secrets, and that the unit binds to loopback. |
+| Sign-in or sign-up fails with error 1102 / "exceeded resource limits" | CPU limit on the Free plan (section 2) |
+| Scan, instructions or pair return `503` "no signal snapshot has been published" | The publisher has not run, or migration `0002` is not applied (section 5) |
+| `503` "signal snapshot is too old" | The scheduled publish has failed for longer than `KFX_SIGNAL_MAX_AGE_SECONDS`. Check the **Publish signals** run log |
+| `503` "signal snapshot is being updated" | A publish is in progress. Retry in a moment |
+| Publish fails with "refusing to publish ... not live" | Live data was unavailable from the runner. The last live snapshot stays in place |
+| `/api/backtest` returns `503` | Backtests are not served on this deployment (section 5) |
+| Reset code never arrives | `KLEVS_RESET_EMAIL_URL` or `KLEVS_RESET_EMAIL_TOKEN` is not set (section 6) |
+| Admin login fails | `KFX_ADMIN_USERNAME` or `KFX_ADMIN_PASSWORD` is wrong. Both must be set together |
+| `/api/*` returns a Pages error | `KLEVS_API_ORIGIN` points at a Worker that is not deployed |

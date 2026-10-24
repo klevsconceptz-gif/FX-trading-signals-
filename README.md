@@ -46,9 +46,20 @@ python -m scripts.backtest --symbol EURUSD
 python -m scripts.train
 ```
 
-## Cloudflare Worker API
+## Cloudflare deployment
 
-A D1/KV-backed Worker entrypoint and Wrangler config are in [`worker/`](worker/README.md). The Pages Function at `functions/api/[[path]].js` proxies same-origin API requests to `https://klv-fx-trading-signals.klevco.workers.dev` by default for production and preview builds; set the Pages variable `KLEVS_API_ORIGIN` to override it. The Worker binds D1 and KV using the configured resource IDs and implements account, admin, payment, access, and audit APIs; signal scan, instructions, pair detail, and backtest routes require the separate `KFX_SIGNAL_ENGINE_ORIGIN` adapter described in the Worker guide. Remote migrations, Cloudflare secrets, and deployment must still be applied in an authenticated Cloudflare environment.
+The deployment uses the existing Cloudflare route: the Worker in [`worker/`](worker/README.md)
+(D1 and KV) and the Pages function in `functions/`. It runs on the Cloudflare Free plan except
+for two open items: sign-in may exceed the Free plan's 10 ms CPU limit, and the Python signal
+engine must run on a separate HTTPS host. The manual-start workflow `.github/workflows/cloudflare-deploy.yml` deploys it from GitHub
+Actions with build secrets (see the deployment guide, section 4a).
+See
+[`docs/CLOUDFLARE_DEPLOYMENT.md`](docs/CLOUDFLARE_DEPLOYMENT.md) and
+[`docs/CLOUDFLARE_REQUIREMENTS.md`](docs/CLOUDFLARE_REQUIREMENTS.md).
+
+### Worker route
+
+A D1/KV-backed Worker entrypoint and Wrangler config are in [`worker/`](worker/README.md). The Pages Function at `functions/api/[[path]].js` proxies same-origin API requests to `https://klv-fx-trading-signals.klevco.workers.dev` by default for production and preview builds; set the Pages variable `KLEVS_API_ORIGIN` to override it. The Worker binds D1 and KV using the configured resource IDs and implements account, admin, payment, access, and audit APIs; signal scan, instructions and pair detail are served from the snapshot that the scheduled **Publish signals** workflow writes to D1 each hour; backtests are not served on the Cloudflare route. Remote migrations, Cloudflare secrets, and deployment must still be applied in an authenticated Cloudflare environment.
 
 ## Landing page, payments & paid access
 

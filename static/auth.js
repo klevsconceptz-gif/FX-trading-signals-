@@ -278,6 +278,7 @@
   function open(view = "register", opts = {}) {
     const el = modal();
     if (opts.plan) state.plan = opts.plan;
+    state.operatorOnly = !!opts.operator;   // set by the operator console: only admin accounts may continue
     el.hidden = false;
     document.body.style.overflow = "hidden";
     showView(view);
@@ -310,6 +311,12 @@
   /* After auth, admins go straight to the operator console; subscribers use the payment/access flow. */
   async function routeAfterAuth(payload, title) {
     const s = saveFromPayload(payload);
+    if (state.operatorOnly && s.role !== "admin") {
+      writeSession(null);   // a customer account must not stay signed in to the operator console
+      showView("login");
+      alertBox(modal(), "login", "This account is not an operator account.");
+      return;
+    }
     if (s.role === "admin") {
       window.location.href = "/admin";
       return;

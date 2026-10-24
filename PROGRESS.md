@@ -167,38 +167,47 @@ reference only.
   exists; the Pro/Elite feature list still names items that are not built (for example
   webhooks and multi-account profiles).
 
-### 10. Deployment packaging and hosting options
-- **Guide**: `docs/CLOUDFLARE_DEPLOYMENT.md`. Architecture: Cloudflare DNS, TLS, WAF and
-  rate limiting in front; a Cloudflare Tunnel to an origin host running the app in Docker
-  or under systemd; no inbound ports. Covers PostgreSQL, Tunnel setup, zone settings,
-  the `/api/auth/*` rate-limit rule per plan, Cloudflare Access in front of `/admin` and
-  `/api/admin/*`, origin lockdown, verification, backups and troubleshooting.
-- **Requirements**: `docs/CLOUDFLARE_REQUIREMENTS.md` lists the accounts and plans, origin
-  specs (memory still to be measured), the egress allow-list (including TCP/UDP 7844 for
-  the tunnel), configuration, data stores, decisions still needed, and a go-live gate.
-- **Files**: `Dockerfile` (non-root, one uvicorn worker, health check on `/api/health`),
-  `.dockerignore` (excludes `.env`, databases, models, Git data), `deploy/klevs.env.example`
-  (every `KLEVS_`/`KFX_` variable, no secrets), `deploy/klevs.service` (systemd, bound to
-  `127.0.0.1`), `tests/test_deploy_files.py` (drift checks for the above).
-- **Verified locally**: production uvicorn command starts; `/api/health`, admin login and
-  `/admin` respond; a restart with a new `KFX_ADMIN_PASSWORD` rotates the admin password
-  (the env value is authoritative on every start). Full suite passes.
-- **Not verified**: Docker image build, `cloudflared` connector, live PostgreSQL, Cloudflare
-  dashboard screens. The guide says so.
-- **Estimated monthly cost** (third-party price trackers, not vendor-verified for the
-  origin VM and database): Cloudflare path ~$74 (Pro $20/yr billing, Tunnel and Access
-  free up to 50 users, 2 vCPU/4 GB VM ~$24, managed PostgreSQL 2 GB ~$30). Render ~$90
-  (Pro workspace $25, 1 CPU/2 GB web $25, 1 CPU/2 GB Postgres $40; prices from
-  render.com/pricing). AWS-native ~$90 (EC2 t3.medium ~$30, RDS db.t4g.small ~$23,
-  ALB ~$22, WAF ~$8, storage and transfer extra).
-- **Gaps to close before launch**: login rate limiting moves into the app if the edge
-  rule is not used; `/admin` protection needs Access, an app-level allowlist or an SSO
-  proxy; `/api/health` exposes risk configuration publicly; the 429 lockout response can
-  reveal whether an account exists; the admin password committed in an earlier commit
+### 10. Deployment on the existing Cloudflare route
+- **Decision (2026-10-23).** Deploy on the existing route only: the Worker in `worker/` (D1 for
+  accounts, payments and access; KV for caches) and the Pages function in `functions/`. Use only
+  resources the Cloudflare Free plan includes. No R2, Containers, Email Service or Durable Objects.
+  The Containers rebuild from earlier the same day was removed (it is in git history).
+- **Guides**: `docs/CLOUDFLARE_DEPLOYMENT.md` (what runs where, the CPU-limit risk, the optional
+  signal engine and reset e-mail, the variable reference, verification) and
+  `docs/CLOUDFLARE_REQUIREMENTS.md` (plans, egress, data stores, decisions, go-live gate).
+- **Admin credentials.** The test suite uses one fixed test admin, defined in
+  `tests/admin_credentials.py`. Nothing is generated per run. Production admin credentials are
+  Worker secrets only.
+- **Verified locally**: Python suite and ruff; Worker unit tests (`node --test worker/test/*.test.js`,
+  8 passing); PBKDF2 timing check (deployment guide, section 2).
+- **Not verified**: a live deploy, the remote D1 migration, the Pages build, the Cloudflare
+  dashboard screens, D1 and KV free-tier allowances.
+- **Blocker (open)**: Workers Free allows 10 ms of CPU per request (Cloudflare limits page, 12 Oct
+  2026). Password hashing uses PBKDF2 at 200,000 iterations. A local check took about 38 ms per
+  derivation, so sign-in and registration would likely exceed the Free limit. Not measured on
+  Cloudflare. Options: Workers Paid ($5/mo, a charged dependency) or no sign-in on the Free plan.
+- **Admin password reset** (`POST /api/admin/users/{id}/reset-password`, console form "Reset a
+  password"; Worker and FastAPI). The operator chooses the password under the normal policy, gives a
+  reason, and every session of the account ends. The reason is audited as `password_reset`, and the
+  password is never stored in plain text or logged. The bootstrap admin (`KFX_ADMIN_USERNAME`) is refused
+  with 409, because that password is re-seeded from its secret. Tests: `worker/test/admin-reset.test.js`
+  and `tests/test_billing.py::test_admin_reset_password_*`.
+- **Automated deploy** (`.github/workflows/cloudflare-deploy.yml`, manual start). Tests, remote D1
+  migration, Worker deploy, Worker secrets from GitHub `production` build secrets (piped on stdin), Pages
+  deploy, health check. Guard tests in `tests/test_deploy_files.py`. Not yet run live. Runs on GitHub
+  Actions, a non-Cloudflare dependency (deployment guide, section 4a).
+- **Signals on Cloudflare (decided 2026-10-24).** The Python engine (about 27 s per scan) runs in a
+  scheduled GitHub Actions job (`signals.yml`, hourly), `fxbot/publish.py`. It publishes live data only
+  (refuses synthetic fallback) into D1 table `signal_cache` (migration `0002`), with a run ID and the
+  `scan` row as the commit marker. The Worker serves paid routes from that snapshot and refuses it when
+  older than `KFX_SIGNAL_MAX_AGE_SECONDS` (default 7200). Backtests are not served. Replaces the engine
+  origin/token proxy. Tests: `tests/test_publish.py`, `worker/test/signals.test.js`.
+- **Open (non-Cloudflare parts)**: the scheduled job runs on GitHub Actions and reads Yahoo Finance and
+  Frankfurter. Check their terms. Before the first publish, the signal routes return `503`. Password reset e-mail uses an operator-supplied endpoint (`KLEVS_RESET_EMAIL_URL`); without it, the admin console can reset passwords.
+  Yahoo Finance and Frankfurter are runtime data sources pending the user's decision.
+- **Gaps to close before launch**: `/api/health` exposes risk configuration publicly; the 429
+  lockout response can reveal whether an account exists; the operator password once shown in chat
   must be rotated.
-- **Repo note**: the local branch was re-pointed to `origin/arena/641dff05-fx-trading-signals`
-  (`3a5413f`) after the local clone was found at `main`'s base commit. The working tree was
-  verified identical to that commit before the reset.
 
 ### 12. Review remediation (2026-10-18)
 - Removed same-bar backtest lookahead: signals use completed bars and entries fill at the next open.

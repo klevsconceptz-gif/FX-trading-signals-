@@ -1,0 +1,131 @@
+# Deploys the Cloudflare route: D1 migrations, the API Worker, its secrets, and the Pages site.
+#
+# Build secrets: passwords and tokens are read from GitHub secrets of the `production` environment.
+# They are passed to steps as environment variables and piped into `wrangler secret put` on stdin.
+# They are never written to the repository, the build output, or a command line.
+name: Deploy to Cloudflare
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_pages:
+        description: "Also deploy the Pages site (dist/)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Worker tests
+        run: npm run worker:test
+      - name: Bootstrap script tests
+        run: npm run cloudflare:bootstrap:test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt -r requirements-live.txt ruff
+      - name: Lint
+        run: python -m ruff check fxbot tests
+      - name: Python tests
+        run: python -m pytest -q
+      - name: Build the Pages site
+        run: npm run build
+
+  deploy:
+    name: Deploy
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # Finds or creates the D1 database, KV namespace and Pages project. Fails if the IDs in
+      # worker/wrangler.jsonc do not match the account, so no deploy runs against the wrong resource.
+      - name: Ensure Cloudflare resources exist
+        env:
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+        run: npm run cloudflare:bootstrap
+
+      - name: Apply D1 migrations (remote)
+        run: npx wrangler d1 migrations apply klev --remote --config worker/wrangler.jsonc
+
+      - name: Deploy the API Worker
+        run: npx wrangler deploy --config worker/wrangler.jsonc
+
+      - name: Set Worker secrets from build secrets
+        env:
+          KFX_ADMIN_USERNAME: ${{ secrets.KFX_ADMIN_USERNAME }}
+          KFX_ADMIN_PASSWORD: ${{ secrets.KFX_ADMIN_PASSWORD }}
+          KFX_ADMIN_EMAIL: ${{ secrets.KFX_ADMIN_EMAIL }}
+          KFX_ADMIN_PHONE: ${{ secrets.KFX_ADMIN_PHONE }}
+          KLEVS_RESET_EMAIL_TOKEN: ${{ secrets.KLEVS_RESET_EMAIL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$KFX_ADMIN_USERNAME$KFX_ADMIN_PASSWORD" ] && { [ -z "$KFX_ADMIN_USERNAME" ] || [ -z "$KFX_ADMIN_PASSWORD" ]; }; then
+            echo "KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must be set together." >&2
+            exit 1
+          fi
+          # Values go through stdin, never argv. Only the secret name is printed.
+          put_secret() {
+            if [ -z "$2" ]; then
+              echo "skip $1 (build secret not set)"
+              return 0
+            fi
+            printf '%s' "$2" | npx wrangler secret put "$1" --config worker/wrangler.jsonc > /dev/null
+            echo "set $1"
+          }
+          put_secret KFX_ADMIN_USERNAME "$KFX_ADMIN_USERNAME"
+          put_secret KFX_ADMIN_PASSWORD "$KFX_ADMIN_PASSWORD"
+          put_secret KFX_ADMIN_EMAIL "$KFX_ADMIN_EMAIL"
+          put_secret KFX_ADMIN_PHONE "$KFX_ADMIN_PHONE"
+          put_secret KLEVS_RESET_EMAIL_TOKEN "$KLEVS_RESET_EMAIL_TOKEN"
+
+      - name: Deploy the Pages site
+        if: ${{ inputs.deploy_pages }}
+        env:
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CLOUDFLARE_PAGES_PROJECT" ]; then
+            echo "Set the repository variable CLOUDFLARE_PAGES_PROJECT first." >&2
+            exit 1
+          fi
+          # Run from the repository root: Wrangler uploads the functions/ folder (the /api proxy)
+          # that sits where the command runs, next to dist/.
+          npx wrangler pages deploy dist --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA"
+
+      - name: Health check
+        env:
+          API_ORIGIN: ${{ vars.KLEVS_API_ORIGIN || 'https://klv-fx-trading-signals.klevco.workers.dev' }}
+        run: |
+          set -euo pipefail
+          status=$(curl -s -o /tmp/health.json -w '%{http_code}' "$API_ORIGIN/api/health")
+          echo "GET /api/health -> $status"
+          cat /tmp/health.json; echo
+          test "$status" = "200"

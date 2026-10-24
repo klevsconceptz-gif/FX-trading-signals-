@@ -12,8 +12,9 @@ from fxbot.db import AccessGrant, Payment, db_session, reset_database
 from fxbot.server import app
 
 PW = "Str0ng!Pass99"
-ADMIN = "Ops@test.fx"
-ADMIN_PW = "not-a-real-Operator-pass-1"
+from tests.admin_credentials import ADMIN_PW
+from tests.admin_credentials import ADMIN_USER as ADMIN
+
 WALLET = "bc1qexamplewalletaddress0001"
 
 
@@ -347,3 +348,59 @@ def test_admin_activity_log_is_admin_only_and_limits_are_validated():
     _, admin = _admin()
     assert admin.get("/api/admin/audit-log?limit=501").status_code == 422
     assert admin.get("/api/admin/audit-log?limit=1").json()["events"] == []
+
+
+# -- operator password reset ----------------------------------------------------------
+
+NEW_PW = "Fresh!Secret77"
+
+
+def test_admin_reset_password_sets_password_ends_sessions_and_is_audited(monkeypatch):
+    from fxbot.auth import resolve_session
+
+    monkeypatch.delenv("KFX_ADMIN_USERNAME", raising=False)
+    _, admin = _admin()
+    user, buyer = _user()
+    old_token = issue_session(user.id)
+    assert resolve_session(old_token) is not None
+
+    # the operator chooses the password; it must satisfy the same policy as sign-up
+    assert admin.post(f"/api/admin/users/{user.id}/reset-password",
+                      json={"new_password": "short", "note": "customer asked"}).status_code == 422
+    assert admin.post(f"/api/admin/users/{user.id}/reset-password",
+                      json={"new_password": NEW_PW, "note": "x"}).status_code == 422
+    assert admin.post("/api/admin/users/999999/reset-password",
+                      json={"new_password": NEW_PW, "note": "no such user"}).status_code == 404
+
+    r = admin.post(f"/api/admin/users/{user.id}/reset-password",
+                   json={"new_password": NEW_PW, "note": "customer lost device"})
+    assert r.status_code == 200, r.text
+    assert NEW_PW not in str(r.json())
+
+    assert ACCOUNTS.authenticate("buyer_one", NEW_PW).id == user.id
+    with pytest.raises(PermissionError):
+        ACCOUNTS.authenticate("buyer_one", PW)
+    assert resolve_session(old_token) is None
+    assert buyer.get("/api/universe").status_code == 401
+
+    events = admin.get("/api/admin/audit-log").json()["events"]
+    reset = [e for e in events if e["action"] == "password_reset"]
+    assert len(reset) == 1
+    assert reset[0]["target_username"] == "buyer_one" and reset[0]["note"] == "customer lost device"
+    assert NEW_PW not in str(events) and PW not in str(events)
+
+
+def test_admin_reset_password_refuses_bootstrap_admin_and_non_admins(monkeypatch):
+    monkeypatch.setenv("KFX_ADMIN_USERNAME", ADMIN)
+    admin_user, admin = _admin()
+    _, buyer = _user()
+
+    r = admin.post(f"/api/admin/users/{admin_user.id}/reset-password",
+                   json={"new_password": NEW_PW, "note": "try the bootstrap account"})
+    assert r.status_code == 409
+    assert "KFX_ADMIN_PASSWORD" in r.json()["detail"]
+    assert ACCOUNTS.authenticate(ADMIN, ADMIN_PW).id == admin_user.id
+
+    r = buyer.post(f"/api/admin/users/{admin_user.id}/reset-password",
+                   json={"new_password": NEW_PW, "note": "buyer tries to reset"})
+    assert r.status_code == 403

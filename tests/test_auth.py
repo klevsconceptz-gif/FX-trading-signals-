@@ -19,9 +19,8 @@ from fxbot.auth import (
 )
 from fxbot.db import User, UserSession, db_session, reset_database
 from fxbot.server import app
+from tests.admin_credentials import ADMIN_PW, ADMIN_USER
 
-ADMIN_USER = "Admin@test.fx"
-ADMIN_PW = "Test-Admin#2026"
 PW = "Str0ng!Pass99"
 
 
