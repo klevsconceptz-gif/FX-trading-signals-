@@ -38,10 +38,25 @@ Not used on this route: R2, Containers, Email Service, Durable Objects, Tunnel.
 | Yahoo Finance, through `yfinance` | FastAPI engine | Hourly bars (live data) | Runtime data source. Pending your decision |
 | SMTP server (`KLEVS_SMTP_HOST`) | FastAPI engine | Reset e-mail, if the FastAPI app is used for it | Optional. Not chosen |
 
+## 4a. Build and deploy pipeline
+
+| Item | Where | Used for | Status |
+|---|---|---|---|
+| GitHub Actions workflow `.github/workflows/cloudflare-deploy.yml` | GitHub | Runs the tests and the deploy, manual start only | Built. Not run live yet |
+| GitHub environment `production` | GitHub | Holds the build secrets; can require a reviewer | Set up by you (deployment guide, section 4a) |
+| Build secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, and optional admin, engine and reset tokens | GitHub environment secrets | Passed to `wrangler secret put` on stdin, never into the build output | Set up by you |
+| Variables: `CLOUDFLARE_PAGES_PROJECT` (required), `KLEVS_API_ORIGIN` (optional) | GitHub environment variables | Pages target, health check | Set up by you |
+| Cloudflare API token | Cloudflare | Deploy permissions: Workers Scripts, D1, KV, Pages (edit), account read. One account | Created by you |
+| Pages project | Cloudflare | Hosts `dist/`, proxies `/api` to the Worker | Created once with `wrangler pages project create` |
+
+**Non-Cloudflare dependency in the deploy path:** GitHub Actions (runner), `actions/*` and the npm
+and PyPI registries. The application itself runs only on Cloudflare. Cloudflare's own Git-connected
+builds would remove the GitHub runner, but they are not set up here.
+
 ## 5. Application software
 
 - Worker: Node.js 20 or later. Dependencies are in the root `package.json` (`wrangler`).
-- Worker tests: `node --test worker/test/*.test.js`.
+- Worker tests: `node --test worker/test/*.test.js` (12 tests).
 - FastAPI engine: Python 3.11 with `requirements.txt`. `requirements-live.txt` adds `yfinance`.
 - Python tests: `pytest`, and `ruff check fxbot tests`.
 
@@ -60,16 +75,18 @@ See the variable reference in the deployment guide, section 8. Secrets are set w
 
 ## 8. Decisions needed from you
 
-- [ ] Sign-in on the Free plan: pay for Workers Paid, or accept that sign-in fails (deployment guide, section 2).
-- [ ] Signal engine: choose a host and provider, or leave the market routes off.
+- [ ] Sign-in on the Free plan. Your earlier answer was to lower PBKDF2 iterations. I still need the exact number, and any stored hashes will be rehashed on next sign-in. The code floor is 100,000, and that count is about 16 ms locally, still above the 10 ms Free limit. Alternatively, pay for Workers Paid (deployment guide, section 2).
+- [ ] Signal engine. Your earlier answer was to port it to JavaScript. Not started: the engine is about 4,700 lines of Python, and the ML model (scikit-learn gradient boosting, pickled) would need exporting. Confirm the scope, or host the Python engine instead.
+- [ ] Deploy runner: GitHub Actions (built), or Cloudflare's own Git-connected builds (not built).
 - [ ] Reset e-mail: choose a provider and endpoint. Without one, operators reset passwords in the admin console.
 - [ ] Live market data: keep Yahoo Finance and Frankfurter, or use the synthetic market only.
 - [ ] Hostname and zone for the Pages site and the API proxy.
+- [ ] Create the GitHub `production` environment and its build secrets. Then run the workflow once.
 - [ ] Rotate the admin password that was once shown in chat.
 
 ## 9. Go-live gate
 
-- [ ] `node --test worker/test/*.test.js` passes, and the Python suite passes.
+- [ ] `node --test worker/test/*.test.js` (12) and the Python suite pass. The deploy workflow's test job passes.
 - [ ] The remote D1 migration applies to `klev`.
 - [ ] A staging deploy: sign-up and sign-in succeed (no CPU-limit error in the logs).
 - [ ] Admin sign-in opens `/admin`.

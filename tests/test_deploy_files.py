@@ -104,3 +104,54 @@ def test_requirements_doc_states_the_free_tier_limits_and_open_costs():
     doc = REQUIREMENTS.read_text(encoding="utf-8")
     for phrase in ("10 ms", "Workers Paid", "D1", "KV", "signal engine", "KLEVS_RESET_EMAIL_URL"):
         assert phrase in doc, f"{REQUIREMENTS.name} should state: {phrase}"
+
+
+# -- automated deploy with build secrets ------------------------------------------------
+
+WORKFLOW = ROOT / ".github" / "workflows" / "cloudflare-deploy.yml"
+
+
+def _workflow_text() -> str:
+    return WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_deploy_workflow_is_gated_on_tests_and_an_environment():
+    text = _workflow_text()
+    assert "workflow_dispatch" in text
+    assert re.search(r"^  deploy:\n(?:.*\n)*?    needs: test$", text, re.M)
+    assert re.search(r"^    environment: production$", text, re.M)
+
+
+def test_secrets_only_enter_through_env_mappings_never_run_lines():
+    # Every secret reference must be an env mapping, `NAME: ${{ secrets.NAME }}`.
+    for line in _workflow_text().splitlines():
+        if "${{ secrets." not in line:
+            continue
+        assert re.fullmatch(r"\s+([A-Z_]+): \$\{\{ secrets\.\1 \}\}", line), line
+
+
+def test_passwords_reach_wrangler_on_stdin_not_argv_and_are_never_echoed():
+    text = _workflow_text()
+    assert "printf '%s' \"$2\" | npx wrangler secret put \"$1\"" in text
+    # no `wrangler secret put NAME VALUE` form that would expose the value in argv
+    assert not re.search(r"wrangler secret put \S+ [^-\s]", text)
+    for line in text.splitlines():
+        if "echo" in line:
+            assert "$KFX_" not in line and "secrets." not in line and "$2" not in line, line
+
+
+def test_repository_holds_no_literal_admin_password():
+    from tests.admin_credentials import ADMIN_PW
+
+    text = _workflow_text()
+    assert ADMIN_PW not in text
+    assert "Local-Only-Strong#2026" not in text
+
+
+def test_every_secret_and_variable_the_workflow_reads_is_documented():
+    text = _workflow_text()
+    secret_names = set(re.findall(r"secrets\.([A-Z][A-Z0-9_]+)", text))
+    var_names = set(re.findall(r"vars\.([A-Z][A-Z0-9_]+)", text))
+    guide = DEPLOY_DOC.read_text(encoding="utf-8")
+    for name in sorted(secret_names | var_names):
+        assert name in guide, f"{name} is used by the deploy workflow but not documented"

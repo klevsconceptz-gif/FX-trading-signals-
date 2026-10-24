@@ -51,7 +51,9 @@ python -m scripts.train
 The deployment uses the existing Cloudflare route: the Worker in [`worker/`](worker/README.md)
 (D1 and KV) and the Pages function in `functions/`. It runs on the Cloudflare Free plan except
 for two open items: sign-in may exceed the Free plan's 10 ms CPU limit, and the Python signal
-engine must run on a separate HTTPS host. See
+engine must run on a separate HTTPS host. The manual-start workflow `.github/workflows/cloudflare-deploy.yml` deploys it from GitHub
+Actions with build secrets (see the deployment guide, section 4a).
+See
 [`docs/CLOUDFLARE_DEPLOYMENT.md`](docs/CLOUDFLARE_DEPLOYMENT.md) and
 [`docs/CLOUDFLARE_REQUIREMENTS.md`](docs/CLOUDFLARE_REQUIREMENTS.md).
 

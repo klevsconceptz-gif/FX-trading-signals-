@@ -10,8 +10,9 @@ The step-by-step Worker setup (migrations, secrets, deploy) is in
 route does not cover, and the full variable list.
 
 > **Verification status.** Checked locally: the Python suite; the Worker unit tests (`node --test
-> worker/test/*.test.js`, 8 passing); a PBKDF2 timing check (section 2). **Not checked here:** a live
-> deploy, the remote D1 migration, the Pages build, and the Cloudflare dashboard screens.
+> worker/test/*.test.js`, 12 passing); the deploy workflow's structure and its secret-handling step (run
+> against a stub `wrangler`); a PBKDF2 timing check (section 2). **Not checked here:** a live deploy from
+> the workflow, the remote D1 migration, the Pages build, and the Cloudflare dashboard screens.
 
 ---
 
@@ -59,6 +60,52 @@ Decide before you go live. See section 7.
 - Optional, for the signal engine: a host you control that serves HTTPS (section 5).
 
 ## 4. Deploy the Cloudflare side
+
+### 4a. Automated deploy with build secrets (recommended)
+
+The workflow `.github/workflows/cloudflare-deploy.yml` runs the tests, applies the remote D1
+migration, deploys the Worker, sets the Worker secrets, and deploys the Pages site. It runs only when
+you start it (**Actions → Deploy to Cloudflare → Run workflow**). The deploy job runs in the
+`production` GitHub environment, so you can require a reviewer there.
+
+**One-time setup**
+
+1. Create the Pages project once, from the repository root:
+   `npx wrangler pages project create <project-name> --production-branch main`.
+2. In GitHub, create the environment `production`. Add these **environment secrets**:
+
+| Secret | Required | Purpose |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | Yes | API token for the deploy (permissions below) |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | The Cloudflare account that owns the Worker, D1, KV and Pages |
+| `KFX_ADMIN_USERNAME` | Yes | Admin login name. Set together with the password |
+| `KFX_ADMIN_PASSWORD` | Yes | Admin password. Must meet the password policy |
+| `KFX_ADMIN_EMAIL` | No | Admin e-mail, if the username is not an address |
+| `KFX_ADMIN_PHONE` | No | Admin phone number |
+| `KFX_SIGNAL_ENGINE_TOKEN` | No | Shared with the signal engine host (section 5) |
+| `KLEVS_RESET_EMAIL_TOKEN` | No | Token for the reset-e-mail endpoint (section 6) |
+
+3. Add these **environment variables** (not secret):
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `CLOUDFLARE_PAGES_PROJECT` | Yes | Name of the Pages project from step 1 |
+| `KLEVS_API_ORIGIN` | No | API origin used by the health check. Defaults to the workers.dev URL |
+
+4. Give the API token only what the deploy needs: Workers Scripts (edit), D1 (edit), Workers KV
+   storage (edit, for the namespace the Worker binds), Cloudflare Pages (edit), and account settings
+   (read). Scope the token to the one account.
+
+**How the secrets are handled.** The admin password is a build secret. It is not compiled into
+`dist/` or the Worker bundle. The deploy step passes it to `wrangler secret put` on stdin. The log
+shows only the secret name. Setting only one of the admin pair fails the job. Rotate a secret by
+changing its GitHub secret and running the workflow again.
+
+**Dependency note.** GitHub Actions is the runner, so it is a non-Cloudflare dependency of the
+deploy path. The application still runs only on Cloudflare. If you need the deploy to run only
+inside Cloudflare, use Cloudflare's own Git-connected builds instead (not set up here).
+
+### 4b. Deploy by hand
 
 Follow [`worker/README.md`](../worker/README.md), section "Production setup and deployment". In
 short:

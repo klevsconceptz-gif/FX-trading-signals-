@@ -192,6 +192,10 @@ reference only.
   password is never stored in plain text or logged. The bootstrap admin (`KFX_ADMIN_USERNAME`) is refused
   with 409, because that password is re-seeded from its secret. Tests: `worker/test/admin-reset.test.js`
   and `tests/test_billing.py::test_admin_reset_password_*`.
+- **Automated deploy** (`.github/workflows/cloudflare-deploy.yml`, manual start). Tests, remote D1
+  migration, Worker deploy, Worker secrets from GitHub `production` build secrets (piped on stdin), Pages
+  deploy, health check. Guard tests in `tests/test_deploy_files.py`. Not yet run live. Runs on GitHub
+  Actions, a non-Cloudflare dependency (deployment guide, section 4a).
 - **Open (non-Cloudflare parts)**: the Python signal engine cannot run on a Worker within the Free
   limit. It needs its own HTTPS host (`KFX_SIGNAL_ENGINE_ORIGIN`), and until then the market routes
   return `503`. Password reset e-mail uses an operator-supplied endpoint (`KLEVS_RESET_EMAIL_URL`); without it, the admin console can reset passwords.
