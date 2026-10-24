@@ -37,11 +37,10 @@ import {
   requireKV,
 } from "./http.js";
 import { SYMBOLS, UNIVERSE } from "./universe.js";
+import { signalHealth, signalResponse } from "./signals.js";
 
 const APP_NAME = "klevs FX trading App";
 const VERSION = "1.0.0";
-const MARKET_CACHE_TTL = 60;
-const MAX_BACKTEST_BODY_BYTES = 16 * 1024;
 
 async function authenticated(env, request) {
   const user = await currentUser(env, request);
@@ -68,120 +67,6 @@ function boolQuery(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
 }
 
-function marketOrigin(env, request) {
-  const configured = String(env.KFX_SIGNAL_ENGINE_ORIGIN || "").trim();
-  if (!configured) {
-    throw new ApiError(503, "signal engine is not connected; configure KFX_SIGNAL_ENGINE_ORIGIN on the API Worker");
-  }
-  let origin;
-  try {
-    origin = new URL(configured);
-  } catch {
-    throw new ApiError(500, "KFX_SIGNAL_ENGINE_ORIGIN must be an HTTPS origin URL");
-  }
-  if (
-    origin.protocol !== "https:" || origin.username || origin.password ||
-    origin.pathname !== "/" || origin.search || origin.hash
-  ) {
-    throw new ApiError(500, "KFX_SIGNAL_ENGINE_ORIGIN must be an HTTPS origin URL without a path");
-  }
-  const requestUrl = new URL(request.url);
-  if (origin.host === requestUrl.host) {
-    throw new ApiError(500, "KFX_SIGNAL_ENGINE_ORIGIN cannot point back to this API Worker");
-  }
-  return origin;
-}
-
-function copySafeUpstreamHeaders(response) {
-  const headers = new Headers({ "Cache-Control": "no-store" });
-  const contentType = response.headers.get("content-type");
-  if (contentType) headers.set("Content-Type", contentType);
-  return headers;
-}
-
-function marketCacheTtl(env) {
-  const configured = Number(env.KFX_SCAN_CACHE_SECONDS || MARKET_CACHE_TTL);
-  if (!Number.isFinite(configured)) return MARKET_CACHE_TTL;
-  return Math.max(10, Math.min(300, Math.floor(configured)));
-}
-
-async function proxyMarketRequest(request, env, { body = undefined, cacheKey = null, bypassCache = false } = {}) {
-  const origin = marketOrigin(env, request);
-  const kv = requireKV(env);
-  const engineToken = String(env.KFX_SIGNAL_ENGINE_TOKEN || "").trim();
-  if (!engineToken) {
-    throw new ApiError(503, "signal engine is not authenticated; configure KFX_SIGNAL_ENGINE_TOKEN on the API Worker");
-  }
-  if (cacheKey && !bypassCache) {
-    const cached = await kv.get(cacheKey);
-    if (cached) return new Response(cached, {
-      status: 200,
-      headers: { "Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8", "X-KLEVS-Cache": "HIT" },
-    });
-  }
-
-  const incoming = new URL(request.url);
-  const target = new URL(incoming.pathname, origin.origin);
-  for (const [key, value] of incoming.searchParams) {
-    if (key === "refresh") target.searchParams.set(key, value);
-  }
-
-  const headers = new Headers({
-    Accept: "application/json",
-    "X-KLEVS-ENGINE-TOKEN": engineToken,
-  });
-  const init = { method: request.method, headers, redirect: "manual" };
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    headers.set("Content-Type", "application/json");
-    const serialized = JSON.stringify(body ?? {});
-    if (new TextEncoder().encode(serialized).length > MAX_BACKTEST_BODY_BYTES) {
-      throw new ApiError(413, "request body is too large");
-    }
-    init.body = serialized;
-  }
-
-  let upstream;
-  try {
-    upstream = await fetch(new Request(target, init));
-  } catch {
-    throw new ApiError(502, "signal engine is unavailable");
-  }
-  const responseBody = await upstream.text();
-  if (cacheKey && upstream.ok && responseBody.length < 2_000_000) {
-    await kv.put(cacheKey, responseBody, { expirationTtl: marketCacheTtl(env) });
-  }
-  return new Response(responseBody, {
-    status: upstream.status,
-    headers: copySafeUpstreamHeaders(upstream),
-  });
-}
-
-function validateBacktest(body) {
-  const symbol = String(body.symbol || "").toUpperCase();
-  if (!SYMBOLS.has(symbol)) throw new ApiError(404, `unknown symbol ${symbol || ""}`);
-  const result = { symbol };
-  if (body.equity !== undefined && body.equity !== null) {
-    const value = Number(body.equity);
-    if (!Number.isFinite(value) || value <= 0) throw new ApiError(422, "equity must be greater than 0");
-    result.equity = value;
-  }
-  if (body.risk_per_trade_pct !== undefined && body.risk_per_trade_pct !== null) {
-    const value = Number(body.risk_per_trade_pct);
-    if (!Number.isFinite(value) || value <= 0 || value > 5) {
-      throw new ApiError(422, "risk_per_trade_pct must be greater than 0 and at most 5");
-    }
-    result.risk_per_trade_pct = value;
-  }
-  if (body.bars !== undefined && body.bars !== null) {
-    const value = Number(body.bars);
-    if (!Number.isInteger(value) || value < 250 || value > 20_000) {
-      throw new ApiError(422, "bars must be between 250 and 20000");
-    }
-    result.bars = value;
-  }
-  return result;
-}
-
 async function handleApi(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -191,20 +76,18 @@ async function handleApi(request, env) {
     const db = requireDatabase(env);
     requireKV(env);
     await db.prepare("SELECT 1 AS ok").first();
-    const hasSignalEngine = Boolean(
-      String(env.KFX_SIGNAL_ENGINE_ORIGIN || "").trim() &&
-      String(env.KFX_SIGNAL_ENGINE_TOKEN || "").trim()
-    );
+    const signals = await signalHealth(env);
     return jsonResponse({
-      status: hasSignalEngine ? "ok" : "degraded",
+      status: signals.state === "fresh" ? "ok" : "degraded",
       app: APP_NAME,
       version: VERSION,
-      data_source: hasSignalEngine ? "connected signal-engine adapter" : "signal engine not configured",
+      data_source: signals.data_source || "no signal snapshot published yet",
       universe_size: UNIVERSE.length,
+      signals,
       config: {
         persistence: "Cloudflare D1",
         session_cache: "Cloudflare KV",
-        signal_engine_configured: hasSignalEngine,
+        signal_source: "scheduled snapshot in D1",
       },
     });
   }
@@ -308,31 +191,22 @@ async function handleApi(request, env) {
   }
   if (path === "/api/scan" && method === "GET") {
     await requirePaidAccess(env, request);
-    const refresh = boolQuery(url.searchParams.get("refresh"));
-    return proxyMarketRequest(request, env, {
-      cacheKey: "market:scan:v1",
-      bypassCache: refresh,
-    });
+    return signalResponse(env, "scan");
   }
   if (path === "/api/instructions" && method === "GET") {
     await requirePaidAccess(env, request);
-    const refresh = boolQuery(url.searchParams.get("refresh"));
-    return proxyMarketRequest(request, env, {
-      cacheKey: "market:instructions:v1",
-      bypassCache: refresh,
-    });
+    return signalResponse(env, "instructions");
   }
   const pairMatch = /^\/api\/pair\/([A-Za-z0-9]+)$/.exec(path);
   if (pairMatch && method === "GET") {
     await requirePaidAccess(env, request);
     const symbol = pairMatch[1].toUpperCase();
     if (!SYMBOLS.has(symbol)) throw new ApiError(404, `unknown symbol ${symbol}`);
-    return proxyMarketRequest(request, env);
+    return signalResponse(env, `pair:${symbol}`);
   }
   if (path === "/api/backtest" && method === "POST") {
     await requirePaidAccess(env, request);
-    const body = validateBacktest(await parseJson(request, MAX_BACKTEST_BODY_BYTES));
-    return proxyMarketRequest(request, env, { body });
+    throw new ApiError(503, "backtests are not served by the Cloudflare deployment; run scripts/backtest.py locally");
   }
 
   if (path.startsWith("/api/")) throw new ApiError(404, "not found");

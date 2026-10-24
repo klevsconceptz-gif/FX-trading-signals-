@@ -111,8 +111,11 @@ def test_requirements_doc_states_the_free_tier_limits_and_open_costs():
 WORKFLOW = ROOT / ".github" / "workflows" / "cloudflare-deploy.yml"
 
 
-def _workflow_text() -> str:
-    return WORKFLOW.read_text(encoding="utf-8")
+SIGNALS_WORKFLOW = ROOT / ".github" / "workflows" / "signals.yml"
+
+
+def _workflow_text(path: Path = WORKFLOW) -> str:
+    return path.read_text(encoding="utf-8")
 
 
 def test_deploy_workflow_is_gated_on_tests_and_an_environment():
@@ -155,3 +158,41 @@ def test_every_secret_and_variable_the_workflow_reads_is_documented():
     guide = DEPLOY_DOC.read_text(encoding="utf-8")
     for name in sorted(secret_names | var_names):
         assert name in guide, f"{name} is used by the deploy workflow but not documented"
+
+
+def test_worker_has_no_signal_engine_proxy_left():
+    # Signals now come from the D1 snapshot. The Worker must not call an external engine.
+    for path in (ROOT / "worker" / "src").glob("*.js"):
+        text = path.read_text(encoding="utf-8")
+        assert "KFX_SIGNAL_ENGINE" not in text, path.name
+        assert "X-KLEVS-ENGINE-TOKEN" not in text, path.name
+
+
+def test_signal_publish_workflow_is_scheduled_gated_and_uses_build_secrets():
+    text = _workflow_text(SIGNALS_WORKFLOW)
+    assert re.search(r'cron: "\d+ \* \* \* \*"', text)
+    assert "workflow_dispatch" in text
+    assert re.search(r"^    environment: production$", text, re.M)
+    assert "python -m scripts.publish_signals" in text
+    assert "KFX_LIVE_DATA: \"1\"" in text  # the publisher must never fall back silently
+    for line in text.splitlines():
+        if "${{ secrets." in line:
+            assert re.fullmatch(r"\s+([A-Z_]+): \$\{\{ secrets\.\1 \}\}", line), line
+    guide = DEPLOY_DOC.read_text(encoding="utf-8")
+    for name in set(re.findall(r"secrets\.([A-Z][A-Z0-9_]+)", text)) | set(re.findall(r"vars\.([A-Z][A-Z0-9_]+)", text)):
+        assert name in guide, name
+
+
+def test_no_engine_token_secret_is_requested_by_any_workflow():
+    for path in (WORKFLOW, SIGNALS_WORKFLOW):
+        assert "KFX_SIGNAL_ENGINE_TOKEN" not in _workflow_text(path), path.name
+
+
+def test_signal_publish_is_the_only_writer_of_the_signal_cache():
+    publisher = (ROOT / "fxbot" / "publish.py").read_text(encoding="utf-8")
+    assert "INSERT OR REPLACE INTO signal_cache" in publisher
+    worker_writes = [
+        p.name for p in (ROOT / "worker" / "src").glob("*.js")
+        if re.search(r"(INSERT|UPDATE|DELETE)[^\n]*signal_cache", p.read_text(encoding="utf-8"))
+    ]
+    assert worker_writes == []

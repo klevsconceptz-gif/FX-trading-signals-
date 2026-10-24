@@ -75,7 +75,6 @@ jobs:
           KFX_ADMIN_PASSWORD: ${{ secrets.KFX_ADMIN_PASSWORD }}
           KFX_ADMIN_EMAIL: ${{ secrets.KFX_ADMIN_EMAIL }}
           KFX_ADMIN_PHONE: ${{ secrets.KFX_ADMIN_PHONE }}
-          KFX_SIGNAL_ENGINE_TOKEN: ${{ secrets.KFX_SIGNAL_ENGINE_TOKEN }}
           KLEVS_RESET_EMAIL_TOKEN: ${{ secrets.KLEVS_RESET_EMAIL_TOKEN }}
         run: |
           set -euo pipefail
@@ -96,7 +95,6 @@ jobs:
           put_secret KFX_ADMIN_PASSWORD "$KFX_ADMIN_PASSWORD"
           put_secret KFX_ADMIN_EMAIL "$KFX_ADMIN_EMAIL"
           put_secret KFX_ADMIN_PHONE "$KFX_ADMIN_PHONE"
-          put_secret KFX_SIGNAL_ENGINE_TOKEN "$KFX_SIGNAL_ENGINE_TOKEN"
           put_secret KLEVS_RESET_EMAIL_TOKEN "$KLEVS_RESET_EMAIL_TOKEN"
 
       - name: Deploy the Pages site

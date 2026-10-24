@@ -196,9 +196,14 @@ reference only.
   migration, Worker deploy, Worker secrets from GitHub `production` build secrets (piped on stdin), Pages
   deploy, health check. Guard tests in `tests/test_deploy_files.py`. Not yet run live. Runs on GitHub
   Actions, a non-Cloudflare dependency (deployment guide, section 4a).
-- **Open (non-Cloudflare parts)**: the Python signal engine cannot run on a Worker within the Free
-  limit. It needs its own HTTPS host (`KFX_SIGNAL_ENGINE_ORIGIN`), and until then the market routes
-  return `503`. Password reset e-mail uses an operator-supplied endpoint (`KLEVS_RESET_EMAIL_URL`); without it, the admin console can reset passwords.
+- **Signals on Cloudflare (decided 2026-10-24).** The Python engine (about 27 s per scan) runs in a
+  scheduled GitHub Actions job (`signals.yml`, hourly), `fxbot/publish.py`. It publishes live data only
+  (refuses synthetic fallback) into D1 table `signal_cache` (migration `0002`), with a run ID and the
+  `scan` row as the commit marker. The Worker serves paid routes from that snapshot and refuses it when
+  older than `KFX_SIGNAL_MAX_AGE_SECONDS` (default 7200). Backtests are not served. Replaces the engine
+  origin/token proxy. Tests: `tests/test_publish.py`, `worker/test/signals.test.js`.
+- **Open (non-Cloudflare parts)**: the scheduled job runs on GitHub Actions and reads Yahoo Finance and
+  Frankfurter. Check their terms. Before the first publish, the signal routes return `503`. Password reset e-mail uses an operator-supplied endpoint (`KLEVS_RESET_EMAIL_URL`); without it, the admin console can reset passwords.
   Yahoo Finance and Frankfurter are runtime data sources pending the user's decision.
 - **Gaps to close before launch**: `/api/health` exposes risk configuration publicly; the 429
   lockout response can reveal whether an account exists; the operator password once shown in chat
