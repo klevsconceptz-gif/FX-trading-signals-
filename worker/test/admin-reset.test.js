@@ -64,7 +64,7 @@ test("reset stores a PBKDF2 hash, ends sessions and writes an audit row without 
   const [update, deleteSessions, audit] = db.batches[0];
 
   assert.match(update.sql, /password_version = password_version \+ 1/);
-  assert.match(update.args[0], /^pbkdf2-sha256\$200000\$/);
+  assert.match(update.args[0], /^pbkdf2-sha256\$100000\$/);
   assert.notEqual(update.args[0], NEW_PW);
   assert.deepEqual(update.args.slice(1), [7]);
 

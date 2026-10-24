@@ -1,6 +1,6 @@
 const encoder = new TextEncoder();
 
-export const PBKDF2_ITERATIONS = 200_000;
+export const PBKDF2_ITERATIONS = 100_000;
 export const MIN_PASSWORD_LENGTH = 10;
 
 export const PASSWORD_RULES = Object.freeze([
