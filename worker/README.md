@@ -42,11 +42,10 @@ Create `worker/.dev.vars` locally (it is git-ignored) with test-only values befo
 ```dotenv
 KFX_ADMIN_USERNAME=operator@example.test
 KFX_ADMIN_EMAIL=operator@example.test
-KFX_ADMIN_PASSWORD=Local-Only-Strong#2026
-# Configure only when you have a separate market engine API:
+KFX_ADMIN_PASSWORD=<choose a local-only password>
 ```
 
-Do not use these example credentials in production or commit `.dev.vars`.
+Do not reuse a local password in production or commit `.dev.vars`.
 
 Run the Worker unit tests with:
 
