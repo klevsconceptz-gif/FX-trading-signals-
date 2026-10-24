@@ -40,3 +40,21 @@ node_modules/
 .wrangler/
 .dev.vars
 .dev.vars.*
+
+# Mobile (Capacitor): bundle copied into the shells, native build output, and signing material
+mobile/www/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+ios/App/App/public/
+ios/App/Pods/
+ios/App/build/
+ios/App/DerivedData/
+*.keystore
+*.jks
+*.p12
+*.mobileprovision

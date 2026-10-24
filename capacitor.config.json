@@ -1,0 +1,9 @@
+{
+  "appId": "com.klevs.fxtrading",
+  "appName": "klevs FX trading",
+  "webDir": "mobile/www",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  }
+}

@@ -61,6 +61,30 @@ See
 
 A D1/KV-backed Worker entrypoint and Wrangler config are in [`worker/`](worker/README.md). The Pages Function at `functions/api/[[path]].js` proxies same-origin API requests to `https://klv-fx-trading-signals.klevco.workers.dev` by default for production and preview builds; set the Pages variable `KLEVS_API_ORIGIN` to override it. The Worker binds D1 and KV using the configured resource IDs and implements account, admin, payment, access, and audit APIs; signal scan, instructions and pair detail are served from the snapshot that the scheduled **Publish signals** workflow writes to D1 each hour; backtests are not served on the Cloudflare route. Remote migrations, Cloudflare secrets, and deployment must still be applied in an authenticated Cloudflare environment.
 
+## Mobile apps (Android and iOS)
+
+The apps are [Capacitor](https://capacitorjs.com) shells around the same web app. Members and the
+operator console are both included. They call the Cloudflare Worker API with a bearer token. The
+repository has no store upload: the CI workflow only produces build artifacts.
+
+- **Native projects.** `android/` and `ios/` are committed. `capacitor.config.json` sets the app id
+  `com.klevs.fxtrading`. `npm run build:mobile` writes the bundle to `mobile/www/`, and
+  `npm run mobile:sync` also copies it into both native projects.
+- **Worker origin.** The apps call the Worker at the origin in `KLEVS_API_ORIGIN` (https, no path),
+  or at the default in `scripts/build-mobile.mjs`. Set it to the Worker's real host before building.
+  The Worker must be deployed (`cloudflare-deploy.yml`) first.
+- **CI.** `.github/workflows/mobile.yml` runs on manual dispatch or on a `mobile-v*` tag. It produces
+  the `android-apk` and `ios-app` artifacts. A tag also attaches them to a GitHub prerelease.
+- **Android.** The APK is release-signed when the keystore secrets are set, and otherwise signed with
+  the debug key, which installs on a device but is not for a store. Secrets: `ANDROID_KEYSTORE_BASE64`,
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. The version code is the run number.
+- **iOS.** An unsigned `.app` is always built. An `.ipa` is exported when `IOS_CERT_P12_BASE64`,
+  `IOS_CERT_PASSWORD`, `IOS_PROFILE_BASE64` and `IOS_TEAM_ID` are set. The profile must match
+  `com.klevs.fxtrading`. The `IOS_EXPORT_METHOD` variable sets the export method (default `ad-hoc`).
+- **Secrets stay out of Git.** Keystores, certificates and profiles are GitHub secrets. CI writes them
+  under `$RUNNER_TEMP` and deletes them at the end of the job.
+- **Not built here.** The sandbox has no JDK, Android SDK or Xcode, so the native compile runs only in CI.
+
 ## Landing page, payments & paid access
 
 Access works like this — there is **no card checkout and no payment processor**:
@@ -159,7 +183,9 @@ A method with no details stays hidden from buyers and shows "not set up yet". Th
 enters these values; nothing is pre-filled.
 
 The operator's own session has `role: "admin"`, plan `Admin` and unrestricted access. The
-Admin role cannot be created or bought through self-service registration or payment.
+Admin role cannot be created or bought through self-service registration or payment. It is
+held by one account only, the bootstrap account from `KFX_ADMIN_USERNAME`. The API and console
+refuse to grant it to anyone else, and sign-in demotes any other admin row to a user.
 
 ## Dashboard
 
