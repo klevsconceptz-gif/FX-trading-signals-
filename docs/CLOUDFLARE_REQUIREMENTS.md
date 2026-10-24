@@ -42,7 +42,9 @@ The signal engine (`fxbot/`, Python) runs as a scheduled publisher rather than i
 | Build secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, and optional admin and reset values | GitHub environment secrets | Passed to `wrangler secret put` on stdin, and to Wrangler for the publish. Never written into the build output | Set up by you |
 | Variables: `CLOUDFLARE_PAGES_PROJECT` (`klv-fx-trading-signals`, required), `KLEVS_API_ORIGIN` (optional) | GitHub environment variables | Pages target, health check | Set up by you |
 | Cloudflare API token | Cloudflare | Permissions: Workers Scripts, D1, KV, Pages (edit), account read. One account | Created by you |
-| Pages project | Cloudflare | Hosts `dist/`, proxies `/api` to the Worker | Created once with `wrangler pages project create` |
+| Pages project | Cloudflare | Hosts `dist/`, proxies `/api` to the Worker (`functions/`, uploaded from the repo root) | Created by `scripts/cloudflare_bootstrap.mjs` if missing |
+| D1 database `klev`, KV namespace `voom` | Cloudflare | Bindings in `worker/wrangler.jsonc` | Found or created by `scripts/cloudflare_bootstrap.mjs`. Stale IDs fail the deploy until updated with `--write-config` |
+| Wrangler and Node test scripts | npm | `npm run cloudflare:bootstrap`, `npm run cloudflare:bootstrap:test` | Built; offline tests run in CI |
 
 **Non-Cloudflare dependencies:** GitHub Actions (runners for the deploy and the hourly publish),
 `actions/*`, the npm and PyPI registries, and the live data sources below. The application itself
@@ -93,7 +95,7 @@ live snapshot in place.
 - [x] Disclaimer: the app generates signals and a risk matrix only and does not place trades. Shown in the footer.
 - [ ] Reset e-mail: choose a provider and endpoint. Without one, operators reset passwords in the admin console.
 - [ ] Hostname and zone for the Pages site and the API proxy.
-- [ ] Create the GitHub `production` environment, its secrets and variables, and the Pages project.
+- [ ] Create the GitHub `production` environment with its secrets and variables. The Cloudflare resources are created by the deploy workflow.
 
 ## 10. Go-live gate
 

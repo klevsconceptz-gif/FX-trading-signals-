@@ -12,7 +12,9 @@
     "worker:test": "node --test worker/test/*.test.js",
     "worker:deploy": "wrangler deploy --config worker/wrangler.jsonc",
     "worker:migrate:local": "wrangler d1 migrations apply klev --local --config worker/wrangler.jsonc",
-    "worker:migrate:remote": "wrangler d1 migrations apply klev --remote --config worker/wrangler.jsonc"
+    "worker:migrate:remote": "wrangler d1 migrations apply klev --remote --config worker/wrangler.jsonc",
+    "cloudflare:bootstrap": "node scripts/cloudflare_bootstrap.mjs",
+    "cloudflare:bootstrap:test": "node --test scripts/test/*.test.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.151.1"

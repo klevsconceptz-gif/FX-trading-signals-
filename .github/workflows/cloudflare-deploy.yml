@@ -33,6 +33,8 @@ jobs:
       - run: npm ci
       - name: Worker tests
         run: npm run worker:test
+      - name: Bootstrap script tests
+        run: npm run cloudflare:bootstrap:test
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -62,6 +64,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+      # Finds or creates the D1 database, KV namespace and Pages project. Fails if the IDs in
+      # worker/wrangler.jsonc do not match the account, so no deploy runs against the wrong resource.
+      - name: Ensure Cloudflare resources exist
+        env:
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+        run: npm run cloudflare:bootstrap
 
       - name: Apply D1 migrations (remote)
         run: npx wrangler d1 migrations apply klev --remote --config worker/wrangler.jsonc
@@ -107,6 +116,8 @@ jobs:
             echo "Set the repository variable CLOUDFLARE_PAGES_PROJECT first." >&2
             exit 1
           fi
+          # Run from the repository root: Wrangler uploads the functions/ folder (the /api proxy)
+          # that sits where the command runs, next to dist/.
           npx wrangler pages deploy dist --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA"
 
       - name: Health check

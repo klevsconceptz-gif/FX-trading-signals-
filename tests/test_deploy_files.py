@@ -196,3 +196,20 @@ def test_signal_publish_is_the_only_writer_of_the_signal_cache():
         if re.search(r"(INSERT|UPDATE|DELETE)[^\n]*signal_cache", p.read_text(encoding="utf-8"))
     ]
     assert worker_writes == []
+
+
+def test_deploy_creates_cloudflare_resources_before_migrations():
+    text = _workflow_text()
+    bootstrap = text.index("npm run cloudflare:bootstrap")
+    migrate = text.index("wrangler d1 migrations apply klev --remote")
+    assert bootstrap < migrate, "resources must exist before migrations run"
+    assert "npm run cloudflare:bootstrap:test" in text, "test job should run the bootstrap tests"
+    assert (ROOT / "scripts" / "cloudflare_bootstrap.mjs").is_file()
+    assert (ROOT / "scripts" / "test" / "cloudflare-bootstrap.test.mjs").is_file()
+
+
+def test_pages_deploy_runs_from_repository_root():
+    # Wrangler uploads the functions/ folder that sits where the command runs (the /api proxy).
+    text = _workflow_text()
+    assert "npx wrangler pages deploy dist" in text
+    assert "cd dist" not in text

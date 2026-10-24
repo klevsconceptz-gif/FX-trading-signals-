@@ -79,8 +79,13 @@ Two workflows:
 
 **One-time setup**
 
-1. Create the Pages project once, from the repository root:
-   `npx wrangler pages project create klv-fx-trading-signals --production-branch main`.
+1. Cloudflare resources: nothing to create by hand. The deploy workflow runs
+   `scripts/cloudflare_bootstrap.mjs`, which finds or creates the D1 database `klev`, the KV namespace
+   `voom`, and the Pages project `CLOUDFLARE_PAGES_PROJECT` through the Cloudflare REST API. It creates
+   only what is missing. If an ID in `worker/wrangler.jsonc` does not match the account, the job stops
+   before any migration or deploy. To check first, without creating anything, run locally:
+   `CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… npm run cloudflare:bootstrap -- --check`.
+   If the IDs need updating, run it without `--check` and `--write-config`, then commit the file.
 2. In GitHub, create the environment `production`. Add these **environment secrets**:
 
 | Secret | Required | Purpose |
