@@ -47,7 +47,7 @@ def test_no_signing_material_or_api_secret_is_committed():
     tracked = _tracked_files()
     for path in tracked:
         assert not path.name.endswith((".keystore", ".jks", ".p12", ".mobileprovision")), path
-    patterns = [re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), re.compile(r"BEGIN CERTIFICATE")]
+    patterns = [re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), re.compile("BEGIN " + "CERTIFICATE")]
     for path in tracked:
         if not path.is_file() or path.suffix in {".jar", ".png", ".jpg", ".ttf", ".otf"}:
             continue

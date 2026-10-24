@@ -93,7 +93,6 @@
 .lead b { color: #e4eff2; font-weight: 650; }
 .hero-actions { gap: 9px; margin-bottom: 20px; }
 .hero-trust { color: #8ea2b1; font-size: 10.5px; }
-.stars { color: var(--amber); letter-spacing: 1.5px; }
 
 .hero-card { gap: 11px; perspective: 1200px; }
 .mock {
@@ -154,7 +153,7 @@
 .sub { color: #97aab8; font-size: 13px; line-height: 1.7; }
 .grid { gap: 13px; }
 .features { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.card, .step, .quote, .plan {
+.card, .step, .plan {
   border-color: rgba(137, 164, 184, 0.15);
   border-radius: 17px;
   background: linear-gradient(145deg, rgba(18, 31, 47, 0.98), rgba(14, 25, 39, 0.98));
@@ -228,11 +227,6 @@
 .plan li::before { color: var(--accent); }
 .billing-note { color: #8ca0af; font-size: 10px; line-height: 1.7; }
 
-.quotes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.quote { padding: 20px; }
-.quote .stars { font-size: 11px; }
-.quote p { color: #c0cdd5; font-size: 11px; line-height: 1.7; }
-.quote .who { color: #8fa3b1; font-size: 10px; }
 .faq { gap: 8px; }
 .faq details { border-color: rgba(137, 164, 184, 0.14); border-radius: 13px; background: rgba(18, 31, 47, 0.87); }
 .faq summary { font-family: var(--font-display); font-size: 12px; }
@@ -263,7 +257,7 @@ footer { padding: 29px 20px; background: rgba(10, 18, 29, 0.92); border-color: r
   .hero-inner { grid-template-columns: 1fr; gap: 34px; padding-top: 58px; }
   .hero-card { display: flex; width: min(100%, 660px); }
   .mock2 { display: none; }
-  .features, .quotes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pricing { grid-template-columns: repeat(3, minmax(220px, 1fr)); overflow-x: auto; padding: 14px 4px; }
   .plan.featured { transform: none; }
   .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -291,7 +285,7 @@ footer { padding: 29px 20px; background: rgba(10, 18, 29, 0.92); border-color: r
   .section { padding: 58px 16px; }
   .section h2 { font-size: 25px; }
   .sub { margin-bottom: 28px; font-size: 11px; }
-  .features, .quotes, .steps { grid-template-columns: 1fr; }
+  .features, .steps { grid-template-columns: 1fr; }
   .pricing { grid-template-columns: 1fr; overflow: visible; padding: 6px 2px; }
   .plan { padding: 23px 20px; }
   .plan.featured { margin: 5px 0; }
