@@ -42,7 +42,7 @@ async function getUserByIdentifier(db, identifier) {
   return db.prepare(`
     SELECT id, username, username_key, email, phone, password_hash, role,
            created_at, reset_hash, reset_expires, reset_attempts,
-           failed_logins, locked_until, password_version
+           failed_logins, locked_until, password_version, disabled_at
       FROM users
      WHERE username_key = ? OR email = ? OR (phone_key <> '' AND phone_key = ?)
      LIMIT 1
@@ -53,7 +53,7 @@ async function getUserById(db, userId) {
   return db.prepare(`
     SELECT id, username, username_key, email, phone, password_hash, role,
            created_at, reset_hash, reset_expires, reset_attempts,
-           failed_logins, locked_until, password_version
+           failed_logins, locked_until, password_version, disabled_at
       FROM users WHERE id = ?
   `).bind(userId).first();
 }
@@ -166,12 +166,14 @@ export async function currentUser(env, request) {
   const key = `session:${tokenHash}`;
   const timestamp = nowSeconds();
   const session = await db.prepare(`
-    SELECT s.user_id, s.expires_at, s.password_version, u.password_version AS current_password_version
+    SELECT s.user_id, s.expires_at, s.password_version, u.password_version AS current_password_version,
+           u.disabled_at AS current_disabled_at
       FROM user_sessions AS s
       JOIN users AS u ON u.id = s.user_id
      WHERE s.token_hash = ?
   `).bind(tokenHash).first();
-  if (!session || session.expires_at <= timestamp || session.password_version !== session.current_password_version) {
+  if (!session || session.expires_at <= timestamp || session.password_version !== session.current_password_version
+      || Number(session.current_disabled_at || 0) > 0) {
     if (session) await db.prepare("DELETE FROM user_sessions WHERE token_hash = ?").bind(tokenHash).run();
     await kv.delete(key);
     return null;
@@ -312,6 +314,9 @@ export async function loginAccount(env, body) {
     throw new ApiError(401, "incorrect username, email, phone or password");
   }
 
+  if (Number(user.disabled_at || 0) > 0) {
+    throw new ApiError(403, "this account has been disabled — contact the operator");
+  }
   await db.prepare("UPDATE users SET failed_logins = 0, locked_until = 0 WHERE id = ?").bind(user.id).run();
   const refreshedUser = await getUserById(db, user.id);
   const token = await issueSession(env, refreshedUser);

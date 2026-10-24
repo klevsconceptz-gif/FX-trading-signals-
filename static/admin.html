@@ -31,7 +31,8 @@
 <main id="console" class="hidden">
   <nav class="tabs">
     <button class="tab active" data-tab="payments">Payments</button>
-    <button class="tab" data-tab="users">Users &amp; access</button>
+    <button class="tab" data-tab="users">Accounts</button>
+    <button class="tab" data-tab="grants">Access grants</button>
     <button class="tab" data-tab="settings">Payment details</button>
     <button class="tab" data-tab="activity">Activity log</button>
   </nav>
@@ -54,7 +55,7 @@
         </label>
         <button id="pay-refresh">Refresh</button>
       </div>
-      <p class="note">Check the wallet or bank statement yourself before confirming. Confirming a payment adds 30 days of access to that user. Access is never granted without your decision here.</p>
+      <p class="note">Check the wallet or bank statement yourself before confirming. Confirming a payment adds 30 days of access to that user. Access is never granted without your decision here. Open invoices can be cancelled; confirmed, rejected and cancelled records are kept for the audit trail.</p>
       <div style="overflow-x:auto"><table>
         <thead><tr><th>Invoice</th><th>User</th><th>Plan</th><th>Amount</th><th>Method</th><th>Reference / note</th><th>Status</th><th>Decision</th></tr></thead>
         <tbody id="pay-rows"></tbody>
@@ -62,8 +63,33 @@
     </div>
   </section>
 
-  <!-- users -->
+  <!-- accounts -->
   <section id="tab-users" class="hidden">
+    <div class="card">
+      <h2>Create account</h2>
+      <p class="note">Creates an account directly. Give the initial password to the user through a channel you trust. Use the reset below if they lose it.</p>
+      <div class="grid2">
+        <label class="f">Username (3–32 characters)
+          <input id="nu-username" maxlength="32" autocomplete="off" />
+        </label>
+        <label class="f">Email
+          <input id="nu-email" maxlength="254" autocomplete="off" />
+        </label>
+        <label class="f">Phone (optional)
+          <input id="nu-phone" maxlength="20" autocomplete="off" />
+        </label>
+        <label class="f">Initial password (policy applies)
+          <input id="nu-password" type="password" autocomplete="new-password" />
+        </label>
+        <label class="f">Role
+          <select id="nu-role"><option value="user" selected>User</option><option value="admin">Operator (admin)</option></select>
+        </label>
+        <label class="f">Reason (required, in the audit trail)
+          <input id="nu-note" maxlength="300" />
+        </label>
+      </div>
+      <div class="row"><button class="ok" id="nu-submit">Create account</button><span class="note" id="nu-msg"></span></div>
+    </div>
     <div class="card">
       <h2>Grant access manually</h2>
       <p class="note">Use only with a verified payment outside the queue (for example, a wire confirmed by phone). Enter a note so the audit trail explains why.</p>
@@ -101,15 +127,103 @@
       <div class="row"><button class="bad" id="rp-submit">Reset password</button><span class="note" id="rp-msg"></span></div>
     </div>
     <div class="card">
-      <div class="row" style="margin-bottom:10px"><h2 style="margin:0;margin-right:auto">Accounts</h2><button id="us-refresh">Refresh</button></div>
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0;margin-right:auto">Accounts</h2>
+        <input id="us-search" placeholder="Search username, email or phone" style="width:260px" />
+        <button id="us-refresh">Refresh</button>
+      </div>
       <div style="overflow-x:auto"><table>
-        <thead><tr><th>Username</th><th>Email</th><th>Phone</th><th>Role</th><th>Access</th><th>Revoke</th></tr></thead>
+        <thead><tr><th>Username</th><th>Email</th><th>Phone</th><th>Role</th><th>Status</th><th>Access</th><th></th></tr></thead>
         <tbody id="user-rows"></tbody>
+      </table></div>
+    </div>
+    <div class="card hidden" id="acct-detail">
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0;margin-right:auto" id="acct-title">Account</h2>
+        <button id="acct-close">Close</button>
+      </div>
+      <p class="note" id="acct-notice"></p>
+      <div class="grid2">
+        <label class="f">Username
+          <input id="ad-username" maxlength="32" />
+        </label>
+        <label class="f">Email
+          <input id="ad-email" maxlength="254" />
+        </label>
+        <label class="f">Phone
+          <input id="ad-phone" maxlength="20" />
+        </label>
+        <label class="f">Role
+          <select id="ad-role"><option value="user">User</option><option value="admin">Operator (admin)</option></select>
+        </label>
+      </div>
+      <div class="grid2" style="margin-top:10px">
+        <label class="f">Reason for the change above (required, in the audit trail)
+          <input id="ad-note" maxlength="300" />
+        </label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="ok" id="acct-save">Save changes</button>
+        <button id="acct-toggle">Disable account</button>
+        <button class="bad" id="acct-delete">Delete account</button>
+        <span class="note" id="acct-msg"></span>
+      </div>
+      <p class="note">Disable stops sign-in and ends current sessions; it keeps all records. Delete is only possible for accounts with no payment or access records.</p>
+
+      <h3 style="margin:18px 0 8px">Access grants</h3>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Plan</th><th>Status</th><th>Expires</th><th>Granted by</th><th>Note</th><th>Actions</th></tr></thead>
+        <tbody id="ad-grants"></tbody>
+      </table></div>
+
+      <h3 style="margin:18px 0 8px">Payments</h3>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Invoice</th><th>Plan</th><th>Amount</th><th>Method</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="ad-payments"></tbody>
+      </table></div>
+
+      <h3 style="margin:18px 0 8px">Create invoice for this account</h3>
+      <div class="grid2">
+        <label class="f">Plan
+          <select id="ad-inv-plan"><option value="starter">Starter</option><option value="pro" selected>Pro</option><option value="elite">Elite</option></select>
+        </label>
+        <label class="f">Method
+          <select id="ad-inv-method"><option value="crypto" selected>Crypto</option><option value="wire">Bank wire</option></select>
+        </label>
+        <label class="f">Network (crypto only, e.g. USDT-TRC20)
+          <input id="ad-inv-network" maxlength="16" />
+        </label>
+        <label class="f">Reason (required, in the audit trail)
+          <input id="ad-inv-note" maxlength="300" />
+        </label>
+      </div>
+      <div class="row"><button id="ad-invoice">Create invoice</button><span class="note" id="ad-invoice-msg"></span></div>
+    </div>
+  </section>
+
+  <!-- access grants -->
+  <section id="tab-grants" class="hidden">
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0;margin-right:auto">Access grants</h2>
+        <label class="note">Show
+          <select id="gr-filter" style="width:auto">
+            <option value="active" selected>Active</option>
+            <option value="revoked">Revoked</option>
+            <option value="">All</option>
+          </select>
+        </label>
+        <button id="grl-refresh">Refresh</button>
+      </div>
+      <p class="note">Extending sets a new expiry counted from today. Revoking ends that grant immediately. Both need a reason, which goes to the audit trail.</p>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>User</th><th>Plan</th><th>Status</th><th>Expires</th><th>Granted by</th><th>Note</th><th>Actions</th></tr></thead>
+        <tbody id="grant-rows"></tbody>
       </table></div>
     </div>
   </section>
 
-  <!-- settings -->
+  <!-- payment details -->
   <section id="tab-settings" class="hidden">
     <div class="card">
       <h2>Crypto wallets</h2>
@@ -134,7 +248,7 @@
         <h2 style="margin:0;margin-right:auto">Admin activity</h2>
         <button id="audit-refresh">Refresh</button>
       </div>
-      <p class="note">Latest 200 payment decisions, access grants/revocations, and payment-setting changes. Sensitive wallet and bank values are never included. Older access records may not have an exact event time.</p>
+      <p class="note">Latest 200 operator actions: account changes, payment decisions and invoices, access grants and changes, and payment-setting changes. Sensitive wallet and bank values and passwords are never included. Older access records may not have an exact event time.</p>
       <div style="overflow-x:auto"><table>
         <thead><tr><th>When</th><th>Operator</th><th>Action</th><th>Target</th><th>Reference</th><th>Note</th></tr></thead>
         <tbody id="audit-rows"></tbody>

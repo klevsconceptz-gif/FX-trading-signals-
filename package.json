@@ -10,6 +10,7 @@
     "build": "node scripts/build-static.mjs",
     "worker:dev": "wrangler dev --config worker/wrangler.jsonc",
     "worker:test": "node --test worker/test/*.test.js",
+    "e2e:admin": "node scripts/e2e/admin-e2e.mjs",
     "worker:deploy": "wrangler deploy --config worker/wrangler.jsonc",
     "worker:migrate:local": "wrangler d1 migrations apply klev --local --config worker/wrangler.jsonc",
     "worker:migrate:remote": "wrangler d1 migrations apply klev --remote --config worker/wrangler.jsonc",

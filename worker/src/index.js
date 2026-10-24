@@ -28,6 +28,18 @@ import {
   updatePaymentSettings,
 } from "./billing.js";
 import {
+  adminCancelPayment,
+  adminCreatePayment,
+  adminCreateUser,
+  adminDeleteUser,
+  adminGetPayment,
+  adminGetUser,
+  adminListGrants,
+  adminRevokeGrant,
+  adminUpdateGrant,
+  adminUpdateUser,
+} from "./admin.js";
+import {
   ApiError,
   errorResponse,
   jsonResponse,
@@ -183,6 +195,54 @@ async function handleApi(request, env) {
   if (path === "/api/admin/audit-log" && method === "GET") {
     await requireAdmin(env, request);
     return jsonResponse(await listAdminAudit(env, url.searchParams.get("limit") || "100"));
+  }
+
+  // Accounts: create, read, update, disable/enable (PATCH), delete (only without payment or access records).
+  if (path === "/api/admin/users" && method === "POST") {
+    const admin = await requireAdmin(env, request);
+    return jsonResponse(await adminCreateUser(env, admin.username, await parseJson(request)));
+  }
+  const userMatch = /^\/api\/admin\/users\/(\d+)$/.exec(path);
+  if (userMatch && ["GET", "PATCH", "DELETE"].includes(method)) {
+    const admin = await requireAdmin(env, request);
+    const userId = positiveInteger(userMatch[1], "user_id");
+    if (method === "GET") return jsonResponse(await adminGetUser(env, userId));
+    if (method === "PATCH") return jsonResponse(await adminUpdateUser(env, userId, admin, await parseJson(request)));
+    return jsonResponse(await adminDeleteUser(env, userId, admin, await parseJson(request)));
+  }
+
+  // Access grants: list, change expiry, revoke one grant.
+  if (path === "/api/admin/grants" && method === "GET") {
+    await requireAdmin(env, request);
+    return jsonResponse(await adminListGrants(env, url.searchParams));
+  }
+  const grantMatch = /^\/api\/admin\/grants\/(\d+)(\/revoke)?$/.exec(path);
+  if (grantMatch) {
+    const admin = await requireAdmin(env, request);
+    const grantId = positiveInteger(grantMatch[1], "grant_id");
+    if (!grantMatch[2] && method === "PATCH") {
+      return jsonResponse(await adminUpdateGrant(env, grantId, admin, await parseJson(request)));
+    }
+    if (grantMatch[2] && method === "POST") {
+      return jsonResponse(await adminRevokeGrant(env, grantId, admin, await parseJson(request)));
+    }
+  }
+
+  // Payment records: create an invoice for a user, read one, cancel an open one.
+  // Confirm and reject are handled above. Payment records are never deleted.
+  if (path === "/api/admin/payments" && method === "POST") {
+    const admin = await requireAdmin(env, request);
+    return jsonResponse(await adminCreatePayment(env, admin, await parseJson(request)));
+  }
+  const paymentMatch = /^\/api\/admin\/payments\/(\d+)$/.exec(path);
+  if (paymentMatch && method === "GET") {
+    await requireAdmin(env, request);
+    return jsonResponse(await adminGetPayment(env, positiveInteger(paymentMatch[1], "payment_id")));
+  }
+  const paymentCancelMatch = /^\/api\/admin\/payments\/(\d+)\/cancel$/.exec(path);
+  if (paymentCancelMatch && method === "POST") {
+    const admin = await requireAdmin(env, request);
+    return jsonResponse(await adminCancelPayment(env, positiveInteger(paymentCancelMatch[1], "payment_id"), admin, await parseJson(request)));
   }
 
   if (path === "/api/universe" && method === "GET") {

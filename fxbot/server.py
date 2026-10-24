@@ -31,6 +31,10 @@ GET  /api/admin/payments, POST /api/admin/payments/{id}/confirm|reject
 GET  /api/admin/users, POST /api/admin/users/{id}/grant|revoke|reset-password
 GET|PUT /api/admin/payment-settings   crypto wallets and wire bank details
 GET  /api/admin/audit-log            recent operator activity
+
+The full admin CRUD (create, edit and delete accounts, edit grants, create and cancel
+invoices) is served by the Cloudflare Worker in worker/src/admin.js, the production admin
+backend. This FastAPI app keeps the set above for local or self-hosted use.
 """
 
 from __future__ import annotations

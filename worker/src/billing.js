@@ -71,7 +71,7 @@ export async function paymentSettings(env) {
   return readSettings(env);
 }
 
-function paymentView(payment) {
+export function paymentView(payment) {
   let payTo = {};
   try {
     payTo = payment.pay_to ? JSON.parse(payment.pay_to) : {};
@@ -336,7 +336,7 @@ export async function rejectPayment(env, paymentId, operator, note) {
 
 export async function adminListUsers(env) {
   const result = await requireDatabase(env).prepare(`
-    SELECT u.id, u.username, u.email, u.phone, u.role, u.created_at,
+    SELECT u.id, u.username, u.email, u.phone, u.role, u.created_at, u.disabled_at,
            g.plan AS grant_plan, g.expires_at AS grant_expires_at
       FROM users u
       LEFT JOIN access_grants g ON g.id = (
@@ -352,6 +352,7 @@ export async function adminListUsers(env) {
     email: user.email,
     phone: user.phone,
     role: user.role,
+    disabled: Number(user.disabled_at || 0) > 0,
     created_at: Number(user.created_at),
     access: {
       active: user.role === "admin" || user.grant_plan !== null,
