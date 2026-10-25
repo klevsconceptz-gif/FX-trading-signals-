@@ -180,13 +180,16 @@ function renderScan() {
       <td>${String(p.regime).replace("_", " ")}</td>
       <td>${fmt(p.price)}</td>
       <td>${pct(p.p_up, 0)}</td>
+      <td>${typeof p.p_target_first === "number" ? pct(p.p_target_first, 0) : "—"}</td>
       <td class="${p.expected_move_pct >= 0 ? "num-pos" : "num-neg"}">${p.expected_move_pct ? pct(p.expected_move_pct, 2) : "—"}</td>
       <td>${fmt(p.entry)}</td>
       <td>${fmt(p.target)}</td>
       <td>${fmt(p.stop)}</td>
+      <td>${p.target2 ? fmt(p.target2) : "—"}</td>
       <td>${p.risk_reward ? p.risk_reward.toFixed(2) : "—"}</td>
       <td>${p.lots ? p.lots.toFixed(2) : "—"}</td>
       <td>${p.risk_amount ? "$" + fmt(p.risk_amount, 0) : "—"}</td>
+      <td>${p.time_stop_bars ? p.time_stop_bars + " bars" : "—"}</td>
     </tr>`
     )
     .join("");
