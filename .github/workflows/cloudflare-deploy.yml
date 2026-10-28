@@ -122,7 +122,7 @@ jobs:
 
       - name: Health check
         env:
-          API_ORIGIN: ${{ vars.KLEVS_API_ORIGIN || 'https://klv-fx-trading-signals.klevco.workers.dev' }}
+          API_ORIGIN: ${{ vars.KLEVS_API_ORIGIN || 'https://fx-trading-signals.klevco.workers.dev' }}
         run: |
           set -euo pipefail
           status=$(curl -s -o /tmp/health.json -w '%{http_code}' "$API_ORIGIN/api/health")

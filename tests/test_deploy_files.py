@@ -65,7 +65,7 @@ def test_no_container_or_bucket_code_on_the_worker_route():
 
 def test_pages_function_proxies_to_the_worker_and_declares_its_origin_variable():
     text = (ROOT / "functions" / "api" / "[[path]].js").read_text(encoding="utf-8")
-    assert "klv-fx-trading-signals.klevco.workers.dev" in text
+    assert "fx-trading-signals.klevco.workers.dev" in text
     assert "KLEVS_API_ORIGIN" in text
 
 

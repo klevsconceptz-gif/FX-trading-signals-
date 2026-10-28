@@ -76,7 +76,7 @@ assert.deepEqual(await forwarded.json(), { plan: 'starter' });
 const healthRequest = new Request('https://pages.example/api/health');
 const fallback = await onRequest({ request: healthRequest, env: {} });
 assert.equal(fallback.status, 200);
-assert.equal(forwarded.url, 'https://klv-fx-trading-signals.klevco.workers.dev/api/health');
+assert.equal(forwarded.url, 'https://fx-trading-signals.klevco.workers.dev/api/health');
 const insecure = await onRequest({
   request: healthRequest,
   env: { KLEVS_API_ORIGIN: 'http://api.example.com' },

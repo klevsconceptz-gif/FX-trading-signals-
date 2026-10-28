@@ -16,7 +16,7 @@ const CONFIG_KV = "4d28a5811a4d47de938a2a34ce22af60";
 
 function sampleConfig() {
   return `{
-  "name": "klv-fx-trading-signals",
+  "name": "fx-trading-signals",
   "main": "src/index.js",
   "d1_databases": [
     {

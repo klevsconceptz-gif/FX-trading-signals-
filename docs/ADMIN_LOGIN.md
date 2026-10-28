@@ -25,7 +25,7 @@ In the API Worker's **Settings → Variables and Secrets**, configure:
 
 The password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol. Set these on the **API Worker**, not the Pages project. Never put credential values in `wrangler.jsonc`, source control, or chat.
 
-The Pages Function defaults to `https://klv-fx-trading-signals.klevco.workers.dev` for Production and Preview. Set `KLEVS_API_ORIGIN` on Pages only if you need to override that origin. Pages variables are not forwarded to the external Worker.
+The Pages Function defaults to `https://fx-trading-signals.klevco.workers.dev` for Production and Preview. Set `KLEVS_API_ORIGIN` on Pages only if you need to override that origin. Pages variables are not forwarded to the external Worker.
 
 For full local and production commands, including D1 migrations and Worker deployment, see [`worker/README.md`](../worker/README.md). Live Cloudflare secrets, remote migrations, and deployment have not been applied from this workspace.
 
@@ -43,7 +43,7 @@ The existing FastAPI service also supports admin bootstrap from its own runtime 
 
 - **Incorrect credentials / 401:** check the Worker secrets and that the admin bootstrap succeeds in D1.
 - **“This account is not an operator account” / 403:** the account authenticated but does not have the `admin` role. Do not change the role in browser storage.
-- **Pages API calls fail or target the wrong Worker:** check `KLEVS_API_ORIGIN` if set; with no override, the Pages Function uses `https://klv-fx-trading-signals.klevco.workers.dev`.
+- **Pages API calls fail or target the wrong Worker:** check `KLEVS_API_ORIGIN` if set; with no override, the Pages Function uses `https://fx-trading-signals.klevco.workers.dev`.
 - **Admin page loads but API calls fail:** verify the Worker deployment, D1/KV bindings, remote D1 migration, and Pages API origin.
 - **Scan, instructions or pair returns 503:** no snapshot has been published yet, the last one is older than `KFX_SIGNAL_MAX_AGE_SECONDS`, or a publish is in progress. Check the **Publish signals** run in GitHub Actions. Backtests are not served on the Cloudflare route.
 - **Password reset message arrives but no email:** configure the Worker reset-mail HTTP endpoint and token as described in `worker/README.md`. Without one, an operator can set a new password from the admin console's **Reset a password** form.
