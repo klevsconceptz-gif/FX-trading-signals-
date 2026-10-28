@@ -59,7 +59,7 @@ See
 
 ### Worker route
 
-A D1/KV-backed Worker entrypoint and Wrangler config are in [`worker/`](worker/README.md). The Pages Function at `functions/api/[[path]].js` proxies same-origin API requests to `https://klv-fx-trading-signals.klevco.workers.dev` by default for production and preview builds; set the Pages variable `KLEVS_API_ORIGIN` to override it. The Worker binds D1 and KV using the configured resource IDs and implements account, admin, payment, access, and audit APIs; signal scan, instructions and pair detail are served from the snapshot that the scheduled **Publish signals** workflow writes to D1 each hour; backtests are not served on the Cloudflare route. Remote migrations, Cloudflare secrets, and deployment must still be applied in an authenticated Cloudflare environment.
+A D1/KV-backed Worker entrypoint and Wrangler config are in [`worker/`](worker/README.md). The Pages Function at `functions/api/[[path]].js` proxies same-origin API requests to `https://fx-trading-signals.klevco.workers.dev` by default for production and preview builds; set the Pages variable `KLEVS_API_ORIGIN` to override it. The Worker binds D1 and KV using the configured resource IDs and implements account, admin, payment, access, and audit APIs; signal scan, instructions and pair detail are served from the snapshot that the scheduled **Publish signals** workflow writes to D1 each hour; backtests are not served on the Cloudflare route. Remote migrations, Cloudflare secrets, and deployment must still be applied in an authenticated Cloudflare environment.
 
 ## Mobile apps (Android and iOS)
 

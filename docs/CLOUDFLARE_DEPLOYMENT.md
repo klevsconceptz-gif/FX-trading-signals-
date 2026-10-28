@@ -137,7 +137,7 @@ short:
 5. Publish signals (section 5), with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set in your
    shell: `python -m scripts.publish_signals`.
 
-The Worker is named `klv-fx-trading-signals` in `worker/wrangler.jsonc`. Check the target account
+The Worker is named `fx-trading-signals` in `worker/wrangler.jsonc`. Check the target account
 before any remote migration or deploy.
 
 ## 5. Signals: the scheduled publisher

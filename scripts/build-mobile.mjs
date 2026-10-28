@@ -14,7 +14,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const staticDir = path.join(root, "static");
 const outputDir = path.join(root, "mobile", "www");
 const PLACEHOLDER = "__KLEVS_API_ORIGIN__";
-const DEFAULT_API_ORIGIN = "https://klv-fx-trading-signals.klevco.workers.dev";
+const DEFAULT_API_ORIGIN = "https://fx-trading-signals.klevco.workers.dev";
 
 const origin = (process.env.KLEVS_API_ORIGIN || DEFAULT_API_ORIGIN).trim().replace(/\/+$/, "");
 if (!/^https:\/\/[a-z0-9.-]+(:\d{1,5})?$/i.test(origin)) {
