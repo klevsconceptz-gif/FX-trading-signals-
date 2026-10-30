@@ -144,7 +144,7 @@ class MarketEngine:
         # Build a proposed portfolio in descending signal quality. Reserve each
         # accepted setup so later recommendations respect position, currency,
         # correlation, and per-currency risk caps. This is a projection only:
-        # without broker/account state, daily-loss and drawdown breakers cannot
+        # without tracked account state, daily-loss and drawdown breakers cannot
         # reflect a user's actual open positions or realized P&L.
         plans.sort(key=lambda p: (p.side == "WAIT", -p.confidence))
         self.risk = RiskManager(self.cfg.risk)

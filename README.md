@@ -7,7 +7,7 @@ profits, and where the stop loss belongs** — with full portfolio risk manageme
 and an event-driven backtester.
 
 > ⚠ **Educational software.** Nothing here is financial advice. This platform is
-> analysis/simulation only — it never sends orders to a broker. Trading FX
+> analysis/simulation only — it never sends orders. Trading FX
 > involves substantial risk of loss.
 
 ---
@@ -255,7 +255,7 @@ Every signal is delivered as an imperative 3-stage instruction, not just data:
 The backtester fills entries on the bar after the signal, uses the same first and
 stretch targets as the plan, converts quote-currency P&L using rates from before
 the exit bar, and includes opposite-signal, time-stop, and terminal exits. These
-are simulations, not broker orders or guarantees.
+are simulations, not orders or guarantees.
 
 ## Project layout
 
@@ -286,7 +286,7 @@ All knobs live in `fxbot/config.py`:
 - **RiskConfig** — account currency (default USD), configured equity ($10,000),
   base risk/trade 0.75%, max 8 proposed positions, ≤2 per currency, max 2% risk
   per currency, min R:R 1.5. Daily-loss and drawdown settings are not live-enforced
-  because this app has no broker/account P&L connection.
+  because this app tracks no account P&L.
 - **SignalConfig** — factor weights, entry threshold 0.25, ATR stop/runner-target
   multipliers (SL 1.5 / runner 2.5 trend, 1.2 / 1.8 range), partial-profit R and fraction
 - **MLConfig** — horizon 8 bars, HistGradientBoosting, time-ordered 80/20 split;
@@ -347,8 +347,7 @@ KFX_LIVE_DATA=1 .venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --po
 
 Set `KFX_LIVE_DATA=0` to force the reproducible synthetic market (used by the test-suite).
 The former `exchangerate.host` provider was removed: its API now requires a paid access key.
-Swap in broker-grade feeds (OANDA v20, MetaTrader 5) by implementing the provider
-interface in `fxbot/data.py`.
+Add a new data provider by implementing the provider interface in `fxbot/data.py`.
 
 ## Research
 
