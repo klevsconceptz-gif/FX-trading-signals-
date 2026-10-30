@@ -13,9 +13,6 @@ in this platform.
 | 23.4k | [mementum/backtrader](https://github.com/mementum/backtrader) | Event-driven Python backtesting framework | Validated our bar-by-bar, next-open execution model (no lookahead) |
 | 9.0k | [kernc/backtesting.py](https://github.com/kernc/backtesting.py) | Vectorized/visual backtester | Metric set we mirror: win rate, profit factor, expectancy, drawdown |
 | 2.5k | [blankly-finance/blankly](https://github.com/blankly-finance/blankly) | Build/backtest/deploy algos in a few lines | Multi-asset abstraction pattern (stocks/crypto/forex) |
-| 312 | [trentstauff/FXBot](https://github.com/trentstauff/FXBot) | Fully automated OANDA forex bot | Architecture reference for FX execution layering |
-| 66 | [Mo-Khalifa96/Forex-Trading-Bot](https://github.com/Mo-Khalifa96/Forex-Trading-Bot) | Python + MetaTrader5 bot | MT5 integration path (kept out of core; analysis-only here) |
-| 51 | [Jessika-Art/Trading-Bot-MT5-Forex](https://github.com/Jessika-Art/Trading-Bot-MT5-Forex) | MT5 Python bot | Position-management conventions (SL/TP orders, trailing) |
 | — | [phuceh/fx-trading-bot](https://github.com/phuceh/fx-trading-bot) | Backtesting engine w/ EMA/RSI/ATR, risk manager, synthetic data | Closest structural cousin — our architecture generalizes it to the whole market |
 
 ## 2 · Technical-indicator libraries
@@ -66,7 +63,6 @@ prediction; the edge comes from combining it with structure & regime factors).
 |--------|---------|----------------|
 | [EarnForex/Currency-Strength-Matrix](https://github.com/EarnForex/Currency-Strength-Matrix) | Relative strength of majors computed across all their pairs | `fxbot/strength.py::compute_strength` |
 | [Admiral Markets strength-meter guide](https://admiralmarkets.com/education/articles/forex-indicators/how-to-trade-using-a-forex-currency-strength-meter) | Correlation bands (±50 medium, ±76 strong); EURUSD/USDJPY ≈ -0.93 | Correlation heatmap + `correlation_risk_scale=0.5` on overlapping trades |
-| [Valtorim/MT5-Portfolio-Correlation-Matrix](https://github.com/topics/mql4) | Hidden cross-pair exposure in portfolios | Per-currency position cap (`max_positions_per_currency=2`) |
 | [ArpitaMohanty11/CURRENCY-ANALYSIS](https://github.com/ArpitaMohanty11/CURRENCY-ANALYSIS) | TradingView-style terminal: CSI matrix, triggers, reports | Dashboard layout: strength grid + signals table + insight feed |
 
 ## 6 · Free FX data sources (provider chain in `fxbot/data.py`)
@@ -74,9 +70,7 @@ prediction; the edge comes from combining it with structure & regime factors).
 1. **[Frankfurter.app](https://www.frankfurter.app)** — free ECB reference rates, no API key (daily).
 2. **[exchangerate.host](https://exchangerate.host)** — free timeseries endpoint, no key.
 3. **[yfinance](https://github.com/ranaroussi/yfinance)** — `EURUSD=X` etc., intraday up to 730d (optional dependency).
-4. **MetaTrader5 (PyPI `MetaTrader5`)** — broker-grade tick/OHLC (Windows-only; not bundled).
-5. **[OANDA v20 API](https://developer.oanda.com)** — what production bots (e.g. FXBot) use for live execution.
-6. **Synthetic correlated factor model** (this repo) — deterministic fallback that
+4. **Synthetic correlated factor model** (this repo) — deterministic fallback that
    generates the *entire* market coherently (each pair = exp(L_base − L_quote)
    over latent currency factors driven by shared risk/commodity shocks with
    regime-switching vol). Keeps every feature of the platform fully functional
