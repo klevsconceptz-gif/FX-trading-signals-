@@ -181,10 +181,10 @@
 
         <form class="auth-view" id="view-login" hidden>
           <h3>Welcome back</h3>
-          <p class="auth-sub">Log in with your username, email or phone number. Operator accounts can sign in here too and continue to the admin console.</p>
-          <label class="auth-field"><span class="auth-label">Username, email or phone</span>
+          <p class="auth-sub">Log in with your username and password. Operator accounts can sign in here too and continue to the admin console.</p>
+          <label class="auth-field"><span class="auth-label">Username</span>
             <input type="text" id="log-ident" required maxlength="200"
-                   placeholder="fxtrader24 / you@example.com / +1 555 123 4567" autocomplete="username" />
+                   placeholder="fxtrader24" autocomplete="username" />
           </label>
           <div id="log-password-slot"></div>
           <button class="auth-submit" type="submit" id="log-submit">Log in →</button>

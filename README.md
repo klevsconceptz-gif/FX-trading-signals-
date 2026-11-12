@@ -107,7 +107,7 @@ pay". Market endpoints (`/api/universe`, `/api/scan`, `/api/instructions`, `/api
 `/api/backtest`) return `401` without a session and `403` without paid access.
 
 **Accounts.** Login credentials are limited to four fields: username, email, phone number and
-password. Login accepts any of the first three as the identifier. Password policy: minimum
+password. Sign-in uses the username and password only; email and phone are used for account recovery and contact. Password policy: minimum
 **10 characters with uppercase, lowercase, number and symbol**. Passwords are stored as
 **PBKDF2-HMAC-SHA256 (200k iterations)** with a per-user salt. Forgot password sends a 7-digit
 code to the account email. Only its hash is stored, it expires in 15 minutes and it locks out
