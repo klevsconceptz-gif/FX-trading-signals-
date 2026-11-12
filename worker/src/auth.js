@@ -94,7 +94,7 @@ async function ensureBootstrapAdmin(env) {
     throw new ApiError(503, "both KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must be configured on the API Worker");
   }
   if (!adminUsernameIsValid(username)) {
-    throw new ApiError(503, "KFX_ADMIN_USERNAME must be 1-64 characters with no spaces");
+    throw new ApiError(503, "KFX_ADMIN_USERNAME must be 3-32 characters: letters, numbers, _ . - only");
   }
   const email = String(env.KFX_ADMIN_EMAIL || username).trim().toLowerCase();
   if (!emailIsValid(email)) {

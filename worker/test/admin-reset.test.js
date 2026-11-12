@@ -30,7 +30,7 @@ function fakeDb(users) {
 
 const USERS = {
   7: { id: 7, username: "buyer_one", role: "user" },
-  1: { id: 1, username: "Admin@test.fx", role: "admin" },
+  1: { id: 1, username: "admin_test", role: "admin" },
 };
 
 test("reset rejects a weak password, a short note and an unknown account without writing", async () => {
@@ -47,7 +47,7 @@ test("reset rejects a weak password, a short note and an unknown account without
 
 test("reset refuses the bootstrap admin account and points at the Worker secret", async () => {
   const db = fakeDb(USERS);
-  const env = { DB: db, KFX_ADMIN_USERNAME: "admin@TEST.fx" };
+  const env = { DB: db, KFX_ADMIN_USERNAME: "ADMIN_test" };
   await assert.rejects(adminResetPassword(env, 1, "op", { new_password: NEW_PW, note: "try bootstrap" }),
     (error) => error.status === 409 && /KFX_ADMIN_PASSWORD/.test(error.message));
   assert.equal(db.batches.length, 0);
