@@ -20,7 +20,7 @@ function sampleConfig() {
   "main": "src/index.js",
   "d1_databases": [
     {
-      "binding": "klev",
+      "binding": "DB",
       "database_name": "klev",
       "database_id": "${CONFIG_D1}",
       "migrations_dir": "migrations"
@@ -28,7 +28,7 @@ function sampleConfig() {
   ],
   "kv_namespaces": [
     {
-      "binding": "voom",
+      "binding": "KV",
       "id": "${CONFIG_KV}"
     }
   ]

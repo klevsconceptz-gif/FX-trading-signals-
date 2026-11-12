@@ -25,11 +25,11 @@ test("reported roles are the effective roles", () => {
 });
 
 test("the console cannot create or promote an account to admin", async () => {
-  const noDb = { KFX_ADMIN_USERNAME: "opsadmin", klev: { prepare: () => { throw new Error("must not touch the database"); } } };
+  const noDb = { KFX_ADMIN_USERNAME: "opsadmin", DB: { prepare: () => { throw new Error("must not touch the database"); } } };
   await assert.rejects(adminCreateUser(noDb, "opsadmin", { username: "new_op", email: "n@x.test", password: "Fresh!Secret77", role: "admin", note: "make op" }),
     (e) => e.status === 422 && /bootstrap admin/.test(e.message));
   const buyerDb = { prepare: () => ({ bind: () => ({ first: async () => ({ id: 2, username: "buyer", email: "b@x.test", phone: null, role: "user", disabled_at: 0, created_at: 1 }), run: async () => { throw new Error("must not write"); } }) }) };
-  await assert.rejects(adminUpdateUser({ KFX_ADMIN_USERNAME: "opsadmin", klev: buyerDb }, 2, { id: 1, username: "opsadmin" }, { role: "admin", note: "promote" }),
+  await assert.rejects(adminUpdateUser({ KFX_ADMIN_USERNAME: "opsadmin", DB: buyerDb }, 2, { id: 1, username: "opsadmin" }, { role: "admin", note: "promote" }),
     (e) => e.status === 422 && /bootstrap admin/.test(e.message));
 });
 
@@ -82,7 +82,7 @@ test("sign-in demotes every other admin row, in one batch with its audit row", a
     },
   };
   const user = await ensureAdmin({
-    KFX_ADMIN_USERNAME: "opsadmin", KFX_ADMIN_EMAIL: "ops@example.test", KFX_ADMIN_PASSWORD: password, klev: db,
+    KFX_ADMIN_USERNAME: "opsadmin", KFX_ADMIN_EMAIL: "ops@example.test", KFX_ADMIN_PASSWORD: password, DB: db,
   });
   assert.equal(user.id, 1);
   assert.equal(batches.length, 1, "one demotion batch for the one other admin row");
@@ -96,7 +96,7 @@ test("sign-in demotes every other admin row, in one batch with its audit row", a
 
 test("the bootstrap username and email are reserved from public sign-up and the console", async () => {
   const untouched = { prepare: () => { throw new Error("must not touch the database"); } };
-  const env = { KFX_ADMIN_USERNAME: "opsadmin", KFX_ADMIN_EMAIL: "ops@example.test", klev: untouched };
+  const env = { KFX_ADMIN_USERNAME: "opsadmin", KFX_ADMIN_EMAIL: "ops@example.test", DB: untouched };
   await assert.rejects(registerAccount(env, { username: "OpsAdmin", email: "x@example.test", phone: "+1 201 555 0100", password: "Fresh!Secret77" }),
     (e) => e.status === 422 && /reserved/.test(e.message));
   await assert.rejects(registerAccount(env, { username: "someone", email: "OPS@example.test", phone: "+1 201 555 0100", password: "Fresh!Secret77" }),
@@ -107,6 +107,6 @@ test("the bootstrap username and email are reserved from public sign-up and the 
 
 test("the console refuses an admin role even when no bootstrap is configured", async () => {
   const untouched = { prepare: () => { throw new Error("must not touch the database"); } };
-  await assert.rejects(adminCreateUser({ klev: untouched }, operator, { username: "new_op", email: "n@x.test", password: "Fresh!Secret77", role: "admin", note: "make op" }),
+  await assert.rejects(adminCreateUser({ DB: untouched }, operator, { username: "new_op", email: "n@x.test", password: "Fresh!Secret77", role: "admin", note: "make op" }),
     (e) => e.status === 422);
 });

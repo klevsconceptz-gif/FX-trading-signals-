@@ -9,7 +9,7 @@ const NOW = 1_800_000_000;
 function envWith(rows, extra = {}) {
   return {
     ...extra,
-    klev: {
+    DB: {
       prepare: () => ({
         bind: (key) => ({ first: async () => rows[key] || null }),
       }),

@@ -6,7 +6,7 @@ const json = async (response) => response.json();
 
 function localEnv({ database = true, kv = true } = {}) {
   return {
-    klev: database ? {
+    DB: database ? {
       prepare: (sql) => {
         const statement = {
           bind: () => statement,
@@ -15,7 +15,7 @@ function localEnv({ database = true, kv = true } = {}) {
         return statement;
       },
     } : undefined,
-    voom: kv ? {
+    KV: kv ? {
       get: async () => null,
       put: async () => {},
       delete: async () => {},

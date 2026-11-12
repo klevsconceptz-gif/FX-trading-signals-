@@ -35,7 +35,7 @@ const USERS = {
 
 test("reset rejects a weak password, a short note and an unknown account without writing", async () => {
   const db = fakeDb(USERS);
-  const env = { klev: db };
+  const env = { DB: db };
   await assert.rejects(adminResetPassword(env, 7, "op", { new_password: "short", note: "customer asked" }),
     (error) => error.status === 422);
   await assert.rejects(adminResetPassword(env, 7, "op", { new_password: NEW_PW, note: "x" }),
@@ -47,7 +47,7 @@ test("reset rejects a weak password, a short note and an unknown account without
 
 test("reset refuses the bootstrap admin account and points at the Worker secret", async () => {
   const db = fakeDb(USERS);
-  const env = { klev: db, KFX_ADMIN_USERNAME: "admin@TEST.fx" };
+  const env = { DB: db, KFX_ADMIN_USERNAME: "admin@TEST.fx" };
   await assert.rejects(adminResetPassword(env, 1, "op", { new_password: NEW_PW, note: "try bootstrap" }),
     (error) => error.status === 409 && /KFX_ADMIN_PASSWORD/.test(error.message));
   assert.equal(db.batches.length, 0);
@@ -55,7 +55,7 @@ test("reset refuses the bootstrap admin account and points at the Worker secret"
 
 test("reset stores a PBKDF2 hash, ends sessions and writes an audit row without the password", async () => {
   const db = fakeDb(USERS);
-  const result = await adminResetPassword({ klev: db }, 7, "Admin@test.fx", {
+  const result = await adminResetPassword({ DB: db }, 7, "Admin@test.fx", {
     new_password: NEW_PW,
     note: "customer lost device",
   });

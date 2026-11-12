@@ -22,8 +22,8 @@ The Worker has no engine origin or engine token. It makes no outbound calls for 
 
 `wrangler.jsonc` attaches the existing Cloudflare resources:
 
-- D1 binding `klev`, database `klev`.
-- KV binding `voom`.
+- D1 binding `DB`, database `klev`.
+- KV binding `KV`.
 
 The D1 schema is in `migrations/0001_initial.sql`. Sessions are authoritative in D1 (hashed bearer-token keys); KV caches session metadata briefly and caches scans for up to 60 seconds by default.
 

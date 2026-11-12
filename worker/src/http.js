@@ -65,15 +65,15 @@ export function getBearerToken(request) {
 }
 
 export function requireDatabase(env) {
-  if (!env?.klev || typeof env.klev.prepare !== "function") {
-    throw new ApiError(503, "D1 database binding 'klev' is not configured");
+  if (!env?.DB || typeof env.DB.prepare !== "function") {
+    throw new ApiError(503, "D1 database binding 'DB' is not configured");
   }
-  return env.klev;
+  return env.DB;
 }
 
 export function requireKV(env) {
-  if (!env?.voom || typeof env.voom.get !== "function" || typeof env.voom.put !== "function") {
-    throw new ApiError(503, "KV namespace binding 'voom' is not configured");
+  if (!env?.KV || typeof env.KV.get !== "function" || typeof env.KV.put !== "function") {
+    throw new ApiError(503, "KV namespace binding 'KV' is not configured");
   }
-  return env.voom;
+  return env.KV;
 }
