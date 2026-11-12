@@ -56,7 +56,7 @@ const USERS = {
 test("creating an account without a reason writes nothing", async () => {
   const db = fakeDb(usersAnswer(USERS));
   await assert.rejects(
-    adminCreateUser({ ...env, klev: db }, operator.username, { username: "new_user", email: "n@example.test", password: "Fresh!Secret77", note: "x" }),
+    adminCreateUser({ ...env, DB: db }, operator.username, { username: "new_user", email: "n@example.test", password: "Fresh!Secret77", note: "x" }),
     (error) => error.status === 422,
   );
   assert.equal(db.writes.length, 0);
@@ -64,7 +64,7 @@ test("creating an account without a reason writes nothing", async () => {
 
 test("the bootstrap admin cannot be edited, disabled, demoted or deleted", async () => {
   const db = fakeDb(usersAnswer(USERS));
-  const context = { ...env, klev: db };
+  const context = { ...env, DB: db };
   await assert.rejects(adminUpdateUser(context, 1, operator, { disabled: true, note: "try it" }), (e) => e.status === 409);
   await assert.rejects(adminUpdateUser(context, 1, operator, { role: "user", note: "try it" }), (e) => e.status === 409);
   await assert.rejects(adminDeleteUser(context, 1, operator, { note: "try it" }), (e) => e.status === 409);
@@ -73,7 +73,7 @@ test("the bootstrap admin cannot be edited, disabled, demoted or deleted", async
 
 test("an operator cannot disable or delete their own account", async () => {
   const db = fakeDb(usersAnswer({ ...USERS, 1: { ...USERS[1], username: "ops_two" } }));
-  const context = { ...env, klev: db };
+  const context = { ...env, DB: db };
   await assert.rejects(adminUpdateUser(context, 1, operator, { disabled: true, note: "self" }), (e) => e.status === 409);
   await assert.rejects(adminDeleteUser(context, 1, operator, { note: "self" }), (e) => e.status === 409);
   assert.equal(db.writes.length, 0);
@@ -81,14 +81,14 @@ test("an operator cannot disable or delete their own account", async () => {
 
 test("an account with payment or access records cannot be hard-deleted", async () => {
   const db = fakeDb(usersAnswer({ ...USERS, counts: { payments: 1, grants: 0 } }));
-  await assert.rejects(adminDeleteUser({ ...env, klev: db }, 2, operator, { note: "clean up" }),
+  await assert.rejects(adminDeleteUser({ ...env, DB: db }, 2, operator, { note: "clean up" }),
     (e) => e.status === 409 && /disable it instead/.test(e.message));
   assert.equal(db.writes.length, 0);
 });
 
 test("an account with no records is deleted with its sessions and an audit row in one batch", async () => {
   const db = fakeDb(usersAnswer({ ...USERS, counts: { payments: 0, grants: 0 } }));
-  const result = await adminDeleteUser({ ...env, klev: db }, 2, operator, { note: "test account" });
+  const result = await adminDeleteUser({ ...env, DB: db }, 2, operator, { note: "test account" });
   assert.deepEqual(result, { ok: true, deleted_user_id: 2 });
   const sql = db.writes.map((w) => w.sql).join("\n");
   assert.match(sql, /DELETE FROM user_sessions/);
@@ -99,7 +99,7 @@ test("an account with no records is deleted with its sessions and an audit row i
 test("a confirmed payment cannot be cancelled, and the refusal writes no audit row", async () => {
   const payment = { id: 9, user_id: 2, username: "buyer_two", status: "confirmed", invoice: "INV-9" };
   const db = fakeDb((sql, args) => (/FROM payments p JOIN users/.test(sql) && args[0] === 9 ? payment : null));
-  await assert.rejects(adminCancelPayment({ ...env, klev: db }, 9, operator, { note: "too late" }),
+  await assert.rejects(adminCancelPayment({ ...env, DB: db }, 9, operator, { note: "too late" }),
     (e) => e.status === 409 && /this one is confirmed/.test(e.message));
   assert.equal(db.writes.length, 0);
 });
@@ -107,6 +107,6 @@ test("a confirmed payment cannot be cancelled, and the refusal writes no audit r
 test("a revoked grant cannot be revoked twice", async () => {
   const grant = { id: 5, user_id: 2, username: "buyer_two", plan: "pro", status: "revoked", expires_at: 9e9, starts_at: 1, granted_by: "ops_two" };
   const db = fakeDb((sql, args) => (/FROM access_grants g JOIN users/.test(sql) && args[0] === 5 ? grant : null));
-  await assert.rejects(adminRevokeGrant({ ...env, klev: db }, 5, operator, { note: "again" }), (e) => e.status === 409);
+  await assert.rejects(adminRevokeGrant({ ...env, DB: db }, 5, operator, { note: "again" }), (e) => e.status === 409);
   assert.equal(db.writes.length, 0);
 });

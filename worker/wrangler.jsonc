@@ -21,16 +21,16 @@
   },
   "d1_databases": [
     {
-      "binding": "klev",
+      "binding": "DB",
       "database_name": "klev",
-      "database_id": "1a4ea5fa-6c99-4f43-b895-e80ecf0b63de",
+      "database_id": "34b258e8-4342-4b5a-9299-a9c8962e1dda",
       "migrations_dir": "migrations"
     }
   ],
   "kv_namespaces": [
     {
-      "binding": "voom",
-      "id": "4d28a5811a4d47de938a2a34ce22af60"
+      "binding": "KV",
+      "id": "7f97e85c48914f399343741ff876099f"
     }
   ]
 }

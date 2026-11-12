@@ -14,7 +14,7 @@ Routine sign-in does not use an email code. Email is only used for an explicitly
 
 ## Provisioning for the Worker API
 
-The repository now includes the Worker API at `worker/src/index.js`, with D1 binding `klev` and KV binding `voom` in `worker/wrangler.jsonc`. On `/api/auth/login`, the Worker reads its admin bootstrap settings and creates or updates the admin account in D1. It hashes the password with PBKDF2 before storage; a changed configured password invalidates existing sessions.
+The repository now includes the Worker API at `worker/src/index.js`, with D1 binding `DB` and KV binding `KV` in `worker/wrangler.jsonc`. On `/api/auth/login`, the Worker reads its admin bootstrap settings and creates or updates the admin account in D1. It hashes the password with PBKDF2 before storage; a changed configured password invalidates existing sessions.
 
 In the API Worker's **Settings → Variables and Secrets**, configure:
 

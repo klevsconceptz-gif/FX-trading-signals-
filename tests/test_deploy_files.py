@@ -48,8 +48,8 @@ def test_deployment_guide_documents_every_variable_the_worker_reads():
 
 def test_worker_binds_only_free_tier_cloudflare_resources():
     config = _worker_config()
-    assert [b["binding"] for b in config["d1_databases"]] == ["klev"]
-    assert [b["binding"] for b in config["kv_namespaces"]] == ["voom"]
+    assert [b["binding"] for b in config["d1_databases"]] == ["DB"]
+    assert [b["binding"] for b in config["kv_namespaces"]] == ["KV"]
     for paid_or_stored_elsewhere in ("r2_buckets", "containers", "send_email", "durable_objects", "routes"):
         assert paid_or_stored_elsewhere not in config, (
             f"worker/wrangler.jsonc must not bind {paid_or_stored_elsewhere}: it is not part of the existing deploy"
@@ -201,7 +201,7 @@ def test_signal_publish_is_the_only_writer_of_the_signal_cache():
 def test_deploy_creates_cloudflare_resources_before_migrations():
     text = _workflow_text()
     bootstrap = text.index("npm run cloudflare:bootstrap")
-    migrate = text.index("wrangler d1 migrations apply klev --remote")
+    migrate = text.index("wrangler d1 migrations apply DB --remote")
     assert bootstrap < migrate, "resources must exist before migrations run"
     assert "npm run cloudflare:bootstrap:test" in text, "test job should run the bootstrap tests"
     assert (ROOT / "scripts" / "cloudflare_bootstrap.mjs").is_file()

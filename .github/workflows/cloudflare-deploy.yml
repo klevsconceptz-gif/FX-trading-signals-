@@ -75,7 +75,7 @@ jobs:
         run: npm run cloudflare:bootstrap -- --write-config
 
       - name: Apply D1 migrations (remote)
-        run: npx wrangler d1 migrations apply klev --remote --config worker/wrangler.jsonc
+        run: npx wrangler d1 migrations apply DB --remote --config worker/wrangler.jsonc
 
       - name: Deploy the API Worker
         run: npx wrangler deploy --config worker/wrangler.jsonc

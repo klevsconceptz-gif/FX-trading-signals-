@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Finds or creates the Cloudflare resources the deployment depends on, through the REST API:
 //
-//   D1 database    binding `klev` in worker/wrangler.jsonc (created with the name in that file)
-//   KV namespace   binding `voom` in worker/wrangler.jsonc (created with the title below)
+//   D1 database    binding `DB` in worker/wrangler.jsonc (created with the name in that file)
+//   KV namespace   binding `KV` in worker/wrangler.jsonc (created with the title below)
 //   Pages project  CLOUDFLARE_PAGES_PROJECT (default "klv-fx-trading-signals")
 //
 // It is idempotent and creates only what is missing. If the D1 or KV IDs in the Wrangler config do
@@ -42,10 +42,10 @@ export function parseWranglerConfig(text) {
 }
 
 export function readBindings(config) {
-  const d1 = (config.d1_databases || []).find((db) => db.binding === "klev");
-  const kv = (config.kv_namespaces || []).find((ns) => ns.binding === "voom");
+  const d1 = (config.d1_databases || []).find((db) => db.binding === "DB");
+  const kv = (config.kv_namespaces || []).find((ns) => ns.binding === "KV");
   if (!d1 || !kv) {
-    throw new Error("worker config must declare D1 binding 'klev' and KV binding 'voom'");
+    throw new Error("worker config must declare D1 binding 'DB' and KV binding 'KV'");
   }
   return {
     d1: { name: d1.database_name, configured: d1.database_id },
