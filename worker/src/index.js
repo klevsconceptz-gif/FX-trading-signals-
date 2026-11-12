@@ -48,7 +48,6 @@ import {
   requireDatabase,
   requireKV,
 } from "./http.js";
-import { requireAccess } from "./access.js";
 import { SYMBOLS, UNIVERSE } from "./universe.js";
 import { signalHealth, signalResponse } from "./signals.js";
 
@@ -84,13 +83,6 @@ async function handleApi(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method.toUpperCase();
-
-  // Admin API: the app login must pass first (anonymous callers get 401), then Cloudflare Access
-  // must have signed the request in. Every /api/admin route is covered here, not per route.
-  if (path.startsWith("/api/admin/")) {
-    await authenticated(env, request);
-    await requireAccess(env, request);
-  }
 
   if (path === "/api/health" && method === "GET") {
     const db = requireDatabase(env);
