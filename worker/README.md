@@ -112,3 +112,23 @@ Run these commands from the repository root in an authenticated Cloudflare/Wrang
 6. The Pages Function defaults to the configured Worker origin (`https://fx-trading-signals.klevco.workers.dev`) for Production and Preview builds. If you need a different origin, set `KLEVS_API_ORIGIN` in the Pages project for both environments, then deploy Pages. Do not put admin credentials in Pages settings: Pages variables are not forwarded to the API Worker.
 
 The Worker name in this config targets `fx-trading-signals`. Review the Cloudflare account/Worker target before running a remote migration or deployment. Remote migrations and deployment have not been run from this repository workspace.
+
+## Cloudflare Access on the admin API
+
+Every `/api/admin/*` request must pass two checks, in this order: the app login (an admin session), then Cloudflare Access. The Worker verifies the signed `CF-Access-Jwt-Assertion` header against the team's keys, the application audience (`CF_ACCESS_AUD`), the issuer and the expiry (`worker/src/access.js`). With either setting missing, admin requests fail closed with `503`.
+
+- `CF_ACCESS_TEAM_DOMAIN`: the team host name, such as `your-team.cloudflareaccess.com`.
+- `CF_ACCESS_AUD`: the Application Audience (AUD) tag of the Access application.
+
+Both are plain `vars` in `worker/wrangler.jsonc`. They are identifiers, not secrets.
+
+Setup in Cloudflare Zero Trust, before you deploy:
+
+1. Create a self-hosted Access application for the hostnames that serve the admin API. Add a path rule for `/api/admin/*` (or protect the whole site).
+2. Copy its Application Audience (AUD) tag into `CF_ACCESS_AUD`, and check that the team domain matches `CF_ACCESS_TEAM_DOMAIN`.
+3. Make sure the Access application covers the hostname the browser uses. The admin console is on the Pages site and calls `/api/admin` through the Pages Function, which forwards the Access header to the Worker. Protect the Pages hostname as well as the Worker hostname, or the console will get `403`.
+
+Limits to know:
+
+- The Android and iOS apps authenticate with bearer tokens and do not send the Access header. Admin use from the mobile apps is refused until Access supports those requests or an exception is added on purpose.
+- Local development (`wrangler dev`) uses the same vars, so admin calls need an Access header or the `CF_ACCESS_*` values removed for local testing only.

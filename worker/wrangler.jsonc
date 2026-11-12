@@ -3,6 +3,10 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-19",
   "workers_dev": true,
+  "vars": {
+    "CF_ACCESS_TEAM_DOMAIN": "hidden-tree-8340.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "1e651a239749cced021f5b1ea2e4abe106fd7b6d4c73323cb67b983682800fb0"
+  },
   "observability": {
     "logs": {
       "enabled": true,

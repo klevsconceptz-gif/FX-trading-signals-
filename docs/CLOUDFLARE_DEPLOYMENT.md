@@ -77,6 +77,13 @@ Two workflows:
   and checks `/api/health`.
 - `.github/workflows/signals.yml` (hourly, and manual start). It runs the publisher (section 5).
 
+**Admin API and Cloudflare Access.** `/api/admin/*` also requires a Cloudflare Access sign-in. Before the
+first deploy, create a self-hosted Access application that covers `/api/admin/*` on the Worker and Pages
+hostnames. Its Application Audience (AUD) tag must match `CF_ACCESS_AUD` in `worker/wrangler.jsonc`, and the team
+domain must match `CF_ACCESS_TEAM_DOMAIN`. Without a matching Access application, the admin console returns
+`403`. The mobile apps cannot send the Access header, so admin use from them is refused. See
+`worker/README.md`.
+
 **One-time setup**
 
 1. Cloudflare resources: nothing to create by hand. The deploy workflow runs
