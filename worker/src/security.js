@@ -125,6 +125,7 @@ export function usernameIsValid(value) {
   return typeof value === "string" && /^[A-Za-z0-9_.-]{3,32}$/.test(value);
 }
 
+// The bootstrap admin follows the same username rule as every other account.
 export function adminUsernameIsValid(value) {
-  return typeof value === "string" && value.length >= 1 && value.length <= 64 && !/\s/.test(value);
+  return usernameIsValid(value);
 }

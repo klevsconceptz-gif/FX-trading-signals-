@@ -38,18 +38,16 @@ export function publicUser(user, env) {
   };
 }
 
-async function getUserByIdentifier(db, identifier) {
-  const ident = identifier.trim();
-  const email = ident.toLowerCase();
-  const phone = phoneKey(ident);
+// Sign-in uses the username and password only. Email and phone are not accepted at login.
+async function getUserByUsername(db, username) {
   return db.prepare(`
     SELECT id, username, username_key, email, phone, password_hash, role,
            created_at, reset_hash, reset_expires, reset_attempts,
            failed_logins, locked_until, password_version, disabled_at
       FROM users
-     WHERE username_key = ? OR email = ? OR (phone_key <> '' AND phone_key = ?)
+     WHERE username_key = ?
      LIMIT 1
-  `).bind(ident.toLowerCase(), email, phone).first();
+  `).bind(username.trim().toLowerCase()).first();
 }
 
 async function getUserById(db, userId) {
@@ -94,7 +92,7 @@ async function ensureBootstrapAdmin(env) {
     throw new ApiError(503, "both KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must be configured on the API Worker");
   }
   if (!adminUsernameIsValid(username)) {
-    throw new ApiError(503, "KFX_ADMIN_USERNAME must be 1-64 characters with no spaces");
+    throw new ApiError(503, "KFX_ADMIN_USERNAME must be 3-32 characters: letters, numbers, _ . - only");
   }
   const email = String(env.KFX_ADMIN_EMAIL || username).trim().toLowerCase();
   if (!emailIsValid(email)) {
@@ -321,11 +319,11 @@ export async function loginAccount(env, body) {
   requireKV(env);
   await ensureAdmin(env);
   const db = requireDatabase(env);
-  const user = await getUserByIdentifier(db, identifier);
+  const user = await getUserByUsername(db, identifier);
   if (!user) {
     // Keep unknown-account and wrong-password responses indistinguishable and similar in cost.
     await hashPassword(password);
-    throw new ApiError(401, "incorrect username, email, phone or password");
+    throw new ApiError(401, "incorrect username or password");
   }
 
   const timestamp = nowSeconds();
@@ -340,7 +338,7 @@ export async function loginAccount(env, body) {
     await db.prepare(`
       UPDATE users SET failed_logins = ?, locked_until = ? WHERE id = ?
     `).bind(failures >= LOGIN_MAX_FAILURES ? 0 : failures, lockedUntil, user.id).run();
-    throw new ApiError(401, "incorrect username, email, phone or password");
+    throw new ApiError(401, "incorrect username or password");
   }
 
   if (Number(user.disabled_at || 0) > 0) {
