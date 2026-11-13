@@ -43,3 +43,20 @@ jobs:
         run: python -m pip install -r requirements.txt -r requirements-live.txt
       - name: Publish the latest live snapshot to D1
         run: python -m scripts.publish_signals
+
+      - name: Post new signals to the Telegram channel
+        # Runs only after a successful publish. The Worker posts only new or changed signals and
+        # keeps the dedupe state in D1, so a repeat run is harmless.
+        if: success()
+        env:
+          TELEGRAM_POST_SECRET: ${{ secrets.TELEGRAM_POST_SECRET }}
+          API_ORIGIN: ${{ vars.KLEVS_API_ORIGIN || 'https://fx-trading-signals.klevco.workers.dev' }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TELEGRAM_POST_SECRET" ]; then
+            echo "skip Telegram posting (TELEGRAM_POST_SECRET not set)"
+            exit 0
+          fi
+          curl --fail-with-body -sS -X POST "$API_ORIGIN/api/internal/telegram/post" \
+            -H "Authorization: Bearer $TELEGRAM_POST_SECRET" -o /tmp/telegram-post.json
+          cat /tmp/telegram-post.json; echo
