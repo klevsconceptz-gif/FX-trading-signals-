@@ -222,6 +222,8 @@ class SyntheticMarket:
 # ---------------------------------------------------------------------------
 
 LIVE_BREAKER_FAILURES = 3
+# Pause before each retry of a Yahoo request that returned nothing or raised.
+YFINANCE_RETRY_DELAYS: tuple[float, ...] = (5.0, 15.0)
 LIVE_BREAKER_COOLDOWN = 600.0   # seconds
 MIN_LIVE_BARS = 100
 
@@ -315,14 +317,25 @@ class YFinanceProvider(_Provider):
 
         interval = "60m" if cfg.timeframe == "1h" else "1d"
         period = "730d" if cfg.timeframe == "1h" else "5y"
-        try:
-            raw = yf.download(f"{ins.base}{ins.quote}=X", period=period, interval=interval,
-                              progress=False, auto_adjust=True, timeout=cfg.request_timeout)
-        except Exception as exc:
-            raise ProviderError(f"yfinance: {type(exc).__name__}") from exc
-        if raw is None or len(raw) == 0:
-            # yfinance reports network errors as an empty frame, not an exception
-            raise ProviderError("yfinance: empty response")
+        raw = None
+        last_error: Optional[ProviderError] = None
+        # Yahoo often rate-limits shared IPs (CI runners) for a few seconds. Retry briefly before
+        # giving up. yfinance reports network errors as an empty frame, not an exception.
+        for delay in (0.0, *YFINANCE_RETRY_DELAYS):
+            if delay:
+                time.sleep(delay)
+            try:
+                raw = yf.download(f"{ins.base}{ins.quote}=X", period=period, interval=interval,
+                                  progress=False, auto_adjust=True, timeout=cfg.request_timeout)
+            except Exception as exc:
+                last_error = ProviderError(f"yfinance: {type(exc).__name__}")
+                continue
+            if raw is not None and len(raw) > 0:
+                last_error = None
+                break
+            last_error = ProviderError("yfinance: empty response")
+        if last_error is not None:
+            raise last_error
         if isinstance(raw.columns, pd.MultiIndex):
             raw.columns = raw.columns.get_level_values(0)
         return raw.rename(columns=str.lower)[OHLC_COLS].dropna().astype(float)

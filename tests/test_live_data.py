@@ -85,9 +85,48 @@ def test_frankfurter_bad_shape_is_provider_error(monkeypatch):
 
 def test_yfinance_empty_download_counts_as_failure(monkeypatch):
     yf = pytest.importorskip("yfinance")
+    monkeypatch.setattr(data_mod, "YFINANCE_RETRY_DELAYS", ())
     monkeypatch.setattr(yf, "download", lambda *a, **k: pd.DataFrame())
-    with pytest.raises(ProviderError):
+    with pytest.raises(ProviderError, match="empty response"):
         YFinanceProvider().fetch(BY_SYMBOL["EURUSD"], _cfg("1h"))
+
+
+def test_yfinance_retries_a_transient_empty_response(monkeypatch):
+    yf = pytest.importorskip("yfinance")
+    raw = _fake_hourly(BY_SYMBOL["EURUSD"], _cfg("1h"), n=300)
+    calls, sleeps = [], []
+    responses = [pd.DataFrame(), RuntimeError("rate limited"), raw]
+
+    def download(*a, **k):
+        calls.append(1)
+        out = responses.pop(0)
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    monkeypatch.setattr(yf, "download", download)
+    monkeypatch.setattr(data_mod.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(data_mod, "YFINANCE_RETRY_DELAYS", (5.0, 15.0))
+    frame = YFinanceProvider().fetch(BY_SYMBOL["EURUSD"], _cfg("1h"))
+    assert len(calls) == 3
+    assert sleeps == [5.0, 15.0]
+    assert len(frame) == 300
+
+
+def test_yfinance_gives_up_after_the_retries_with_the_last_reason(monkeypatch):
+    yf = pytest.importorskip("yfinance")
+    calls = []
+
+    def download(*a, **k):
+        calls.append(1)
+        raise RuntimeError("blocked")
+
+    monkeypatch.setattr(yf, "download", download)
+    monkeypatch.setattr(data_mod.time, "sleep", lambda s: None)
+    monkeypatch.setattr(data_mod, "YFINANCE_RETRY_DELAYS", (5.0, 15.0))
+    with pytest.raises(ProviderError, match="RuntimeError"):
+        YFinanceProvider().fetch(BY_SYMBOL["EURUSD"], _cfg("1h"))
+    assert len(calls) == 3
 
 
 def test_yfinance_multiindex_columns_are_flattened(monkeypatch):
