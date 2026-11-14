@@ -50,6 +50,7 @@ import {
 } from "./http.js";
 import { SYMBOLS, UNIVERSE } from "./universe.js";
 import { signalHealth, signalResponse } from "./signals.js";
+import { postSignalUpdates, telegramRequestAuthorized, telegramConfigured } from "./telegram.js";
 
 const APP_NAME = "klevs FX trading App";
 const VERSION = "1.0.0";
@@ -102,6 +103,13 @@ async function handleApi(request, env) {
         signal_source: "scheduled snapshot in D1",
       },
     });
+  }
+
+  if (path === "/api/internal/telegram/post" && method === "POST") {
+    // Called by the publish job after a successful publish. Needs TELEGRAM_POST_SECRET.
+    if (!telegramRequestAuthorized(request, env)) throw new ApiError(401, "unauthorized");
+    if (!telegramConfigured(env)) throw new ApiError(503, "Telegram is not configured on the Worker");
+    return jsonResponse(await postSignalUpdates(env));
   }
 
   if (path === "/api/auth/password-policy" && method === "GET") {
@@ -297,6 +305,15 @@ function withHeaders(response, extra) {
 }
 
 export default {
+  // Hourly cron (see triggers.crons in wrangler.jsonc): post new or changed signals to Telegram.
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(
+      postSignalUpdates(env).catch((error) => {
+        console.error("Telegram signal post failed", error?.name || "Error", error?.status || "");
+      }),
+    );
+  },
+
   async fetch(request, env) {
     const cors = nativeCorsHeaders(request);
     if (cors && request.method === "OPTIONS") {

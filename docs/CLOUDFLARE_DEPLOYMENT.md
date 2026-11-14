@@ -98,6 +98,9 @@ Two workflows:
 | `KFX_ADMIN_EMAIL` | No | Admin e-mail, if the username is not an address |
 | `KFX_ADMIN_PHONE` | No | Admin phone number |
 | `KLEVS_RESET_EMAIL_TOKEN` | No | Token for the reset-e-mail endpoint (section 6) |
+| `TELEGRAM_BOT_TOKEN` | No | Bot token from @BotFather. Set all three Telegram secrets, or none. Used to post signals to the private channel |
+| `TELEGRAM_CHAT_ID` | No | Numeric id of the private channel (starts with `-100`). The bot must be an admin of the channel |
+| `TELEGRAM_POST_SECRET` | No | Shared secret between the publish job and the Worker's Telegram endpoint. Any long random string |
 
 3. Add these **environment variables** (not secret):
 
@@ -217,6 +220,9 @@ Worker (set with `wrangler secret put` or in `vars`):
 | `KFX_SIGNAL_MAX_AGE_SECONDS` | var | Oldest signal snapshot the Worker serves (default 7200, maximum 86400) |
 | `KLEVS_RESET_EMAIL_URL` | var | HTTPS endpoint that sends reset e-mail |
 | `KLEVS_RESET_EMAIL_TOKEN` | secret | Token for the reset-e-mail endpoint |
+| `TELEGRAM_BOT_TOKEN` | secret | Telegram bot token. Never logged or returned |
+| `TELEGRAM_CHAT_ID` | secret | Private channel id for signal posts |
+| `TELEGRAM_POST_SECRET` | secret | Bearer secret for `POST /api/internal/telegram/post`, which the publish job calls |
 | `KLEVS_API_ORIGIN` | Pages variable | Overrides the Worker origin the Pages function proxies to |
 
 Publisher (GitHub `production` environment; `KFX_LIVE_DATA` is set in the workflow):
@@ -259,3 +265,27 @@ FastAPI app (set on the host that runs `fxbot.server`, for local or self-hosted 
 | Reset code never arrives | `KLEVS_RESET_EMAIL_URL` or `KLEVS_RESET_EMAIL_TOKEN` is not set (section 6) |
 | Admin login fails | `KFX_ADMIN_USERNAME` or `KFX_ADMIN_PASSWORD` is wrong. Both must be set together |
 | `/api/*` returns a Pages error | `KLEVS_API_ORIGIN` points at a Worker that is not deployed |
+
+## 9. Telegram signal channel
+
+New or changed BUY NOW and SELL NOW signals are posted to a private Telegram channel. Two triggers
+use the same code and the same dedupe state in D1 (`telegram_state`):
+
+- the Worker's hourly cron (`triggers.crons` in `worker/wrangler.jsonc`, at minute 27), and
+- the publish job, after a successful publish, through `POST /api/internal/telegram/post`.
+
+Only a fresh, committed, live snapshot is posted. Waiting signals ("DO NOT BUY") are not posted.
+Each message ends with: "Signals only. Do not trade: this channel generates signals and a risk matrix."
+
+Setup, once:
+
+1. In Telegram, create a bot with @BotFather and copy its token into `TELEGRAM_BOT_TOKEN`.
+2. Create a private channel, add the bot as an administrator with permission to post, and get the
+   channel id (a number starting with `-100`) into `TELEGRAM_CHAT_ID`.
+3. Generate a long random string for `TELEGRAM_POST_SECRET`.
+4. Run the deploy workflow. It applies migration `0004_telegram_state.sql` and sets the three Worker
+   secrets. The publish job reads `TELEGRAM_POST_SECRET` from the `production` environment too.
+
+Limits: the channel is a private member feed, and the messages are trading signals. Check the
+data-source terms (Yahoo Finance, Frankfurter) before members rely on them. Two triggers can, in rare
+cases, post the same change twice if they run at the same moment.

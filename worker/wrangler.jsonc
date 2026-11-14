@@ -27,6 +27,9 @@
       "migrations_dir": "migrations"
     }
   ],
+  "triggers": {
+    "crons": ["27 * * * *"]
+  },
   "kv_namespaces": [
     {
       "binding": "KV",
