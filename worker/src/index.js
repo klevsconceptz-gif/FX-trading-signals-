@@ -305,7 +305,7 @@ function withHeaders(response, extra) {
 }
 
 export default {
-  // Hourly cron (see triggers.crons in wrangler.jsonc): post new or changed signals to Telegram.
+  // Cron (see triggers.crons in wrangler.jsonc): post new or changed signals to Telegram.
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(
       postSignalUpdates(env).catch((error) => {

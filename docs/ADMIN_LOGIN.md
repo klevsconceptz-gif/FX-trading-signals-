@@ -45,7 +45,7 @@ The existing FastAPI service also supports admin bootstrap from its own runtime 
 - **“This account is not an operator account” / 403:** the account authenticated but does not have the `admin` role. Do not change the role in browser storage.
 - **Pages API calls fail or target the wrong Worker:** check `KLEVS_API_ORIGIN` if set; with no override, the Pages Function uses `https://fx-trading-signals.klevco.workers.dev`.
 - **Admin page loads but API calls fail:** verify the Worker deployment, D1/KV bindings, remote D1 migration, and Pages API origin.
-- **Scan, instructions or pair returns 503:** no snapshot has been published yet, the last one is older than `KFX_SIGNAL_MAX_AGE_SECONDS`, or a publish is in progress. Check the **Publish signals** run in GitHub Actions. Backtests are not served on the Cloudflare route.
+- **Scan, instructions or pair returns 503:** no snapshot has been published yet, the last one is older than 12 hours, or a publish is in progress. Check the **Publish signals** run in GitHub Actions. Backtests are not served on the Cloudflare route.
 - **Password reset message arrives but no email:** configure the Worker reset-mail HTTP endpoint and token as described in `worker/README.md`. Without one, an operator can set a new password from the admin console's **Reset a password** form.
 
 If a password is exposed, rotate it in the API runtime and redeploy. Do not use test credentials from the repository.

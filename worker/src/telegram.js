@@ -1,6 +1,6 @@
 // Posts new or changed trade signals to a private Telegram channel through the Bot API.
 //
-// Two triggers call postSignalUpdates(): the Worker's hourly cron, and the signal publish job in
+// Two triggers call postSignalUpdates(): the Worker's cron (after each publish time), and the signal publish job in
 // GitHub Actions (through POST /api/internal/telegram/post). Both read the same committed D1
 // snapshot and keep the same dedupe state in D1, so a signal is posted once per change.
 //
@@ -41,7 +41,7 @@ export function telegramRequestAuthorized(request, env) {
 /** The current instructions, but only from a fresh, committed, live snapshot; otherwise null. */
 export async function freshInstructions(env, now = Date.now() / 1000) {
   const committed = await readSignalRow(env, "scan");
-  if (!committed || snapshotState(committed, signalMaxAge(env), now) !== "fresh") return null;
+  if (!committed || snapshotState(committed, signalMaxAge(), now) !== "fresh") return null;
   if (!String(committed.data_source || "").startsWith("live")) return null;
   const row = await readSignalRow(env, "instructions");
   if (!row || Number(row.run_id) !== Number(committed.run_id)) return null;

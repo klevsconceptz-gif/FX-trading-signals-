@@ -125,7 +125,7 @@ test("nothing is posted without configuration, from a stale snapshot, or from no
   assert.equal(off.calls.length, 0);
 
   const stale = recordingFetch();
-  const { env: staleEnv } = fakeEnv({ scan: { key: "scan", run_id: 5, generated_at: NOW - 7 * 3600, data_source: "live", payload: "{}" } });
+  const { env: staleEnv } = fakeEnv({ scan: { key: "scan", run_id: 5, generated_at: NOW - 13 * 3600, data_source: "live", payload: "{}" } });
   const staleResult = await postSignalUpdates(staleEnv, { fetchImpl: stale.fetchImpl, now: NOW });
   assert.equal(staleResult.posted, 0);
   assert.equal(stale.calls.length, 0);

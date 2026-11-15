@@ -5,13 +5,13 @@ This Worker is the same-origin API target for the Pages proxy. It stores account
 ## Signals (scheduled snapshot)
 
 Signal generation runs in Python, but a Worker cannot run the engine within its CPU limit. The
-scheduled workflow `.github/workflows/signals.yml` runs `scripts/publish_signals.py` every hour. It
+scheduled workflow `.github/workflows/signals.yml` runs `scripts/publish_signals.py` at 8am and 7pm Eastern. It
 scans live market data and writes the result to the D1 table `signal_cache` (migration `0002`). The
 Worker serves paid users from that table:
 
 - `GET /api/scan`, `GET /api/instructions`, `GET /api/pair/{symbol}` return the stored snapshot.
 - They return `503` before the first publish, when the snapshot is older than
-  `KFX_SIGNAL_MAX_AGE_SECONDS` (default 7200), and when a row belongs to a run that is not yet
+  12 hours, and when a row belongs to a run that is not yet
   committed.
 - `POST /api/backtest` returns `503` on this deployment. Run `scripts/backtest.py` locally.
 - The publisher refuses to publish anything that is not live data.
