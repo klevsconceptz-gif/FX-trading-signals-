@@ -65,6 +65,19 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      # Reports whether the Cloudflare secrets reached this job. Prints lengths only, never values.
+      - name: Check Cloudflare secrets are set
+        run: |
+          for n in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            v="${!n}"
+            if [ -z "$v" ]; then
+              echo "$n: EMPTY"
+            else
+              ws=no; if [[ "$v" =~ [[:space:]] ]]; then ws=yes; fi
+              echo "$n: set, length ${#v}, contains whitespace: $ws"
+            fi
+          done
+
       # Finds or creates the D1 database, KV namespace and Pages project. Fails if the IDs in
       # worker/wrangler.jsonc do not match the account, so no deploy runs against the wrong resource.
       - name: Ensure Cloudflare resources exist
