@@ -1,6 +1,6 @@
 // Posts new or changed trade signals to a private Telegram channel through the Bot API.
 //
-// Two triggers call postSignalUpdates(): the Worker's hourly cron, and the signal publish job in
+// Two triggers call postSignalUpdates(): the Worker's cron (after each publish time), and the signal publish job in
 // GitHub Actions (through POST /api/internal/telegram/post). Both read the same committed D1
 // snapshot and keep the same dedupe state in D1, so a signal is posted once per change.
 //

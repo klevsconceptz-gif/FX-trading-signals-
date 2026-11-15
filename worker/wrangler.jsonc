@@ -28,7 +28,7 @@
     }
   ],
   "triggers": {
-    "crons": ["27 * * * *"]
+    "crons": ["30 0,12,13,23 * * *"]
   },
   "kv_namespaces": [
     {

@@ -74,10 +74,10 @@ test("snapshot state: missing, fresh and stale", () => {
   assert.equal(snapshotState({ generated_at: NOW - 7201 }, 7200, NOW), "stale");
 });
 
-test("the age limit defaults to 2 hours and is capped at 24 hours", () => {
-  assert.equal(signalMaxAge({}), 7200);
-  assert.equal(signalMaxAge({ KFX_SIGNAL_MAX_AGE_SECONDS: "0" }), 7200);
-  assert.equal(signalMaxAge({ KFX_SIGNAL_MAX_AGE_SECONDS: "nonsense" }), 7200);
+test("the age limit defaults to 12 hours and is capped at 24 hours", () => {
+  assert.equal(signalMaxAge({}), 43200);
+  assert.equal(signalMaxAge({ KFX_SIGNAL_MAX_AGE_SECONDS: "0" }), 43200);
+  assert.equal(signalMaxAge({ KFX_SIGNAL_MAX_AGE_SECONDS: "nonsense" }), 43200);
   assert.equal(signalMaxAge({ KFX_SIGNAL_MAX_AGE_SECONDS: "3600" }), 3600);
   assert.equal(signalMaxAge({ KFX_SIGNAL_MAX_AGE_SECONDS: "999999" }), 86400);
 });

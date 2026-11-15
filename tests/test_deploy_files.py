@@ -170,7 +170,10 @@ def test_worker_has_no_signal_engine_proxy_left():
 
 def test_signal_publish_workflow_is_scheduled_gated_and_uses_build_secrets():
     text = _workflow_text(SIGNALS_WORKFLOW)
-    assert re.search(r'cron: "\d+ \* \* \* \*"', text)
+    assert re.search(r'cron: "\d+ 12,13 \* \* \*"', text)  # 8am Eastern, both UTC offsets
+    assert re.search(r'cron: "\d+ 23,0 \* \* \*"', text)   # 7pm Eastern, both UTC offsets
+    assert "TZ=America/New_York" in text  # the gate keeps only the 08 and 19 Eastern runs
+    assert re.search(r"^    needs: gate$", text, re.M)
     assert "workflow_dispatch" in text
     assert re.search(r"^    environment: production$", text, re.M)
     assert "python -m scripts.publish_signals" in text

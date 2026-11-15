@@ -4,7 +4,8 @@ import { ApiError, requireDatabase } from "./http.js";
 // shares a run_id, and the `scan` row is written last. Readers trust the other rows only
 // when their run_id matches the committed `scan` row, and they never serve a snapshot older
 // than the age limit (old "BUY NOW" advice must not be shown as current).
-export const SIGNAL_MAX_AGE_SECONDS = 2 * 60 * 60;
+// Snapshots are published twice a day (8am and 7pm Eastern), so the default covers the gap.
+export const SIGNAL_MAX_AGE_SECONDS = 12 * 60 * 60;
 const SIGNAL_MAX_AGE_CEILING = 24 * 60 * 60;
 
 export function signalMaxAge(env) {
