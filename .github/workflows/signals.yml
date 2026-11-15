@@ -75,6 +75,8 @@ jobs:
         # Runs only after a successful publish. The Worker posts only new or changed signals and
         # keeps the dedupe state in D1, so a repeat run is harmless.
         if: success()
+        # A posting failure must not turn a good publish red. The snapshot is already in D1.
+        continue-on-error: true
         env:
           TELEGRAM_POST_SECRET: ${{ secrets.TELEGRAM_POST_SECRET }}
           API_ORIGIN: ${{ vars.KLEVS_API_ORIGIN || 'https://fx-trading-signals.klevco.workers.dev' }}
