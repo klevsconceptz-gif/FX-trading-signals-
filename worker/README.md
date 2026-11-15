@@ -11,7 +11,7 @@ Worker serves paid users from that table:
 
 - `GET /api/scan`, `GET /api/instructions`, `GET /api/pair/{symbol}` return the stored snapshot.
 - They return `503` before the first publish, when the snapshot is older than
-  `KFX_SIGNAL_MAX_AGE_SECONDS` (default 43200), and when a row belongs to a run that is not yet
+  12 hours, and when a row belongs to a run that is not yet
   committed.
 - `POST /api/backtest` returns `503` on this deployment. Run `scripts/backtest.py` locally.
 - The publisher refuses to publish anything that is not live data.

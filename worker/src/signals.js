@@ -6,12 +6,10 @@ import { ApiError, requireDatabase } from "./http.js";
 // than the age limit (old "BUY NOW" advice must not be shown as current).
 // Snapshots are published twice a day (8am and 7pm Eastern), so the default covers the gap.
 export const SIGNAL_MAX_AGE_SECONDS = 12 * 60 * 60;
-const SIGNAL_MAX_AGE_CEILING = 24 * 60 * 60;
 
-export function signalMaxAge(env) {
-  const configured = Number(env.KFX_SIGNAL_MAX_AGE_SECONDS || SIGNAL_MAX_AGE_SECONDS);
-  if (!Number.isFinite(configured) || configured <= 0) return SIGNAL_MAX_AGE_SECONDS;
-  return Math.min(Math.floor(configured), SIGNAL_MAX_AGE_CEILING);
+// Fixed age limit. It is not configurable, so a Worker variable cannot extend it.
+export function signalMaxAge() {
+  return SIGNAL_MAX_AGE_SECONDS;
 }
 
 export async function readSignalRow(env, key) {
@@ -39,7 +37,7 @@ function jsonText(payload) {
  * has no data.
  */
 export async function signalResponse(env, key, now = Date.now() / 1000) {
-  const maxAge = signalMaxAge(env);
+  const maxAge = signalMaxAge();
   const committed = await readSignalRow(env, "scan");
   if (!committed) throw new ApiError(503, "no signal snapshot has been published yet");
   if (snapshotState(committed, maxAge, now) === "stale") {
@@ -59,7 +57,7 @@ export async function signalResponse(env, key, now = Date.now() / 1000) {
 }
 
 export async function signalHealth(env, now = Date.now() / 1000) {
-  const maxAge = signalMaxAge(env);
+  const maxAge = signalMaxAge();
   const row = await readSignalRow(env, "scan");
   return {
     state: snapshotState(row, maxAge, now),

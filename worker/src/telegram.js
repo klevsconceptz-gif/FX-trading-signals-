@@ -41,7 +41,7 @@ export function telegramRequestAuthorized(request, env) {
 /** The current instructions, but only from a fresh, committed, live snapshot; otherwise null. */
 export async function freshInstructions(env, now = Date.now() / 1000) {
   const committed = await readSignalRow(env, "scan");
-  if (!committed || snapshotState(committed, signalMaxAge(env), now) !== "fresh") return null;
+  if (!committed || snapshotState(committed, signalMaxAge(), now) !== "fresh") return null;
   if (!String(committed.data_source || "").startsWith("live")) return null;
   const row = await readSignalRow(env, "instructions");
   if (!row || Number(row.run_id) !== Number(committed.run_id)) return null;
