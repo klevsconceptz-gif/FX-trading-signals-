@@ -370,6 +370,7 @@ class MarketData:
         self.synthetic = SyntheticMarket(self.cfg)
         self.source_label = "synthetic (correlated factor model)"
         self.live_notes: list[str] = []
+        self.excluded: list[str] = []            # optional instruments left out of the last live load
         self._breaker: dict[str, dict[str, float]] = {}
         self._history: dict[str, pd.DataFrame] = {}
 
@@ -426,17 +427,30 @@ class MarketData:
         return None
 
     def _load_live(self, targets: list[Instrument]) -> tuple[Optional[dict[str, pd.DataFrame]], str]:
+        """Live frames for ``targets``, or (None, reason) when an FX pair is missing.
+
+        FX pairs are all-or-nothing: one gap stops the load, so real and simulated
+        series are never mixed. Metals (XAUUSD, XAGUSD) are optional: when a metal
+        has no live data it is left out of the snapshot and named in the label.
+        """
         frames: dict[str, pd.DataFrame] = {}
         used: set[str] = set()
+        excluded: list[str] = []
         self.live_notes = []
         for ins in targets:
+            start = len(self.live_notes)
             got = self._fetch_live(ins)
             if got is None:
-                # all-or-nothing: stop at the first gap instead of mixing sources
-                why = "; ".join(dict.fromkeys(self.live_notes)) or "no provider returned data"
-                return None, f"{ins.symbol} unavailable — {why}"
+                why = "; ".join(dict.fromkeys(self.live_notes[start:])) or "no provider returned data"
+                if ins.kind == "fx":
+                    # all-or-nothing: stop at the first FX gap instead of mixing sources
+                    return None, f"{ins.symbol} unavailable — {why}"
+                excluded.append(f"{ins.symbol} ({why})")
+                continue
             frames[ins.symbol] = got[1]
             used.add(got[0])
+        if excluded:
+            self.excluded = excluded
         return frames, ",".join(sorted(used))
 
     # -- public API -----------------------------------------------------------
@@ -447,11 +461,13 @@ class MarketData:
         targets = [ins for ins in UNIVERSE if not symbols or ins.symbol in symbols]
         out: Optional[dict[str, pd.DataFrame]] = None
         if prefer_live:
+            self.excluded = []
             out, detail = self._load_live(targets)
             if out is not None:
+                note = f", excluded: {'; '.join(self.excluded)}" if self.excluded else ""
                 self.source_label = (f"live ({detail}, {self.cfg.timeframe}, "
                                      f"{len(out)} symbols, "
-                                     f"as of {pd.Timestamp.now('UTC'):%Y-%m-%d %H:%M} UTC)")
+                                     f"as of {pd.Timestamp.now('UTC'):%Y-%m-%d %H:%M} UTC{note})")
             else:
                 self.source_label = f"synthetic (live unavailable: {detail})"
         if out is None:

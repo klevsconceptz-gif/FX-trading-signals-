@@ -59,7 +59,7 @@ See
 
 ### Worker route
 
-A D1/KV-backed Worker entrypoint and Wrangler config are in [`worker/`](worker/README.md). The Pages Function at `functions/api/[[path]].js` proxies same-origin API requests to `https://fx-trading-signals.klevco.workers.dev` by default for production and preview builds; set the Pages variable `KLEVS_API_ORIGIN` to override it. The Worker binds D1 and KV using the configured resource IDs and implements account, admin, payment, access, and audit APIs; signal scan, instructions and pair detail are served from the snapshot that the scheduled **Publish signals** workflow writes to D1 twice a day (8am and 7pm Eastern); backtests are not served on the Cloudflare route. Remote migrations, Cloudflare secrets, and deployment must still be applied in an authenticated Cloudflare environment.
+A D1/KV-backed Worker entrypoint and Wrangler config are in [`worker/`](worker/README.md). The Pages Function at `functions/api/[[path]].js` proxies same-origin API requests to `https://fx-trading-signals.klevsconceptz.workers.dev` by default for production and preview builds; set the Pages variable `KLEVS_API_ORIGIN` to override it. The Worker binds D1 and KV using the configured resource IDs and implements account, admin, payment, access, and audit APIs; signal scan, instructions and pair detail are served from the snapshot that the scheduled **Publish signals** workflow writes to D1 twice a day (8am and 7pm Eastern); backtests are not served on the Cloudflare route. Remote migrations, Cloudflare secrets, and deployment must still be applied in an authenticated Cloudflare environment.
 
 ## Mobile apps (Android and iOS)
 
@@ -333,8 +333,10 @@ if that fails. If no provider can be reached, the app uses the **synthetic** mar
 it `synthetic (live unavailable: …)`. Nothing is presented as live when it is not.
 
 Rules: a provider is used only when its bar size matches the timeframe (daily
-rates are never stretched into hourly bars); live data is all-or-nothing per
-refresh so real and simulated series are never mixed; repeated failures pause a
+rates are never stretched into hourly bars); FX pairs are all-or-nothing per
+refresh so real and simulated series are never mixed; metals (XAUUSD, XAGUSD) are
+optional: if one has no live data it is left out and the label names it
+(`excluded: …`), so the snapshot is FX-only and still live; repeated failures pause a
 provider for 10 minutes. `Refresh` (or `/api/scan?refresh=true`) reloads the data.
 The dashboard chip and `data_source` field show `live (…)` or
 `synthetic (live unavailable: <reason>)`.

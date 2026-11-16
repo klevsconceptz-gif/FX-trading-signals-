@@ -112,7 +112,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$KFX_ADMIN_USERNAME$KFX_ADMIN_PASSWORD" ] && { [ -z "$KFX_ADMIN_USERNAME" ] || [ -z "$KFX_ADMIN_PASSWORD" ]; }; then
-            echo "KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must be set together." >&2
+            u=no; [ -n "$KFX_ADMIN_USERNAME" ] && u=yes
+            p=no; [ -n "$KFX_ADMIN_PASSWORD" ] && p=yes
+            echo "::error title=Admin secrets incomplete::KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must both be set in the production environment. Username set: $u. Password set: $p."
             exit 1
           fi
           # Values go through stdin, never argv. Only the secret name is printed.
@@ -121,7 +123,10 @@ jobs:
               echo "skip $1 (build secret not set)"
               return 0
             fi
-            printf '%s' "$2" | npx wrangler secret put "$1" --config worker/wrangler.jsonc > /dev/null
+            if ! printf '%s' "$2" | npx wrangler secret put "$1" --config worker/wrangler.jsonc > /dev/null; then
+              echo "::error title=Worker secret not set::Setting $1 on the Worker failed (see the step log above)"
+              exit 1
+            fi
             echo "set $1"
           }
           put_secret KFX_ADMIN_USERNAME "$KFX_ADMIN_USERNAME"
@@ -149,10 +154,14 @@ jobs:
 
       - name: Health check
         env:
-          API_ORIGIN: ${{ vars.KLEVS_API_ORIGIN || 'https://fx-trading-signals.klevco.workers.dev' }}
+          API_ORIGIN: ${{ vars.KLEVS_API_ORIGIN || 'https://fx-trading-signals.klevsconceptz.workers.dev' }}
         run: |
           set -euo pipefail
           status=$(curl -s -o /tmp/health.json -w '%{http_code}' "$API_ORIGIN/api/health")
           echo "GET /api/health -> $status"
           cat /tmp/health.json; echo
-          test "$status" = "200"
+          if [ "$status" != "200" ]; then
+            body=$(head -c 300 /tmp/health.json | tr '\n\r' '  ')
+            echo "::error title=Health check failed::GET $API_ORIGIN/api/health returned HTTP $status. Body: $body"
+            exit 1
+          fi

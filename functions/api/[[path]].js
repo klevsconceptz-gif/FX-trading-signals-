@@ -1,4 +1,4 @@
-const DEFAULT_KLEVS_API_ORIGIN = "https://fx-trading-signals.klevco.workers.dev";
+const DEFAULT_KLEVS_API_ORIGIN = "https://fx-trading-signals.klevsconceptz.workers.dev";
 
 const jsonHeaders = {
   "Cache-Control": "no-store",

@@ -95,7 +95,9 @@ reference only.
   - `scan(refresh=true)` never reloaded data → now reloads.
   - Frankfurter used a retired URL/shape → now `api.frankfurter.dev/v2/rates`.
   - Daily ECB rates were upsampled into hourly bars → providers gated by native bar size.
-  - Mixed live/synthetic series possible → all-or-nothing per refresh.
+  - Mixed live/synthetic series possible → FX pairs all-or-nothing per refresh.
+  - Gold feed empty on the CI runner (2026-11-16: XAUUSD in one run, EURUSD in another) blocked every publish.
+    → metals are optional: a missing metal is excluded and named in `data_source`; FX-only snapshots still publish.
   - exchangerate.host requires a paid key and its response format is undocumented → removed.
   - No backoff on dead hosts → per-provider circuit breaker (3 failures → 10 min pause).
 - Provider chain: `yfinance` (hourly, `requirements-live.txt`) → `frankfurter` (daily only).
