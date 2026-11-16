@@ -78,6 +78,7 @@ See the variable reference in the deployment guide, section 8. Secrets are set w
 |---|---|---|---|
 | Yahoo Finance, through `yfinance` (a community client) | Publisher on the GitHub runner | Hourly bars for the signals | **Chosen (live).** Check the terms of use before publishing (deployment guide, section 5) |
 | `api.frankfurter.dev` | Publisher on the GitHub runner | Daily reference rates | **Chosen (live).** Same check |
+| `api.telegram.org` (Telegram Bot API) | Publisher on the GitHub runner | Posts new or changed signals to the private channel | **Chosen.** Needs `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in the `production` environment. Not a Cloudflare service; the Worker's cron posts to the same host |
 | `KLEVS_RESET_EMAIL_URL` (your HTTPS endpoint) | Worker | Reset e-mail, with a bearer token | Optional. Not chosen |
 | SMTP server (`KLEVS_SMTP_HOST`) | FastAPI app | Reset e-mail, if the FastAPI app is used for it | Optional. Not chosen |
 

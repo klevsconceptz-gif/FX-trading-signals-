@@ -115,14 +115,47 @@ def execute_remote(sql_file: Path) -> None:
         raise PublishError("wrangler d1 execute failed: " + " | ".join(tail)[:500])
 
 
-def publish(engine: Any, *, out: Path, dry_run: bool = False) -> dict[str, Any]:
-    """Collect, build, and either write the SQL to ``out`` (dry run) or apply it to D1."""
+def run_remote_sql(sql: str) -> list[dict[str, Any]]:
+    """Run one SQL statement on the remote D1 and return the result rows (empty for writes)."""
+    command = ["npx", "wrangler", "d1", "execute", DATABASE, "--remote",
+               "--command", sql, "--json", "--config", WRANGLER_CONFIG]
+    proc = subprocess.run(command, capture_output=True, text=True, timeout=300)
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
+        raise PublishError("wrangler d1 execute failed: " + " | ".join(tail)[:500])
+    # Wrangler may print notices before the JSON; the JSON array starts at a line that begins with "[".
+    text = proc.stdout
+    start = 0
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("["):
+            start = offset
+            break
+        offset += len(line)
+    try:
+        statements = json.loads(text[start:])
+    except ValueError as exc:
+        raise PublishError("wrangler d1 execute returned unreadable output") from exc
+    rows: list[dict[str, Any]] = []
+    for statement in statements if isinstance(statements, list) else []:
+        rows.extend(statement.get("results") or [])
+    return rows
+
+
+def publish(engine: Any, *, out: Path, dry_run: bool = False,
+            telegram_token: Optional[str] = None, telegram_chat_id: Optional[str] = None) -> dict[str, Any]:
+    """Collect, build, and either write the SQL to ``out`` (dry run) or apply it to D1.
+
+    After a successful write, new or changed signals are posted to the Telegram channel when a
+    token and chat id are given. A Telegram failure is reported in the result and never fails
+    the publish, because the snapshot is already in D1.
+    """
     report, pairs = collect(engine)
     sql = build_sql(report, pairs)
     out.write_text(sql, encoding="utf-8")
     if not dry_run:
         execute_remote(out)
-    return {
+    result: dict[str, Any] = {
         "data_source": report["data_source"],
         "generated_at": report["generated_at"],
         "pairs": len(pairs),
@@ -130,3 +163,11 @@ def publish(engine: Any, *, out: Path, dry_run: bool = False) -> dict[str, Any]:
         "bytes": len(sql.encode("utf-8")),
         "dry_run": dry_run,
     }
+    if not dry_run and telegram_token and telegram_chat_id:
+        from .telegram import post_new_signals
+        try:
+            result["telegram"] = post_new_signals(
+                report, token=telegram_token, chat_id=telegram_chat_id, run_sql=run_remote_sql)
+        except Exception as exc:  # noqa: BLE001 - the snapshot is already published; report and move on
+            result["telegram"] = {"error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+    return result
