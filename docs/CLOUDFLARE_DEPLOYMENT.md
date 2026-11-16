@@ -100,7 +100,7 @@ Two workflows:
 | `KLEVS_RESET_EMAIL_TOKEN` | No | Token for the reset-e-mail endpoint (section 6) |
 | `TELEGRAM_BOT_TOKEN` | No | Bot token from @BotFather. Set all three Telegram secrets, or none. Used to post signals to the private channel |
 | `TELEGRAM_CHAT_ID` | No | Numeric id of the private channel (starts with `-100`). The bot must be an admin of the channel |
-| `TELEGRAM_POST_SECRET` | No | Shared secret between the publish job and the Worker's Telegram endpoint. Any long random string |
+| `TELEGRAM_POST_SECRET` | No | Bearer secret for the Worker's `/api/internal/telegram/post` endpoint. The publish job no longer uses it. Any long random string |
 
 3. Add these **environment variables** (not secret):
 
@@ -220,7 +220,7 @@ Worker (set with `wrangler secret put` or in `vars`):
 | `KLEVS_RESET_EMAIL_TOKEN` | secret | Token for the reset-e-mail endpoint |
 | `TELEGRAM_BOT_TOKEN` | secret | Telegram bot token. Never logged or returned |
 | `TELEGRAM_CHAT_ID` | secret | Private channel id for signal posts |
-| `TELEGRAM_POST_SECRET` | secret | Bearer secret for `POST /api/internal/telegram/post`, which the publish job calls |
+| `TELEGRAM_POST_SECRET` | secret | Bearer secret for `POST /api/internal/telegram/post` (the Worker's endpoint; not used by the publish job) |
 | `KLEVS_API_ORIGIN` | Pages variable | Overrides the Worker origin the Pages function proxies to |
 
 Publisher (GitHub `production` environment; `KFX_LIVE_DATA` is set in the workflow):
@@ -270,7 +270,7 @@ New or changed BUY NOW and SELL NOW signals are posted to a private Telegram cha
 use the same code and the same dedupe state in D1 (`telegram_state`):
 
 - the Worker's cron (`triggers.crons` in `worker/wrangler.jsonc`, at minute 30 after 00, 12, 13 and 23 UTC, which covers both Eastern offsets), and
-- the publish job, after a successful publish, through `POST /api/internal/telegram/post`.
+- the publish job, after a successful D1 write. It calls the Telegram Bot API directly (`fxbot/telegram.py`), so it does not depend on the Worker's Telegram route.
 
 Only a fresh, committed, live snapshot is posted. Waiting signals ("DO NOT BUY") are not posted.
 Each message ends with: "Signals only. Do not trade: this channel generates signals and a risk matrix."
@@ -281,8 +281,9 @@ Setup, once:
 2. Create a private channel, add the bot as an administrator with permission to post, and get the
    channel id (a number starting with `-100`) into `TELEGRAM_CHAT_ID`.
 3. Generate a long random string for `TELEGRAM_POST_SECRET`.
-4. Run the deploy workflow. It applies migration `0004_telegram_state.sql` and sets the three Worker
-   secrets. The publish job reads `TELEGRAM_POST_SECRET` from the `production` environment too.
+4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to the `production` environment in GitHub. The
+   publish job reads them there. The deploy workflow also copies all three secrets to the Worker.
+   The publish job creates `telegram_state` itself if it is missing, the same as migration `0004`.
 
 Limits: the channel is a private member feed, and the messages are trading signals. Check the
 data-source terms (Yahoo Finance, Frankfurter) before members rely on them. Two triggers can, in rare
