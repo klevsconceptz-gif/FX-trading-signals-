@@ -160,4 +160,8 @@ jobs:
           status=$(curl -s -o /tmp/health.json -w '%{http_code}' "$API_ORIGIN/api/health")
           echo "GET /api/health -> $status"
           cat /tmp/health.json; echo
-          test "$status" = "200"
+          if [ "$status" != "200" ]; then
+            body=$(head -c 300 /tmp/health.json | tr '\n\r' '  ')
+            echo "::error title=Health check failed::GET $API_ORIGIN/api/health returned HTTP $status. Body: $body"
+            exit 1
+          fi
