@@ -68,10 +68,15 @@ jobs:
           cache: pip
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt -r requirements-live.txt
-      - name: Publish the latest live snapshot to D1 and post new signals to Telegram
-        # After a successful D1 write, the script posts new or changed signals straight to the
-        # Telegram Bot API. A Telegram failure is reported in the log and does not fail the publish.
+      - name: Publish the latest live snapshot to D1
+        # Writes the snapshot to D1, then saves the report it published for the Telegram step.
+        run: python -m scripts.publish_signals --report-out "$RUNNER_TEMP/signals-report.json"
+      - name: Post new signals to Telegram
+        # Runs only after the D1 write succeeded. It is a separate step with continue-on-error, so a
+        # Telegram failure is shown on the run page without failing the publish.
+        if: success()
+        continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m scripts.publish_signals
+        run: python -m scripts.post_telegram --report "$RUNNER_TEMP/signals-report.json"
