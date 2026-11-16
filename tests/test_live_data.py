@@ -273,3 +273,49 @@ def test_server_refresh_requests_reload(monkeypatch):
     client.get("/api/scan")
     client.get("/api/scan?refresh=true")
     assert seen == [(True, False), (False, True)]
+
+
+def test_missing_metal_is_excluded_and_labelled(monkeypatch):
+    """Gold has no live feed: the snapshot is still live, FX-only, and says what was left out."""
+    cfg = _cfg("1h", bars=1200)
+    monkeypatch.setattr(YFinanceProvider, "unavailable_reason", lambda self: None)
+
+    def fetch(self, ins, c):
+        if ins.kind == "metal":
+            raise ProviderError("yfinance: empty response")
+        return _fake_hourly(ins, c, n=1500)
+
+    monkeypatch.setattr(YFinanceProvider, "fetch", fetch)
+    md = MarketData(cfg)
+    history = md.load(prefer_live=True)
+    assert md.source_label.startswith("live (yfinance, 1h, ")
+    assert "excluded: XAUUSD (yfinance: empty response); XAGUSD (yfinance: empty response)" in md.source_label
+    assert "XAUUSD" not in history and "XAGUSD" not in history
+    assert set(history) == {ins.symbol for ins in UNIVERSE if ins.kind == "fx"}
+
+
+def test_full_live_load_has_no_exclusion_note(monkeypatch):
+    cfg = _cfg("1h", bars=1200)
+    monkeypatch.setattr(YFinanceProvider, "unavailable_reason", lambda self: None)
+    monkeypatch.setattr(YFinanceProvider, "fetch", lambda self, ins, c: _fake_hourly(ins, c, n=1500))
+    md = MarketData(cfg)
+    md.load(prefer_live=True)
+    assert "excluded" not in md.source_label
+    assert md.excluded == []
+
+
+def test_missing_fx_pair_still_falls_back_even_with_metals_live(monkeypatch):
+    """FX stays all-or-nothing: a gap in an FX pair is still a full synthetic fallback."""
+    cfg = _cfg("1h", bars=1200)
+    monkeypatch.setattr(YFinanceProvider, "unavailable_reason", lambda self: None)
+
+    def fetch(self, ins, c):
+        if ins.symbol == "EURUSD":
+            raise ProviderError("yfinance: empty response")
+        return _fake_hourly(ins, c, n=1500)
+
+    monkeypatch.setattr(YFinanceProvider, "fetch", fetch)
+    md = MarketData(cfg)
+    history = md.load(prefer_live=True)
+    assert md.source_label.startswith("synthetic (live unavailable: EURUSD")
+    assert len(history) == len(UNIVERSE)
