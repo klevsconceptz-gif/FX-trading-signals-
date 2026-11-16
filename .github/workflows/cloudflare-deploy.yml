@@ -112,7 +112,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$KFX_ADMIN_USERNAME$KFX_ADMIN_PASSWORD" ] && { [ -z "$KFX_ADMIN_USERNAME" ] || [ -z "$KFX_ADMIN_PASSWORD" ]; }; then
-            echo "KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must be set together." >&2
+            u=no; [ -n "$KFX_ADMIN_USERNAME" ] && u=yes
+            p=no; [ -n "$KFX_ADMIN_PASSWORD" ] && p=yes
+            echo "::error title=Admin secrets incomplete::KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must both be set in the production environment. Username set: $u. Password set: $p."
             exit 1
           fi
           # Values go through stdin, never argv. Only the secret name is printed.
@@ -121,7 +123,10 @@ jobs:
               echo "skip $1 (build secret not set)"
               return 0
             fi
-            printf '%s' "$2" | npx wrangler secret put "$1" --config worker/wrangler.jsonc > /dev/null
+            if ! printf '%s' "$2" | npx wrangler secret put "$1" --config worker/wrangler.jsonc > /dev/null; then
+              echo "::error title=Worker secret not set::wrangler secret put $1 failed (see the step log above)"
+              exit 1
+            fi
             echo "set $1"
           }
           put_secret KFX_ADMIN_USERNAME "$KFX_ADMIN_USERNAME"
