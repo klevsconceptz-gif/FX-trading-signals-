@@ -11,8 +11,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from fxbot import publish as publish_module  # noqa: E402
-from fxbot import telegram  # noqa: E402
+from fxbot import publish as publish_module
+from fxbot import telegram
 
 GENERATED_AT = 1789000000.0
 
@@ -100,7 +100,7 @@ def test_new_then_unchanged_then_changed_signals_are_posted_once_each():
 def test_a_signal_that_goes_inactive_is_forgotten_and_posted_again_later():
     d1 = FakeD1()
     send = FakeTelegram()
-    kw = dict(token="123:TEST-TOKEN", chat_id="-1001234567890", run_sql=d1, send=send, now=GENERATED_AT)
+    kw = {"token": "123:TEST-TOKEN", "chat_id": "-1001234567890", "run_sql": d1, "send": send, "now": GENERATED_AT}
     telegram.post_new_signals(report(item()), **kw)
     telegram.post_new_signals(report(item(verdict="DO NOT BUY")), **kw)
     assert json.loads(d1.value) == {}

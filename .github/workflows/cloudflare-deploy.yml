@@ -68,15 +68,19 @@ jobs:
       # Reports whether the Cloudflare secrets reached this job. Prints lengths only, never values.
       - name: Check Cloudflare secrets are set
         run: |
+          missing=0
           for n in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             v="${!n}"
             if [ -z "$v" ]; then
               echo "$n: EMPTY"
+              echo "::error title=Cloudflare secret missing::$n is empty in the production environment"
+              missing=1
             else
               ws=no; if [[ "$v" =~ [[:space:]] ]]; then ws=yes; fi
               echo "$n: set, length ${#v}, contains whitespace: $ws"
             fi
           done
+          exit $missing
 
       # Finds or creates the D1 database, KV namespace and Pages project. Fails if the IDs in
       # worker/wrangler.jsonc do not match the account, so no deploy runs against the wrong resource.
@@ -91,7 +95,9 @@ jobs:
         run: npx wrangler d1 migrations apply DB --remote --config worker/wrangler.jsonc
 
       - name: Deploy the API Worker
-        run: npx wrangler deploy --config worker/wrangler.jsonc
+        # --keep-vars: keep the variables set in the Cloudflare dashboard. Without it, Wrangler deletes
+        # every variable that is not in worker/wrangler.jsonc. Bindings come from the config file.
+        run: npx wrangler deploy --config worker/wrangler.jsonc --keep-vars
 
       - name: Set Worker secrets from build secrets
         env:
