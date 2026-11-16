@@ -75,6 +75,12 @@ export function makeClient(base, token) {
   };
 }
 
+/** Print a failure to the log and as a GitHub annotation, so the reason shows on the run page. */
+function fail(message) {
+  console.error(message);
+  console.log(`::error title=Cloudflare bootstrap failed::${String(message).replace(/[\r\n]+/g, " ")}`);
+}
+
 function apiError(what, res) {
   const detail =
     res.errors
@@ -161,7 +167,7 @@ async function main(argv, env) {
   const token = env.CLOUDFLARE_API_TOKEN;
   const accountId = env.CLOUDFLARE_ACCOUNT_ID;
   if (!token || !accountId) {
-    console.error("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set.");
+    fail("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set. Add both to the production environment secrets.");
     return 1;
   }
 
@@ -184,13 +190,13 @@ async function main(argv, env) {
   const stale = results.filter((r) => r.configured !== undefined && r.id !== r.configured);
   const pending = results.some((r) => r.state === "missing");
   if (check && (pending || stale.length > 0)) {
-    console.error("Check failed: some resources are missing or the Wrangler config IDs differ.");
+    fail("Check failed: some resources are missing or the Wrangler config IDs differ.");
     return 1;
   }
   if (stale.length === 0) return 0;
 
   if (!writeConfig) {
-    console.error(
+    fail(
       `worker/wrangler.jsonc does not match this account. Run "node scripts/cloudflare_bootstrap.mjs --write-config" locally, then commit the file.`,
     );
     return 1;
@@ -205,10 +211,8 @@ if (isMain) {
   main(process.argv.slice(2), process.env)
     .then((code) => process.exit(code))
     .catch((err) => {
-      console.error(err.message);
-      // Also emit a GitHub annotation, so the reason shows on the run page without opening the log.
       // The message holds Cloudflare's error text only; it never includes the token.
-      console.log(`::error title=Cloudflare bootstrap failed::${String(err.message).replace(/[\r\n]+/g, " ")}`);
+      fail(err.message);
       process.exit(1);
     });
 }
