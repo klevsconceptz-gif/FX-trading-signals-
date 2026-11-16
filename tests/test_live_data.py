@@ -319,3 +319,20 @@ def test_missing_fx_pair_still_falls_back_even_with_metals_live(monkeypatch):
     history = md.load(prefer_live=True)
     assert md.source_label.startswith("synthetic (live unavailable: EURUSD")
     assert len(history) == len(UNIVERSE)
+
+
+def test_live_refresh_spaces_out_symbol_requests(monkeypatch):
+    """One pause between each pair of symbols: a burst of requests is what Yahoo rate-limits."""
+    cfg = _cfg("1h", bars=1200)
+    monkeypatch.setattr(YFinanceProvider, "unavailable_reason", lambda self: None)
+    monkeypatch.setattr(YFinanceProvider, "fetch", lambda self, ins, c: _fake_hourly(ins, c, n=1500))
+    monkeypatch.setattr(data_mod, "YFINANCE_PACING_SECONDS", 1.5)
+    sleeps: list[float] = []
+    monkeypatch.setattr(data_mod.time, "sleep", lambda s: sleeps.append(s))
+    md = MarketData(cfg)
+    md.load(prefer_live=True)
+    assert sleeps == [1.5] * (len(UNIVERSE) - 1)
+
+
+def test_yfinance_retry_backoff_is_long_enough_for_a_rate_limit_window():
+    assert data_mod.YFINANCE_RETRY_DELAYS == (15.0, 45.0)

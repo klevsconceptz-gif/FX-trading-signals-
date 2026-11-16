@@ -17,9 +17,16 @@ os.environ.setdefault("KFX_LIVE_DATA", "0")
 # and it never touches the operator's database: each run gets a throw-away SQLite file
 os.environ.setdefault("KLEVS_DATABASE_URL", "sqlite:///" + tempfile.mkdtemp(prefix="klevs-test-") + "/test.db")
 
+from fxbot import data as data_mod
 from fxbot.config import AppConfig
 from fxbot.data import MarketData, SyntheticMarket
 from fxbot.universe import BY_SYMBOL
+
+
+@pytest.fixture(autouse=True)
+def no_live_pacing(monkeypatch):
+    """Tests drive fake providers, so the pause between live requests is skipped."""
+    monkeypatch.setattr(data_mod, "YFINANCE_PACING_SECONDS", 0)
 
 
 @pytest.fixture(scope="session")
