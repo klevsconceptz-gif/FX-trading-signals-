@@ -76,7 +76,11 @@ export function makeClient(base, token) {
 }
 
 function apiError(what, res) {
-  const detail = res.errors.map((e) => e.message).filter(Boolean).join("; ") || "no detail";
+  const detail =
+    res.errors
+      .map((e) => [e.code ? `[${e.code}]` : "", e.message].filter(Boolean).join(" "))
+      .filter(Boolean)
+      .join("; ") || "no detail";
   return new Error(`${what} failed (HTTP ${res.status}): ${detail}`);
 }
 
@@ -202,6 +206,9 @@ if (isMain) {
     .then((code) => process.exit(code))
     .catch((err) => {
       console.error(err.message);
+      // Also emit a GitHub annotation, so the reason shows on the run page without opening the log.
+      // The message holds Cloudflare's error text only; it never includes the token.
+      console.log(`::error title=Cloudflare bootstrap failed::${String(err.message).replace(/[\r\n]+/g, " ")}`);
       process.exit(1);
     });
 }
