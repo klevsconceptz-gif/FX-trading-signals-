@@ -25,6 +25,12 @@ from fxbot.engine import MarketEngine
 from fxbot.publish import PublishError, publish
 
 
+def fail(message: str) -> None:
+    """Print the reason to the log and as a GitHub annotation, so it shows on the run page."""
+    print(message, file=sys.stderr)
+    print(f"::error title=Publish failed::{message.replace(chr(10), ' ')}")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Publish live signals to Cloudflare D1")
     ap.add_argument("--dry-run", action="store_true", help="write the SQL to --out and do not touch D1")
@@ -38,8 +44,11 @@ def main(argv: list[str] | None = None) -> int:
                          telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or None,
                          telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", "").strip() or None)
     except PublishError as exc:
-        print(f"publish failed: {exc}", file=sys.stderr)
+        fail(f"publish failed: {exc}")
         return 1
+    except Exception as exc:  # report any engine or network error on the run page
+        fail(f"publish crashed: {type(exc).__name__}: {str(exc)[:300]}")
+        raise
     mode = "dry run, SQL written" if result["dry_run"] else "published to D1"
     print(f"{mode}: source={result['data_source']} pairs={result['pairs']} "
           f"statements={result['statements']} bytes={result['bytes']} generated_at={result['generated_at']:.0f}")
