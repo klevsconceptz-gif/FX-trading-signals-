@@ -124,7 +124,7 @@ jobs:
               return 0
             fi
             if ! printf '%s' "$2" | npx wrangler secret put "$1" --config worker/wrangler.jsonc > /dev/null; then
-              echo "::error title=Worker secret not set::wrangler secret put $1 failed (see the step log above)"
+              echo "::error title=Worker secret not set::Setting $1 on the Worker failed (see the step log above)"
               exit 1
             fi
             echo "set $1"
