@@ -223,7 +223,10 @@ class SyntheticMarket:
 
 LIVE_BREAKER_FAILURES = 3
 # Pause before each retry of a Yahoo request that returned nothing or raised.
-YFINANCE_RETRY_DELAYS: tuple[float, ...] = (5.0, 15.0)
+YFINANCE_RETRY_DELAYS: tuple[float, ...] = (15.0, 45.0)
+# Pause between one symbol and the next in a refresh. yfinance sends one Yahoo request per
+# symbol, so a burst of 28 requests is what trips the rate limit; spacing them out avoids it.
+YFINANCE_PACING_SECONDS = 1.5
 LIVE_BREAKER_COOLDOWN = 600.0   # seconds
 MIN_LIVE_BARS = 100
 
@@ -437,7 +440,9 @@ class MarketData:
         used: set[str] = set()
         excluded: list[str] = []
         self.live_notes = []
-        for ins in targets:
+        for index, ins in enumerate(targets):
+            if index and YFINANCE_PACING_SECONDS:
+                time.sleep(YFINANCE_PACING_SECONDS)
             start = len(self.live_notes)
             got = self._fetch_live(ins)
             if got is None:

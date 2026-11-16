@@ -98,6 +98,9 @@ reference only.
   - Mixed live/synthetic series possible → FX pairs all-or-nothing per refresh.
   - Gold feed empty on the CI runner (2026-11-16: XAUUSD in one run, EURUSD in another) blocked every publish.
     → metals are optional: a missing metal is excluded and named in `data_source`; FX-only snapshots still publish.
+  - Yahoo rate-limits bursts from the CI runner (empty responses). yfinance sends one request per symbol, so batching
+    does not reduce the count. → 1.5 s pause between symbols and 15 s / 45 s retry backoff (was 5 s / 15 s).
+    Unverified until a CI publish run succeeds from a clean refresh.
   - exchangerate.host requires a paid key and its response format is undocumented → removed.
   - No backoff on dead hosts → per-provider circuit breaker (3 failures → 10 min pause).
 - Provider chain: `yfinance` (hourly, `requirements-live.txt`) → `frankfurter` (daily only).
