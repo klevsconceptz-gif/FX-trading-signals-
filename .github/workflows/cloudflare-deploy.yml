@@ -91,7 +91,9 @@ jobs:
         run: npx wrangler d1 migrations apply DB --remote --config worker/wrangler.jsonc
 
       - name: Deploy the API Worker
-        run: npx wrangler deploy --config worker/wrangler.jsonc
+        # --keep-vars: keep the variables set in the Cloudflare dashboard. Without it, Wrangler deletes
+        # every variable that is not in worker/wrangler.jsonc. Bindings come from the config file.
+        run: npx wrangler deploy --config worker/wrangler.jsonc --keep-vars
 
       - name: Set Worker secrets from build secrets
         env:

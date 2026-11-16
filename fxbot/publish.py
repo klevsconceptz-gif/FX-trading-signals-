@@ -168,6 +168,6 @@ def publish(engine: Any, *, out: Path, dry_run: bool = False,
         try:
             result["telegram"] = post_new_signals(
                 report, token=telegram_token, chat_id=telegram_chat_id, run_sql=run_remote_sql)
-        except Exception as exc:  # noqa: BLE001 - the snapshot is already published; report and move on
+        except Exception as exc:  # the snapshot is already published; report and move on
             result["telegram"] = {"error": f"{type(exc).__name__}: {str(exc)[:300]}"}
     return result
