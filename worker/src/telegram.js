@@ -30,6 +30,12 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
+/** Telegram sends the secret it was registered with (setWebhook) in this header on every update. */
+export function telegramWebhookAuthorized(request, env) {
+  if (!env?.TELEGRAM_WEBHOOK_SECRET) throw new ApiError(503, "TELEGRAM_WEBHOOK_SECRET is not configured on the Worker");
+  return safeEqual(request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "", env.TELEGRAM_WEBHOOK_SECRET);
+}
+
 /** The endpoint is for the publish job only: it needs the shared secret as a bearer token. */
 export function telegramRequestAuthorized(request, env) {
   if (!env?.TELEGRAM_POST_SECRET) throw new ApiError(503, "TELEGRAM_POST_SECRET is not configured on the Worker");
