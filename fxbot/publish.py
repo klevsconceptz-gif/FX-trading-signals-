@@ -143,7 +143,8 @@ def run_remote_sql(sql: str) -> list[dict[str, Any]]:
 
 
 def publish(engine: Any, *, out: Path, dry_run: bool = False,
-            telegram_token: Optional[str] = None, telegram_chat_id: Optional[str] = None) -> dict[str, Any]:
+            telegram_token: Optional[str] = None, telegram_chat_id: Optional[str] = None,
+            report_out: Optional[Path] = None) -> dict[str, Any]:
     """Collect, build, and either write the SQL to ``out`` (dry run) or apply it to D1.
 
     After a successful write, new or changed signals are posted to the Telegram channel when a
@@ -155,6 +156,9 @@ def publish(engine: Any, *, out: Path, dry_run: bool = False,
     out.write_text(sql, encoding="utf-8")
     if not dry_run:
         execute_remote(out)
+    if report_out is not None:
+        # the exact report that was just published; the Telegram step posts from this file
+        report_out.write_text(json.dumps(_clean(report), ensure_ascii=False, allow_nan=False), encoding="utf-8")
     result: dict[str, Any] = {
         "data_source": report["data_source"],
         "generated_at": report["generated_at"],
