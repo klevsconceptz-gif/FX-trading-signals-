@@ -143,14 +143,22 @@ jobs:
         env:
           CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [ -z "$CLOUDFLARE_PAGES_PROJECT" ]; then
-            echo "Set the repository variable CLOUDFLARE_PAGES_PROJECT first." >&2
+            echo "::error title=Pages deploy failed::CLOUDFLARE_PAGES_PROJECT is not set in the production environment."
             exit 1
           fi
           # Run from the repository root: Wrangler uploads the functions/ folder (the /api proxy)
-          # that sits where the command runs, next to dist/.
-          npx wrangler pages deploy dist --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA"
+          # that sits where the command runs, next to dist/. Its output goes to a file so the
+          # reason can be shown as an annotation on the run page.
+          npx wrangler pages deploy dist --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA" > /tmp/pages-deploy.log 2>&1
+          status=$?
+          cat /tmp/pages-deploy.log
+          if [ "$status" != "0" ]; then
+            reason=$(grep -v '^[[:space:]]*$' /tmp/pages-deploy.log | tail -n 3 | tr '\n' ' ' | cut -c1-400)
+            echo "::error title=Pages deploy failed::wrangler exit $status: $reason"
+            exit "$status"
+          fi
 
       - name: Health check
         env:
