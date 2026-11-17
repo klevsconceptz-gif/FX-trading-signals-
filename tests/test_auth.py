@@ -129,12 +129,16 @@ def test_register_rejects_duplicates_and_bad_fields(client):
 
 # -- login ----------------------------------------------------------------------
 
-def test_login_with_all_three_identifiers(client):
+def test_login_uses_the_username_only(client):
     _register(client)
-    for ident in ("trader_one", "trader@example.com", "+1 555 000 2222", "+15550002222"):
+    for ident in ("trader_one", "TRADER_ONE"):
         r = client.post("/api/auth/login", json={"identifier": ident, "password": PW})
         assert r.status_code == 200, ident
         assert r.json()["user"]["username"] == "trader_one"
+    # email and phone are not accepted at sign-in, even with the right password
+    for ident in ("trader@example.com", "+1 555 000 2222", "+15550002222"):
+        r = client.post("/api/auth/login", json={"identifier": ident, "password": PW})
+        assert r.status_code == 401, ident
 
 
 def test_login_failures_are_indistinguishable(client):
@@ -355,7 +359,9 @@ def test_bootstrap_from_env(monkeypatch):
     monkeypatch.setenv("KFX_ADMIN_PASSWORD", ADMIN_PW)
     monkeypatch.setenv("KFX_ADMIN_PHONE", "+15559990000")
     assert server._bootstrap_admin_from_env() == ADMIN_USER
-    assert ACCOUNTS.authenticate("+1 555 999 0000", ADMIN_PW).role == "admin"
+    assert ACCOUNTS.authenticate(ADMIN_USER, ADMIN_PW).role == "admin"
+    with pytest.raises(ValueError):                      # the phone number is not a login name
+        ACCOUNTS.authenticate("+1 555 999 0000", ADMIN_PW)
     monkeypatch.delenv("KFX_ADMIN_PASSWORD")
     with pytest.raises(RuntimeError):
         server._bootstrap_admin_from_env()

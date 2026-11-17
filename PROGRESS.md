@@ -76,7 +76,7 @@ reference only.
 ### 6. Admin account
 - Operator-provisioned admin (`KFX_ADMIN_USERNAME` / `KFX_ADMIN_PASSWORD` [+ `_EMAIL`, `_PHONE`]) seeded at server start via `_bootstrap_admin_from_env()` → `AccountStore.seed_admin()`. No credentials in code or git.
 - Admin role/plan (`role: admin`, plan `admin`, `access: unrestricted`) never selectable at register or at payment (422).
-- Admin username `Admin@klev.fx` is accepted through the admin path only (user usernames stay `[A-Za-z0-9_.-]`).
+- Admin username `admin` is accepted through the admin path only (user usernames stay `[A-Za-z0-9_.-]`).
 - Tests: 95/95 (10 new admin tests). Ruff clean. Live check: username + email login 200, wrong password 401, admin plan self-select 422. Server stopped after.
 
 ### 7. Full system check (round 9)

@@ -4,7 +4,7 @@ Security model (stdlib hashing; database via SQLAlchemy — see ``fxbot/db.py``)
 
 * Passwords are never stored in plain text: PBKDF2-HMAC-SHA256 (200k iterations)
   with a unique random salt, compared in constant time.
-* Login accepts username, email or phone + password.  Ten wrong passwords lock
+* Login accepts the username + password only.  Ten wrong passwords lock
   the account for 15 minutes.
 * Session tokens are random 256-bit values; the database holds only their
   SHA-256 hash, so a leaked table cannot be replayed.
@@ -30,7 +30,7 @@ import time
 from email.message import EmailMessage
 from typing import Any, Optional
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, select
 
 from .db import User, UserSession, db_session
 
@@ -128,10 +128,6 @@ def _reserved_identity(username: str, email: str) -> bool:
     return username.lower() == bootstrap or email.lower() == bootstrap_email
 
 
-def _digits(value: str) -> str:
-    return re.sub(r"[^\d+]", "", value)
-
-
 def _code_hash(code: str, salt: bytes) -> str:
     return hashlib.pbkdf2_hmac("sha256", code.encode(), salt, 50_000).hex()
 
@@ -178,19 +174,10 @@ class AccountStore:
     def authenticate(self, identifier: str, password: str) -> User:
         ident = identifier.strip()
         with db_session() as s:
-            user = s.scalar(select(User).where(or_(
-                User.username == ident,
-                User.email == ident.lower(),
-                User.phone == ident,
-            )))
-            if user is None and re.fullmatch(r"[0-9+\s\-().]+", ident):
-                norm = _digits(ident)
-                for candidate in s.scalars(select(User).where(User.phone.is_not(None))):
-                    if _digits(candidate.phone or "") == norm:
-                        user = candidate
-                        break
+            # Sign-in uses the username only (case-insensitive). Email and phone are not accepted here.
+            user = s.scalar(select(User).where(func.lower(User.username) == ident.lower()))
             if user is None:
-                raise ValueError("no account found for that username, email or phone")
+                raise ValueError("no account found for that username")
 
             now = time.time()
             if user.locked_until > now:
@@ -273,7 +260,7 @@ class AccountStore:
         """Create or rotate the admin account.
 
         Admin usernames are not restricted to the user-facing rule (so an address
-        such as ``Admin@klev.fx`` works); the password policy still applies.
+        such as ``admin`` or an address works); the password policy still applies.
         Email defaults to the username when that is an address.  Calling again
         with the same username rotates the password in place.
         """

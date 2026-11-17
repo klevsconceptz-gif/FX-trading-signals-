@@ -164,7 +164,7 @@ The operator account is provisioned from environment variables. The credentials 
 written into the code or the repository:
 
 ```bash
-export KFX_ADMIN_USERNAME='Admin@klev.fx'     # required
+export KFX_ADMIN_USERNAME='admin'            # required
 export KFX_ADMIN_PASSWORD='...'               # required, must meet the password policy
 export KFX_ADMIN_EMAIL='admin@klev.fx'        # optional (defaults to the username)
 export KFX_ADMIN_PHONE='+1 555 000 0000'      # optional

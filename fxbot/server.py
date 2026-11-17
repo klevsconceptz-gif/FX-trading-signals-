@@ -7,7 +7,7 @@ GET  /app                      dashboard shell (data endpoints need paid access)
 GET  /admin                    operator console (admin role required)
 GET  /api/health               liveness + config summary
 POST /api/register             create account (username, email, phone, password)
-POST /api/auth/login           log in with username, email or phone + password
+POST /api/auth/login           log in with username + password
 POST /api/auth/forgot          e-mail a reset code (never returned in the response)
 POST /api/auth/reset           verify the code, set a new password, log in
 GET  /api/auth/password-policy password rules for the UI
@@ -580,7 +580,7 @@ def backtest(req: BacktestRequest, _user: Optional[User] = Depends(require_signa
 def _bootstrap_admin_from_env() -> Optional[str]:
     """Provision the admin account from the environment (no credentials in code).
 
-        KFX_ADMIN_USERNAME  required, e.g. Admin@klev.fx
+        KFX_ADMIN_USERNAME  required, e.g. admin
         KFX_ADMIN_PASSWORD  required, must satisfy the password policy
         KFX_ADMIN_EMAIL     optional (defaults to the username)
         KFX_ADMIN_PHONE     optional
