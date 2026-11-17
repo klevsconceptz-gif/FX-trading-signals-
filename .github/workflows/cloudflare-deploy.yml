@@ -109,6 +109,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_POST_SECRET: ${{ secrets.TELEGRAM_POST_SECRET }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
           if [ -n "$KFX_ADMIN_USERNAME$KFX_ADMIN_PASSWORD" ] && { [ -z "$KFX_ADMIN_USERNAME" ] || [ -z "$KFX_ADMIN_PASSWORD" ]; }; then
@@ -137,6 +138,7 @@ jobs:
           put_secret TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN"
           put_secret TELEGRAM_CHAT_ID "$TELEGRAM_CHAT_ID"
           put_secret TELEGRAM_POST_SECRET "$TELEGRAM_POST_SECRET"
+          put_secret TELEGRAM_WEBHOOK_SECRET "$TELEGRAM_WEBHOOK_SECRET"
 
       - name: Deploy the Pages site
         if: ${{ inputs.deploy_pages }}
@@ -173,3 +175,11 @@ jobs:
             echo "::error title=Health check failed::GET $API_ORIGIN/api/health returned HTTP $status. Body: $body"
             exit 1
           fi
+
+      - name: Register the Telegram webhook
+        # Join tracking for the private channel. Skipped until TELEGRAM_WEBHOOK_SECRET is set.
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          API_ORIGIN: ${{ vars.KLEVS_API_ORIGIN || 'https://fx-trading-signals.klevsconceptz.workers.dev' }}
+        run: node scripts/register_telegram_webhook.mjs

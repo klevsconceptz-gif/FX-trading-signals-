@@ -246,6 +246,11 @@
         <section class="auth-view" id="view-success" hidden>
           <h3 id="auth-success-title">You're in!</h3>
           <p class="auth-sub" id="auth-success-msg"></p>
+          <div class="channel-join" id="channel-join" hidden>
+            <p class="auth-sub" id="channel-join-msg"></p>
+            <button class="auth-submit" type="button" id="channel-join-btn">Join the private channel</button>
+            <p class="auth-sub" id="channel-join-link" hidden></p>
+          </div>
           <button class="auth-submit" type="button" id="auth-open-app">Open the bot →</button>
         </section>
       </div>`;
@@ -288,6 +293,18 @@
     document.body.style.overflow = "hidden";
     showView(view);
     if (view === "plan") loadPlanView();
+  }
+
+  /* Reopen the private-channel panel for a member who is already signed in. */
+  async function openChannel() {
+    const el = modal();
+    el.querySelector("#auth-success-title").textContent = "Private signal channel";
+    el.querySelector("#auth-success-msg").textContent = "Members with an active plan can join the private channel.";
+    $(el, "#auth-open-app").textContent = "Back to the dashboard →";
+    el.hidden = false;
+    document.body.style.overflow = "hidden";
+    await loadChannelPanel(el, false);
+    showView("success");
   }
 
   function close() {
@@ -335,6 +352,45 @@
     return open("plan");
   }
 
+  /* ---------- private channel: one single-use invite link per member ---------- */
+  async function loadChannelPanel(el, isAdmin) {
+    const panel = el.querySelector("#channel-join");
+    const msg = el.querySelector("#channel-join-msg");
+    const btn = el.querySelector("#channel-join-btn");
+    const linkEl = el.querySelector("#channel-join-link");
+    panel.hidden = true;
+    linkEl.hidden = true;
+    if (isAdmin) return;
+    try {
+      const st = await API.get("/api/channel");
+      if (!st.eligible) return;
+      panel.hidden = false;
+      if (st.joined) {
+        msg.textContent = "You are in the private channel.";
+        btn.hidden = true;
+        return;
+      }
+      msg.textContent = "Your plan includes the private signal channel. Each link works once.";
+      btn.hidden = false;
+      btn.disabled = false;
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          const out = await API.post("/api/channel/invite");
+          linkEl.textContent = `Your invite link: ${out.invite_link}`;
+          linkEl.hidden = false;
+          btn.hidden = true;
+          msg.textContent = "Open the link to join. It works once, then it expires.";
+        } catch (err) {
+          msg.textContent = err.message || "Could not create the invite link. Try again later.";
+          btn.disabled = false;
+        }
+      };
+    } catch (_err) {
+      panel.hidden = true;
+    }
+  }
+
   function finishSuccess(s, title) {
     const el = modal();
     el.querySelector("#auth-success-title").textContent = title;
@@ -344,6 +400,7 @@
       ? `Operator account · unrestricted access · signed in as ${s.username || s.email}`
       : `${s.plan_name || "Paid"} plan${until} · signed in as ${s.username || s.email}`;
     $(el, "#auth-open-app").textContent = isAdmin ? "Open operator console →" : "Open the bot →";
+    loadChannelPanel(el, isAdmin);
     showView("success");
     if (state.onAuth) state.onAuth(s);
   }
@@ -637,6 +694,7 @@
 
   window.Auth = {
     open,
+    openChannel,
     close,
     logout,
     refresh,
