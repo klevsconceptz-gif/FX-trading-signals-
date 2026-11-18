@@ -3,7 +3,7 @@
 //
 //   D1 database    binding `DB` in worker/wrangler.jsonc (created with the name in that file)
 //   KV namespace   binding `KV` in worker/wrangler.jsonc (created with the title below)
-//   Pages project  CLOUDFLARE_PAGES_PROJECT (default "klv-fx-trading-signals")
+//   Pages project  CLOUDFLARE_PAGES_PROJECT (default "fx-trading-signals")
 //
 // It is idempotent and creates only what is missing. If the D1 or KV IDs in the Wrangler config do
 // not match the account, it exits 1 and says what to change. Run it locally with --write-config to
@@ -16,7 +16,7 @@
 //
 // Environment:
 //   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID   required
-//   CLOUDFLARE_PAGES_PROJECT                      default "klv-fx-trading-signals"
+//   CLOUDFLARE_PAGES_PROJECT                      default "fx-trading-signals"
 //   CLOUDFLARE_PAGES_BRANCH                       default "main"
 //   CLOUDFLARE_WRANGLER_CONFIG, CLOUDFLARE_API_BASE   overrides (used by the tests)
 // The token is sent only in the Authorization header and is never printed.
@@ -26,7 +26,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const KV_TITLE = "klv-fx-trading-signals-voom";
-export const DEFAULT_PAGES_PROJECT = "klv-fx-trading-signals";
+export const DEFAULT_PAGES_PROJECT = "fx-trading-signals";
 export const DEFAULT_API_BASE = "https://api.cloudflare.com/client/v4";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

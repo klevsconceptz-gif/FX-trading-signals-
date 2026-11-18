@@ -107,7 +107,7 @@ Two workflows:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `CLOUDFLARE_PAGES_PROJECT` | Yes | `klv-fx-trading-signals` (the Pages project from step 1) |
+| `CLOUDFLARE_PAGES_PROJECT` | Yes | `fx-trading-signals` (the Pages project from step 1) |
 | `KLEVS_API_ORIGIN` | No | API origin used by the health check. Defaults to the workers.dev URL |
 
 4. Give the API token only what the deploy and the publisher need: Workers Scripts (edit), D1
