@@ -86,7 +86,7 @@ jobs:
       # worker/wrangler.jsonc do not match the account, so no deploy runs against the wrong resource.
       - name: Ensure Cloudflare resources exist
         env:
-          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'fx-trading-signals' }}
         # --write-config updates the job's copy of worker/wrangler.jsonc when the D1/KV IDs differ
         # from this account, so the deploy steps below use the right IDs. Commit the result afterwards.
         run: npm run cloudflare:bootstrap -- --write-config
@@ -143,7 +143,9 @@ jobs:
       - name: Deploy the Pages site
         if: ${{ inputs.deploy_pages }}
         env:
-          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'fx-trading-signals' }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -uo pipefail
           if [ -z "$CLOUDFLARE_PAGES_PROJECT" ]; then
@@ -153,9 +155,18 @@ jobs:
           # Run from the repository root: Wrangler uploads the functions/ folder (the /api proxy)
           # that sits where the command runs, next to dist/. Its output goes to a file so the
           # reason can be shown as an annotation on the run page.
-          npx wrangler pages deploy dist --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA" > /tmp/pages-deploy.log 2>&1
+          # Only a deploy to the project's production branch replaces the public site. Any other
+          # branch name makes a preview, so read the production branch from the project first.
+          prod_branch=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$CLOUDFLARE_PAGES_PROJECT" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("result", {}).get("production_branch", ""))' 2>/dev/null || true)
+          prod_branch=${prod_branch:-main}
+          echo "Pages project $CLOUDFLARE_PAGES_PROJECT: production branch is $prod_branch"
+          npx wrangler pages deploy dist --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch "$prod_branch" --commit-hash "$GITHUB_SHA" > /tmp/pages-deploy.log 2>&1
           status=$?
           cat /tmp/pages-deploy.log
+          url=$(grep -o 'https://[^ ]*pages.dev[^ ]*' /tmp/pages-deploy.log | head -n 1 || true)
+          if [ -n "$url" ]; then echo "::notice title=Pages deployment::$url (branch $prod_branch)"; fi
           if [ "$status" != "0" ]; then
             reason=$(grep -v '^[[:space:]]*$' /tmp/pages-deploy.log | tail -n 3 | tr '\n' ' ' | cut -c1-400)
             echo "::error title=Pages deploy failed::wrangler exit $status: $reason"

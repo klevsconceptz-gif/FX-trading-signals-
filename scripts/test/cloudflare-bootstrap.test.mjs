@@ -60,7 +60,7 @@ function startStub(state) {
       if (key === `GET ${base}/storage/kv/namespaces/${CONFIG_KV}`) return state.kvById ? send(res, 200, ok({ id: CONFIG_KV })) : send(res, 404, fail);
       if (key === `GET ${base}/storage/kv/namespaces`) return send(res, 200, ok(state.kvList));
       if (key === `POST ${base}/storage/kv/namespaces`) return send(res, 200, ok({ id: "new-kv-id", title: JSON.parse(raw).title }));
-      if (key === `GET ${base}/pages/projects/klv-fx-trading-signals`) return state.pages ? send(res, 200, ok({ name: "klv-fx-trading-signals" })) : send(res, 404, fail);
+      if (key === `GET ${base}/pages/projects/fx-trading-signals`) return state.pages ? send(res, 200, ok({ name: "fx-trading-signals" })) : send(res, 404, fail);
       if (key === `POST ${base}/pages/projects`) return send(res, 200, ok({ name: JSON.parse(raw).name }));
       return send(res, 404, fail);
     });
@@ -157,7 +157,7 @@ test("--check creates nothing and fails when something is missing", async () => 
   try {
     const r = await runScript(["--check"], { base: stub.base, configPath: tempConfig() });
     assert.equal(r.status, 1);
-    assert.match(r.stdout, /Pages project klv-fx-trading-signals: missing/);
+    assert.match(r.stdout, /Pages project fx-trading-signals: missing/);
     assert.ok(!stub.log.some((k) => k.startsWith("POST")), `check mode must not write: ${stub.log}`);
   } finally {
     closeStub(stub);

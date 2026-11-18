@@ -40,7 +40,7 @@ The signal engine (`fxbot/`, Python) runs as a scheduled publisher rather than i
 | GitHub Actions: `.github/workflows/signals.yml` | GitHub | The hourly signal publish | Built. Not run live yet |
 | GitHub environment `production` | GitHub | Holds the build secrets; can require a reviewer | Set up by you (deployment guide, section 4a) |
 | Build secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, and optional admin and reset values | GitHub environment secrets | Passed to `wrangler secret put` on stdin, and to Wrangler for the publish. Never written into the build output | Set up by you |
-| Variables: `CLOUDFLARE_PAGES_PROJECT` (`klv-fx-trading-signals`, required), `KLEVS_API_ORIGIN` (optional) | GitHub environment variables | Pages target, health check | Set up by you |
+| Variables: `CLOUDFLARE_PAGES_PROJECT` (`fx-trading-signals`, required), `KLEVS_API_ORIGIN` (optional) | GitHub environment variables | Pages target, health check | Set up by you |
 | Cloudflare API token | Cloudflare | Permissions: Workers Scripts, D1, KV, Pages (edit), account read. One account | Created by you |
 | Pages project | Cloudflare | Hosts `dist/`, proxies `/api` to the Worker (`functions/`, uploaded from the repo root) | Created by `scripts/cloudflare_bootstrap.mjs` if missing |
 | D1 database `klev`, KV namespace `voom` | Cloudflare | Bindings in `worker/wrangler.jsonc` | Found or created by `scripts/cloudflare_bootstrap.mjs`. Stale IDs fail the deploy until updated with `--write-config` |
@@ -91,7 +91,7 @@ live snapshot in place.
   Chosen. This replaces the earlier plan to port the engine to JavaScript, which has not started.
 - [x] Live market data: Yahoo Finance and Frankfurter. Chosen. Terms still to check (section 8).
 - [x] Scheduler: GitHub Actions, hourly. Chosen.
-- [x] Pages project name: `klv-fx-trading-signals`. Chosen.
+- [x] Pages project name: `fx-trading-signals`. Chosen.
 - [x] Sign-in on the Free plan: PBKDF2 lowered to 100,000 iterations (chosen 2026-10-24). Not yet proven under the 10 ms CPU limit; confirm in staging (deployment guide, section 2).
 - [x] Disclaimer: the app generates signals and a risk matrix only and does not place trades. Shown in the footer.
 - [ ] Reset e-mail: choose a provider and endpoint. Without one, operators reset passwords in the admin console.
