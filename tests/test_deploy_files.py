@@ -216,3 +216,18 @@ def test_pages_deploy_runs_from_repository_root():
     text = _workflow_text()
     assert "npx wrangler pages deploy dist" in text
     assert "cd dist" not in text
+
+PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "pages-deploy.yml"
+
+
+def test_pages_workflow_deploys_pages_only_on_main_pushes_and_manual_runs():
+    text = PAGES_WORKFLOW.read_text(encoding="utf-8")
+    assert "branches: [main]" in text
+    assert "workflow_dispatch" in text
+    assert "environment: production" in text
+    # Pages only: the Worker, its migrations and its secrets stay in cloudflare-deploy.yml.
+    for forbidden in ("wrangler deploy", "d1 migrations", "wrangler secret", "KFX_ADMIN", "TELEGRAM"):
+        assert forbidden not in text, forbidden
+    assert "npx wrangler pages deploy dist" in text
+    assert "--branch \"$prod_branch\"" in text
+    assert "concurrency:" in text and "cloudflare-deploy" in text
