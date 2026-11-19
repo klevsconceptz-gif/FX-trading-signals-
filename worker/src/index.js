@@ -50,8 +50,7 @@ import {
 } from "./http.js";
 import { SYMBOLS, UNIVERSE } from "./universe.js";
 import { signalHealth, signalResponse } from "./signals.js";
-import { postSignalUpdates, telegramRequestAuthorized, telegramConfigured, telegramWebhookAuthorized } from "./telegram.js";
-import { channelStatus, createChannelInvite, enforceChannelAccess, handleChannelUpdate } from "./channel.js";
+import { postSignalUpdates, telegramRequestAuthorized, telegramConfigured } from "./telegram.js";
 
 const APP_NAME = "klevs FX trading App";
 const VERSION = "1.0.0";
@@ -113,12 +112,6 @@ async function handleApi(request, env) {
     return jsonResponse(await postSignalUpdates(env));
   }
 
-  if (path === "/api/internal/telegram/webhook" && method === "POST") {
-    // Telegram calls this for chat_member updates. The secret set with setWebhook must match.
-    if (!telegramWebhookAuthorized(request, env)) throw new ApiError(401, "unauthorized");
-    return jsonResponse(await handleChannelUpdate(env, await parseJson(request)));
-  }
-
   if (path === "/api/auth/password-policy" && method === "GET") {
     return jsonResponse(passwordPolicyResponse());
   }
@@ -145,14 +138,6 @@ async function handleApi(request, env) {
     const user = await authenticated(env, request);
     const access = await accessStatus(env, user);
     return jsonResponse(await getMe(env, user, access));
-  }
-  if (path === "/api/channel" && method === "GET") {
-    const user = await authenticated(env, request);
-    return jsonResponse(await channelStatus(env, user));
-  }
-  if (path === "/api/channel/invite" && method === "POST") {
-    const user = await authenticated(env, request);
-    return jsonResponse(await createChannelInvite(env, user));
   }
   if (path === "/api/payment-options" && method === "GET") {
     await authenticated(env, request);
@@ -327,14 +312,15 @@ export default {
         console.error("Telegram signal post failed", error?.name || "Error", error?.status || "");
       }),
     );
-    // Remove channel members (and revoke unused links) once their access has ended.
-    if (telegramConfigured(env)) {
-      ctx.waitUntil(
-        enforceChannelAccess(env).catch((error) => {
-          console.error("Channel access check failed", error?.name || "Error", error?.status || "");
-        }),
-      );
-    }
+    // Expired sessions are otherwise removed only when they are used again. Sweep them here.
+    ctx.waitUntil(
+      (async () => {
+        await requireDatabase(env).prepare("DELETE FROM user_sessions WHERE expires_at <= ?")
+          .bind(Math.floor(Date.now() / 1000)).run();
+      })().catch((error) => {
+        console.error("Session cleanup failed", error?.name || "Error");
+      }),
+    );
   },
 
   async fetch(request, env) {

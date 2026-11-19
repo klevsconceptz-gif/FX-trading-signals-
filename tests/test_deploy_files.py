@@ -257,16 +257,23 @@ def test_deploy_reports_secret_presence_without_values():
 
 
 
-def test_telegram_secret_formats_are_checked_without_printing_values():
-    deploy = _workflow_text()
-    assert "^[A-Za-z0-9_-]{1,256}$" in deploy
-    assert "Telegram webhook secret format" in deploy
-    assert '${#TELEGRAM_WEBHOOK_SECRET}' in deploy  # length only
-    assert "echo \"$TELEGRAM_WEBHOOK_SECRET" not in deploy and "printf '%s' \"$TELEGRAM_WEBHOOK_SECRET\"" in deploy
+def test_telegram_chat_id_format_is_checked_without_printing_value():
     publish = _workflow_text(SIGNALS_WORKFLOW)
     assert "^-?[0-9]+$" in publish
     assert "Telegram chat ID format" in publish
     assert '${#TELEGRAM_CHAT_ID}' in publish
+
+
+def test_channel_membership_is_removed_but_signal_posting_stays():
+    deploy = _workflow_text()
+    # The join-tracking webhook is deleted, not registered, and nothing in the deploy sets its secret.
+    assert "scripts/remove_telegram_webhook.mjs" in deploy
+    assert "register_telegram_webhook" not in deploy
+    assert "TELEGRAM_WEBHOOK_SECRET" not in deploy
+    assert "telegram/webhook" not in (ROOT / "worker" / "src" / "index.js").read_text(encoding="utf-8")
+    # Signal posting from the publish job and the Worker cron is still wired.
+    assert "python -m scripts.post_telegram" in _workflow_text(SIGNALS_WORKFLOW)
+    assert "postSignalUpdates" in (ROOT / "worker" / "src" / "index.js").read_text(encoding="utf-8")
 
 
 def test_deploys_and_the_publish_only_run_from_main():

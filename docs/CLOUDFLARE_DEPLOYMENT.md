@@ -101,7 +101,6 @@ Two workflows:
 | `TELEGRAM_BOT_TOKEN` | No | Bot token from @BotFather. Set all three Telegram secrets, or none. Used to post signals to the private channel |
 | `TELEGRAM_CHAT_ID` | No | Numeric id of the private channel (starts with `-100`). The bot must be an admin of the channel |
 | `TELEGRAM_POST_SECRET` | No | Bearer secret for the Worker's `/api/internal/telegram/post` endpoint. The publish job no longer uses it. Any long random string |
-| `TELEGRAM_WEBHOOK_SECRET` | No | Secret Telegram sends back on the channel webhook (`X-Telegram-Bot-Api-Secret-Token`). Set with `TELEGRAM_BOT_TOKEN`. The deploy registers the webhook when it is set. Any long random string |
 
 3. Add these **environment variables** (not secret):
 
@@ -222,7 +221,6 @@ Worker (set with `wrangler secret put` or in `vars`):
 | `TELEGRAM_BOT_TOKEN` | secret | Telegram bot token. Never logged or returned |
 | `TELEGRAM_CHAT_ID` | secret | Private channel id for signal posts |
 | `TELEGRAM_POST_SECRET` | secret | Bearer secret for `POST /api/internal/telegram/post` (the Worker's endpoint; not used by the publish job) |
-| `TELEGRAM_WEBHOOK_SECRET` | secret | Checks Telegram's calls to `POST /api/internal/telegram/webhook` (channel joins and departures) |
 | `KLEVS_API_ORIGIN` | Pages variable | Overrides the Worker origin the Pages function proxies to |
 
 Publisher (GitHub `production` environment; `KFX_LIVE_DATA` is set in the workflow):
@@ -283,21 +281,14 @@ Setup, once:
 2. Create a private channel, add the bot as an administrator with permission to post, and get the
    channel id (a number starting with `-100`) into `TELEGRAM_CHAT_ID`.
 3. Generate a long random string for `TELEGRAM_POST_SECRET`.
-   Also generate a long random string for `TELEGRAM_WEBHOOK_SECRET`.
 4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to the `production` environment in GitHub. The
    publish job reads them there. The deploy workflow also copies all three secrets to the Worker.
    The publish job creates `telegram_state` itself if it is missing, the same as migration `0004`.
 
-Member access (channel only; sign-in is still username and password):
-
-- A member with an active plan gets one single-use invite link from the **Private channel** button in
-  the dashboard header. The Worker creates it with the Bot API (`createChatInviteLink`, `member_limit: 1`).
-- The bot needs admin rights to create invite links, ban users, and revoke links.
-- When Telegram reports a join through one of our links (`chat_member` update), the member is recorded.
-  A join without an active plan is removed at once.
-- The Worker cron (`30 0,12,13,23 * * *`) revokes unused links and removes members whose access has ended.
-  A failed call is counted and retried on the next run.
-- Deploy registers the webhook for `chat_member` updates with `scripts/register_telegram_webhook.mjs`.
+Channel membership is not managed by the site. The dashboard has no channel button, and the Worker
+has no invite or join-tracking routes. Members are added to the channel by the operator outside this
+system. The deploy deletes any old Telegram webhook with `scripts/remove_telegram_webhook.mjs`.
+The tables from migration `0005` (`channel_invites`, `channel_members`) remain in D1 but are unused.
 
 Limits: the channel is a private member feed, and the messages are trading signals. Check the
 data-source terms (Yahoo Finance, Frankfurter) before members rely on them. Two triggers can, in rare

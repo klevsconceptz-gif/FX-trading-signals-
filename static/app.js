@@ -597,7 +597,6 @@ function showChip(s) {
   const label = s.role === "admin" ? "Admin" : (s.plan_name || "Paid");
   $("#chip-sub-name").textContent = `${label} · ${s.username || s.email}`;
   $("#btn-logout").hidden = false;
-  $("#btn-channel").hidden = s.role === "admin" ? true : false;
 }
 
 function unlockApp(s) {
@@ -614,7 +613,6 @@ function lockPaywall(message, clearSession = false) {
   document.body.style.overflow = "hidden";
   $("#chip-sub").hidden = true;
   $("#btn-logout").hidden = !localStorage.getItem("kfx_sub");
-  $("#btn-channel").hidden = true;
 }
 
 async function initSubscriberGate() {
@@ -632,7 +630,6 @@ if (window.Auth) {
 $("#pw-msg").dataset.default = $("#pw-msg").textContent;
 
 $("#btn-logout").addEventListener("click", () => { window.Auth.logout(); });
-$("#btn-channel").addEventListener("click", () => { window.Auth.openChannel(); });
 $("#pw-pay").addEventListener("click", () => window.Auth.open("plan"));
 $("#pw-status").addEventListener("click", async () => {
   const s = await window.Auth.refresh();

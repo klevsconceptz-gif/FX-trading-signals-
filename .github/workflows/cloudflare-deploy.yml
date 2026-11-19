@@ -103,24 +103,14 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_POST_SECRET: ${{ secrets.TELEGRAM_POST_SECRET }}
-          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
         run: |
           report=""
-          for n in KFX_ADMIN_USERNAME KFX_ADMIN_PASSWORD KFX_ADMIN_EMAIL KFX_ADMIN_PHONE KLEVS_RESET_EMAIL_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_POST_SECRET TELEGRAM_WEBHOOK_SECRET; do
+          for n in KFX_ADMIN_USERNAME KFX_ADMIN_PASSWORD KFX_ADMIN_EMAIL KFX_ADMIN_PHONE KLEVS_RESET_EMAIL_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_POST_SECRET; do
             v="${!n}"
             if [ -n "$v" ]; then state=set; else state=EMPTY; fi
             report="$report $n=$state;"
           done
           echo "::notice title=Production secrets (presence only)::$report"
-          # Format only, never the value. Telegram accepts a webhook secret of 1-256 characters from
-          # A-Z, a-z, 0-9, _ and -. A failure here explains "secret token contains illegal characters".
-          if [ -n "$TELEGRAM_WEBHOOK_SECRET" ]; then
-            if printf '%s' "$TELEGRAM_WEBHOOK_SECRET" | grep -Eq '^[A-Za-z0-9_-]{1,256}$'; then
-              echo "::notice title=Telegram webhook secret format::valid (length ${#TELEGRAM_WEBHOOK_SECRET})"
-            else
-              echo "::error title=Telegram webhook secret format::invalid: must be 1-256 characters from A-Z, a-z, 0-9, _ and - (length ${#TELEGRAM_WEBHOOK_SECRET}); regenerate it, e.g. openssl rand -hex 32"
-            fi
-          fi
 
       # Finds or creates the D1 database, KV namespace and Pages project. Fails if the IDs in
       # worker/wrangler.jsonc do not match the account, so no deploy runs against the wrong resource.
@@ -149,7 +139,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_POST_SECRET: ${{ secrets.TELEGRAM_POST_SECRET }}
-          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
           if [ -n "$KFX_ADMIN_USERNAME$KFX_ADMIN_PASSWORD" ] && { [ -z "$KFX_ADMIN_USERNAME" ] || [ -z "$KFX_ADMIN_PASSWORD" ]; }; then
@@ -184,7 +173,6 @@ jobs:
           put_secret TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN"
           put_secret TELEGRAM_CHAT_ID "$TELEGRAM_CHAT_ID"
           put_secret TELEGRAM_POST_SECRET "$TELEGRAM_POST_SECRET"
-          put_secret TELEGRAM_WEBHOOK_SECRET "$TELEGRAM_WEBHOOK_SECRET"
 
       - name: Deploy the Pages site
         if: ${{ inputs.deploy_pages }}
@@ -233,10 +221,10 @@ jobs:
             exit 1
           fi
 
-      - name: Register the Telegram webhook
-        # Join tracking for the private channel. Skipped until TELEGRAM_WEBHOOK_SECRET is set.
+      - name: Remove the Telegram webhook
+        # Site-based channel access has been removed, so the old join-tracking webhook is deleted.
+        # Signal posts do not use a webhook and are unaffected. A failure here does not block the deploy.
+        continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-          API_ORIGIN: ${{ vars.KLEVS_API_ORIGIN || 'https://fx-trading-signals.klevsconceptz.workers.dev' }}
-        run: node scripts/register_telegram_webhook.mjs
+        run: node scripts/remove_telegram_webhook.mjs
