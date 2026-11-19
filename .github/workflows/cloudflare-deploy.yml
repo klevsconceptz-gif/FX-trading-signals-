@@ -59,6 +59,7 @@ jobs:
   deploy:
     name: Deploy
     needs: test
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     env:
