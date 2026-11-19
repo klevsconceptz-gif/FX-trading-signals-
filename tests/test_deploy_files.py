@@ -267,3 +267,12 @@ def test_telegram_secret_formats_are_checked_without_printing_values():
     assert "^-?[0-9]+$" in publish
     assert "Telegram chat ID format" in publish
     assert '${#TELEGRAM_CHAT_ID}' in publish
+
+
+def test_deploys_and_the_publish_only_run_from_main():
+    # Production deploys and signal publishes come from main only, never from a session branch.
+    for path in (ROOT / ".github" / "workflows" / "cloudflare-deploy.yml", ROOT / ".github" / "workflows" / "pages-deploy.yml"):
+        assert "if: github.ref == 'refs/heads/main'" in path.read_text(encoding="utf-8"), path.name
+    publish = _workflow_text(SIGNALS_WORKFLOW)
+    assert "if: github.ref == 'refs/heads/main' && needs.gate.outputs.run == 'true'" in publish
+
