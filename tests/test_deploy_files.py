@@ -231,3 +231,9 @@ def test_pages_workflow_deploys_pages_only_on_main_pushes_and_manual_runs():
     assert "npx wrangler pages deploy dist" in text
     assert "--branch \"$prod_branch\"" in text
     assert "concurrency:" in text and "cloudflare-deploy" in text
+
+
+def test_deploy_stops_when_the_admin_email_is_missing():
+    text = _workflow_text()
+    assert "KFX_ADMIN_EMAIL must be set" in text
+    assert "Without it the Worker refuses every sign-in" in text

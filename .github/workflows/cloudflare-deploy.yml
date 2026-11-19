@@ -118,6 +118,12 @@ jobs:
             echo "::error title=Admin secrets incomplete::KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must both be set in the production environment. Username set: $u. Password set: $p."
             exit 1
           fi
+          # Without a valid email, the Worker refuses every sign-in (admin and members alike), so the
+          # deploy stops here. The username is not an email address, so it cannot stand in for one.
+          if [ -n "$KFX_ADMIN_USERNAME" ] && [ -z "$KFX_ADMIN_EMAIL" ]; then
+            echo "::error title=Admin email missing::KFX_ADMIN_EMAIL must be set in the production environment. Without it the Worker refuses every sign-in."
+            exit 1
+          fi
           # Values go through stdin, never argv. Only the secret name is printed.
           put_secret() {
             if [ -z "$2" ]; then

@@ -144,6 +144,12 @@ async function ensureBootstrapAdmin(env) {
     }
   }
 
+  // The stored display name follows KFX_ADMIN_USERNAME (for example after a case-only change).
+  // The lookup key is lowercase, so the account itself does not change.
+  if (user.username !== username) {
+    await db.prepare("UPDATE users SET username = ? WHERE id = ?").bind(username, user.id).run();
+  }
+
   const passwordMatches = await verifyPassword(password, user.password_hash);
   if (!passwordMatches) {
     const newHash = await hashPassword(password);
