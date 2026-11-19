@@ -93,9 +93,9 @@ Two workflows:
 |---|---|---|
 | `CLOUDFLARE_API_TOKEN` | Yes | API token for the deploy and the publisher (permissions below) |
 | `CLOUDFLARE_ACCOUNT_ID` | Yes | The Cloudflare account that owns the Worker, D1, KV and Pages |
-| `KFX_ADMIN_USERNAME` | Set both, or neither | Admin login name. If both admin values are empty, the deploy step skips them. Setting only one fails the job |
-| `KFX_ADMIN_PASSWORD` | Set both, or neither | Admin password. Must meet the password policy |
-| `KFX_ADMIN_EMAIL` | No | Admin e-mail, if the username is not an address |
+| `ADMIN_USERNAME` | Set both, or neither | Admin login name. If both admin values are empty, the deploy step skips them. Setting only one fails the job |
+| `ADMIN_PASSWORD` | Set both, or neither | Admin password. Must meet the password policy |
+| `ADMIN_EMAIL_ADDRESS` | No | Admin e-mail, if the username is not an address |
 | `KFX_ADMIN_PHONE` | No | Admin phone number |
 | `KLEVS_RESET_EMAIL_TOKEN` | No | Token for the reset-e-mail endpoint (section 6) |
 | `TELEGRAM_BOT_TOKEN` | No | Bot token from @BotFather. Set all three Telegram secrets, or none. Used to post signals to the private channel |

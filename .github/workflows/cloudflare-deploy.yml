@@ -94,9 +94,9 @@ jobs:
       # secrets reached this job, so a missing one is visible without opening the logs.
       - name: Report which production secrets reached the job
         env:
-          KFX_ADMIN_USERNAME: ${{ secrets.KFX_ADMIN_USERNAME }}
-          KFX_ADMIN_PASSWORD: ${{ secrets.KFX_ADMIN_PASSWORD }}
-          KFX_ADMIN_EMAIL: ${{ secrets.KFX_ADMIN_EMAIL }}
+          KFX_ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          KFX_ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          KFX_ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL_ADDRESS }}
           KFX_ADMIN_PHONE: ${{ secrets.KFX_ADMIN_PHONE }}
           KLEVS_RESET_EMAIL_TOKEN: ${{ secrets.KLEVS_RESET_EMAIL_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -131,9 +131,9 @@ jobs:
 
       - name: Set Worker secrets from build secrets
         env:
-          KFX_ADMIN_USERNAME: ${{ secrets.KFX_ADMIN_USERNAME }}
-          KFX_ADMIN_PASSWORD: ${{ secrets.KFX_ADMIN_PASSWORD }}
-          KFX_ADMIN_EMAIL: ${{ secrets.KFX_ADMIN_EMAIL }}
+          KFX_ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          KFX_ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          KFX_ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL_ADDRESS }}
           KFX_ADMIN_PHONE: ${{ secrets.KFX_ADMIN_PHONE }}
           KLEVS_RESET_EMAIL_TOKEN: ${{ secrets.KLEVS_RESET_EMAIL_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -145,13 +145,13 @@ jobs:
           if [ -n "$KFX_ADMIN_USERNAME$KFX_ADMIN_PASSWORD" ] && { [ -z "$KFX_ADMIN_USERNAME" ] || [ -z "$KFX_ADMIN_PASSWORD" ]; }; then
             u=no; [ -n "$KFX_ADMIN_USERNAME" ] && u=yes
             p=no; [ -n "$KFX_ADMIN_PASSWORD" ] && p=yes
-            echo "::error title=Admin secrets incomplete::KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must both be set in the production environment. Username set: $u. Password set: $p."
+            echo "::error title=Admin secrets incomplete::ADMIN_USERNAME and ADMIN_PASSWORD must both be set in the production environment. Username set: $u. Password set: $p."
             exit 1
           fi
           # Without a valid email, the Worker refuses every sign-in (admin and members alike), so the
           # deploy stops here. The username is not an email address, so it cannot stand in for one.
           if [ -n "$KFX_ADMIN_USERNAME" ] && [ -z "$KFX_ADMIN_EMAIL" ]; then
-            echo "::error title=Admin email missing::KFX_ADMIN_EMAIL must be set in the production environment. Without it the Worker refuses every sign-in."
+            echo "::error title=Admin email missing::ADMIN_EMAIL_ADDRESS must be set in the production environment. Without it the Worker refuses every sign-in."
             exit 1
           fi
           # Values go through stdin, never argv. Only the secret name is printed.

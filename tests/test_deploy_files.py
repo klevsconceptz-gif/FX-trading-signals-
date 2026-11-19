@@ -130,7 +130,7 @@ def test_secrets_only_enter_through_env_mappings_never_run_lines():
     for line in _workflow_text().splitlines():
         if "${{ secrets." not in line:
             continue
-        assert re.fullmatch(r"\s+([A-Z_]+): \$\{\{ secrets\.\1 \}\}", line), line
+        assert re.fullmatch(r"\s+[A-Z_]+: \$\{\{ secrets\.[A-Z0-9_]+ \}\}", line), line
 
 
 def test_passwords_reach_wrangler_on_stdin_not_argv_and_are_never_echoed():
@@ -180,7 +180,7 @@ def test_signal_publish_workflow_is_scheduled_gated_and_uses_build_secrets():
     assert "KFX_LIVE_DATA: \"1\"" in text  # the publisher must never fall back silently
     for line in text.splitlines():
         if "${{ secrets." in line:
-            assert re.fullmatch(r"\s+([A-Z_]+): \$\{\{ secrets\.\1 \}\}", line), line
+            assert re.fullmatch(r"\s+[A-Z_]+: \$\{\{ secrets\.[A-Z0-9_]+ \}\}", line), line
     guide = DEPLOY_DOC.read_text(encoding="utf-8")
     for name in set(re.findall(r"secrets\.([A-Z][A-Z0-9_]+)", text)) | set(re.findall(r"vars\.([A-Z][A-Z0-9_]+)", text)):
         assert name in guide, name
@@ -235,7 +235,7 @@ def test_pages_workflow_deploys_pages_only_on_main_pushes_and_manual_runs():
 
 def test_deploy_stops_when_the_admin_email_is_missing():
     text = _workflow_text()
-    assert "KFX_ADMIN_EMAIL must be set" in text
+    assert "ADMIN_EMAIL_ADDRESS must be set" in text
     assert "Without it the Worker refuses every sign-in" in text
 
 
