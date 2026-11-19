@@ -52,11 +52,11 @@ Signal reads are small and are not affected. Options:
 
 1. **Workers Paid**, which raises the limit to 5 minutes of CPU per request (default 30 seconds).
    The plan costs $5 per month. This is a charged dependency.
-2. **Keep the Free plan and lower the iteration count to 100,000.** Chosen by the owner on
-   2026-10-24. New hashes use 100,000 iterations (`worker/src/security.js`). Existing hashes at
-   200,000 still verify, since the stored count is read at login, so no forced migration is needed.
-   This weakens password hashing somewhat. At 100,000 one derivation is still about 16 ms locally,
-   above the 10 ms limit, so sign-in may still fail on Free. Staging must show whether it does.
+2. **Keep the Free plan and lower the iteration count to 30,000.** Chosen by the owner. New hashes
+   use 30,000 iterations (`worker/src/security.js`), and the verifier accepts counts from 30,000 up,
+   so existing hashes still verify and no forced migration is needed. This weakens password hashing
+   more than 100,000 would. In a local Node check one derivation at 30,000 took about 6 ms, under the
+   10 ms limit, but it is not measured on Cloudflare. Staging must confirm sign-in works.
 3. **Keep the Free plan and accept that sign-in does not work** on the Worker route.
 
 ## 3. Prerequisites

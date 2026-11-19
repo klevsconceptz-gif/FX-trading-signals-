@@ -1,6 +1,9 @@
 const encoder = new TextEncoder();
 
-export const PBKDF2_ITERATIONS = 100_000;
+export const PBKDF2_ITERATIONS = 30_000;
+// Lowest count the verifier accepts. Kept equal to the new-hash count so the Free plan's CPU limit
+// applies to every hash the Worker writes.
+export const MIN_VERIFY_ITERATIONS = 30_000;
 export const MIN_PASSWORD_LENGTH = 10;
 
 export const PASSWORD_RULES = Object.freeze([
@@ -85,7 +88,7 @@ export async function verifyPassword(password, stored) {
   const iterations = Number(rawIterations);
   if (
     algorithm !== "pbkdf2-sha256" ||
-    !Number.isInteger(iterations) || iterations < 100_000 || iterations > 1_000_000 ||
+    !Number.isInteger(iterations) || iterations < MIN_VERIFY_ITERATIONS || iterations > 1_000_000 ||
     !saltText || !digestText || extra !== undefined
   ) return false;
 
