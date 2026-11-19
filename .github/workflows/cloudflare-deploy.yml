@@ -111,6 +111,15 @@ jobs:
             report="$report $n=$state;"
           done
           echo "::notice title=Production secrets (presence only)::$report"
+          # Format only, never the value. Telegram accepts a webhook secret of 1-256 characters from
+          # A-Z, a-z, 0-9, _ and -. A failure here explains "secret token contains illegal characters".
+          if [ -n "$TELEGRAM_WEBHOOK_SECRET" ]; then
+            if printf '%s' "$TELEGRAM_WEBHOOK_SECRET" | grep -Eq '^[A-Za-z0-9_-]{1,256}$'; then
+              echo "::notice title=Telegram webhook secret format::valid (length ${#TELEGRAM_WEBHOOK_SECRET})"
+            else
+              echo "::error title=Telegram webhook secret format::invalid: must be 1-256 characters from A-Z, a-z, 0-9, _ and - (length ${#TELEGRAM_WEBHOOK_SECRET}); regenerate it, e.g. openssl rand -hex 32"
+            fi
+          fi
 
       # Finds or creates the D1 database, KV namespace and Pages project. Fails if the IDs in
       # worker/wrangler.jsonc do not match the account, so no deploy runs against the wrong resource.

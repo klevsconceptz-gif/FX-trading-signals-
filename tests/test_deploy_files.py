@@ -255,3 +255,15 @@ def test_deploy_reports_secret_presence_without_values():
     assert "secrets." in report  # only in env mappings
     assert "echo \"$" not in report and "${!n}" in report
 
+
+
+def test_telegram_secret_formats_are_checked_without_printing_values():
+    deploy = _workflow_text()
+    assert "^[A-Za-z0-9_-]{1,256}$" in deploy
+    assert "Telegram webhook secret format" in deploy
+    assert '${#TELEGRAM_WEBHOOK_SECRET}' in deploy  # length only
+    assert "echo \"$TELEGRAM_WEBHOOK_SECRET" not in deploy and "printf '%s' \"$TELEGRAM_WEBHOOK_SECRET\"" in deploy
+    publish = _workflow_text(SIGNALS_WORKFLOW)
+    assert "^-?[0-9]+$" in publish
+    assert "Telegram chat ID format" in publish
+    assert '${#TELEGRAM_CHAT_ID}' in publish
