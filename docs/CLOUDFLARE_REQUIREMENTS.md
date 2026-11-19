@@ -92,7 +92,7 @@ live snapshot in place.
 - [x] Live market data: Yahoo Finance and Frankfurter. Chosen. Terms still to check (section 8).
 - [x] Scheduler: GitHub Actions, hourly. Chosen.
 - [x] Pages project name: `fx-trading-signals`. Chosen.
-- [x] Sign-in on the Free plan: PBKDF2 lowered to 100,000 iterations (chosen 2026-10-24). Not yet proven under the 10 ms CPU limit; confirm in staging (deployment guide, section 2).
+- [x] Sign-in on the Free plan: PBKDF2 lowered to 30,000 iterations (owner's choice). Not yet proven under the 10 ms CPU limit; confirm in staging (deployment guide, section 2).
 - [x] Disclaimer: the app generates signals and a risk matrix only and does not place trades. Shown in the footer.
 - [ ] Reset e-mail: choose a provider and endpoint. Without one, operators reset passwords in the admin console.
 - [ ] Hostname and zone for the Pages site and the API proxy.

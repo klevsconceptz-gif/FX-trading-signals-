@@ -130,7 +130,7 @@ def test_secrets_only_enter_through_env_mappings_never_run_lines():
     for line in _workflow_text().splitlines():
         if "${{ secrets." not in line:
             continue
-        assert re.fullmatch(r"\s+([A-Z_]+): \$\{\{ secrets\.\1 \}\}", line), line
+        assert re.fullmatch(r"\s+[A-Z_]+: \$\{\{ secrets\.[A-Z0-9_]+ \}\}", line), line
 
 
 def test_passwords_reach_wrangler_on_stdin_not_argv_and_are_never_echoed():
@@ -180,7 +180,7 @@ def test_signal_publish_workflow_is_scheduled_gated_and_uses_build_secrets():
     assert "KFX_LIVE_DATA: \"1\"" in text  # the publisher must never fall back silently
     for line in text.splitlines():
         if "${{ secrets." in line:
-            assert re.fullmatch(r"\s+([A-Z_]+): \$\{\{ secrets\.\1 \}\}", line), line
+            assert re.fullmatch(r"\s+[A-Z_]+: \$\{\{ secrets\.[A-Z0-9_]+ \}\}", line), line
     guide = DEPLOY_DOC.read_text(encoding="utf-8")
     for name in set(re.findall(r"secrets\.([A-Z][A-Z0-9_]+)", text)) | set(re.findall(r"vars\.([A-Z][A-Z0-9_]+)", text)):
         assert name in guide, name
@@ -231,3 +231,39 @@ def test_pages_workflow_deploys_pages_only_on_main_pushes_and_manual_runs():
     assert "npx wrangler pages deploy dist" in text
     assert "--branch \"$prod_branch\"" in text
     assert "concurrency:" in text and "cloudflare-deploy" in text
+
+
+def test_deploy_stops_when_the_admin_email_is_missing():
+    text = _workflow_text()
+    assert "ADMIN_EMAIL_ADDRESS must be set" in text
+    assert "Without it the Worker refuses every sign-in" in text
+
+
+def test_worker_deploys_on_main_pushes_that_change_the_worker_and_leaves_pages_manual():
+    text = _workflow_text()
+    assert "push:" in text and "branches: [main]" in text
+    assert '"worker/**"' in text
+    # Pages is deployed only when the manual input asks for it, never on a push.
+    assert "if: ${{ inputs.deploy_pages }}" in text
+
+
+def test_deploy_reports_secret_presence_without_values():
+    text = _workflow_text()
+    assert "Report which production secrets reached the job" in text
+    assert "presence only" in text
+    report = text.split("Report which production secrets reached the job", 1)[1].split("# Finds or creates", 1)[0]
+    assert "secrets." in report  # only in env mappings
+    assert "echo \"$" not in report and "${!n}" in report
+
+
+
+def test_telegram_secret_formats_are_checked_without_printing_values():
+    deploy = _workflow_text()
+    assert "^[A-Za-z0-9_-]{1,256}$" in deploy
+    assert "Telegram webhook secret format" in deploy
+    assert '${#TELEGRAM_WEBHOOK_SECRET}' in deploy  # length only
+    assert "echo \"$TELEGRAM_WEBHOOK_SECRET" not in deploy and "printf '%s' \"$TELEGRAM_WEBHOOK_SECRET\"" in deploy
+    publish = _workflow_text(SIGNALS_WORKFLOW)
+    assert "^-?[0-9]+$" in publish
+    assert "Telegram chat ID format" in publish
+    assert '${#TELEGRAM_CHAT_ID}' in publish

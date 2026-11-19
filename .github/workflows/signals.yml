@@ -68,6 +68,28 @@ jobs:
           cache: pip
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt -r requirements-live.txt
+      # Names and presence only, never values. Shows whether the Telegram secrets reached this job.
+      # When they are EMPTY, the post step skips quietly and the run still shows success.
+      - name: Report which Telegram secrets reached the job
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          report=""
+          for n in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
+            v="${!n}"
+            if [ -n "$v" ]; then state=set; else state=EMPTY; fi
+            report="$report $n=$state;"
+          done
+          echo "::notice title=Telegram secrets (presence only)::$report"
+          # Format only, never the value. A private channel ID is a number, usually starting with -100.
+          if [ -n "$TELEGRAM_CHAT_ID" ]; then
+            if printf '%s' "$TELEGRAM_CHAT_ID" | grep -Eq '^-?[0-9]+$'; then
+              echo "::notice title=Telegram chat ID format::numeric (length ${#TELEGRAM_CHAT_ID}); a private channel starts with -100"
+            else
+              echo "::error title=Telegram chat ID format::not numeric (length ${#TELEGRAM_CHAT_ID}); use the channel's numeric ID, e.g. -100XXXXXXXXXX, not its @username or invite link"
+            fi
+          fi
       - name: Publish the latest live snapshot to D1
         # Writes the snapshot to D1, then saves the report it published for the Telegram step.
         run: python -m scripts.publish_signals --report-out "$RUNNER_TEMP/signals-report.json"
