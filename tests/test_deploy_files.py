@@ -237,3 +237,21 @@ def test_deploy_stops_when_the_admin_email_is_missing():
     text = _workflow_text()
     assert "KFX_ADMIN_EMAIL must be set" in text
     assert "Without it the Worker refuses every sign-in" in text
+
+
+def test_worker_deploys_on_main_pushes_that_change_the_worker_and_leaves_pages_manual():
+    text = _workflow_text()
+    assert "push:" in text and "branches: [main]" in text
+    assert '"worker/**"' in text
+    # Pages is deployed only when the manual input asks for it, never on a push.
+    assert "if: ${{ inputs.deploy_pages }}" in text
+
+
+def test_deploy_reports_secret_presence_without_values():
+    text = _workflow_text()
+    assert "Report which production secrets reached the job" in text
+    assert "presence only" in text
+    report = text.split("Report which production secrets reached the job", 1)[1].split("# Finds or creates", 1)[0]
+    assert "secrets." in report  # only in env mappings
+    assert "echo \"$" not in report and "${!n}" in report
+

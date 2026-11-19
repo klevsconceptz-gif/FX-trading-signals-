@@ -6,6 +6,14 @@
 name: Deploy to Cloudflare
 
 on:
+  # Every push to main that changes the Worker, its migrations, or this workflow deploys the Worker.
+  # The Pages site has its own workflow (pages-deploy.yml) and is not deployed here on pushes.
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "scripts/cloudflare_bootstrap.mjs"
+      - ".github/workflows/cloudflare-deploy.yml"
   workflow_dispatch:
     inputs:
       deploy_pages:
@@ -81,6 +89,28 @@ jobs:
             fi
           done
           exit $missing
+
+      # Names and presence only, never values. Shows in the run's annotations which production
+      # secrets reached this job, so a missing one is visible without opening the logs.
+      - name: Report which production secrets reached the job
+        env:
+          KFX_ADMIN_USERNAME: ${{ secrets.KFX_ADMIN_USERNAME }}
+          KFX_ADMIN_PASSWORD: ${{ secrets.KFX_ADMIN_PASSWORD }}
+          KFX_ADMIN_EMAIL: ${{ secrets.KFX_ADMIN_EMAIL }}
+          KFX_ADMIN_PHONE: ${{ secrets.KFX_ADMIN_PHONE }}
+          KLEVS_RESET_EMAIL_TOKEN: ${{ secrets.KLEVS_RESET_EMAIL_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_POST_SECRET: ${{ secrets.TELEGRAM_POST_SECRET }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+        run: |
+          report=""
+          for n in KFX_ADMIN_USERNAME KFX_ADMIN_PASSWORD KFX_ADMIN_EMAIL KFX_ADMIN_PHONE KLEVS_RESET_EMAIL_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_POST_SECRET TELEGRAM_WEBHOOK_SECRET; do
+            v="${!n}"
+            if [ -n "$v" ]; then state=set; else state=EMPTY; fi
+            report="$report $n=$state;"
+          done
+          echo "::notice title=Production secrets (presence only)::$report"
 
       # Finds or creates the D1 database, KV namespace and Pages project. Fails if the IDs in
       # worker/wrangler.jsonc do not match the account, so no deploy runs against the wrong resource.
