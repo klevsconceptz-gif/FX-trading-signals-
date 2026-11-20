@@ -144,10 +144,12 @@ async function ensureBootstrapAdmin(env) {
     }
   }
 
-  // The stored display name follows KFX_ADMIN_USERNAME (for example after a case-only change).
-  // The lookup key is lowercase, so the account itself does not change.
-  if (user.username !== username) {
-    await db.prepare("UPDATE users SET username = ? WHERE id = ?").bind(username, user.id).run();
+  // The stored display name and lookup key follow KFX_ADMIN_USERNAME. Sign-in finds the account by
+  // username_key, so a renamed admin must get the new key too or it can never sign in. The byName
+  // check above already rejects a key held by another account, so this cannot collide.
+  if (user.username !== username || user.username_key !== usernameKey) {
+    await db.prepare("UPDATE users SET username = ?, username_key = ? WHERE id = ?")
+      .bind(username, usernameKey, user.id).run();
   }
 
   const passwordMatches = await verifyPassword(password, user.password_hash);
