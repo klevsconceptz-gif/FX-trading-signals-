@@ -35,7 +35,7 @@ function fakeDb(answer = () => null) {
 }
 
 const BOOTSTRAP = "opsadmin";
-const env = { KFX_ADMIN_USERNAME: BOOTSTRAP };
+const env = { ADMIN_USERNAME: BOOTSTRAP };
 const operator = { id: 1, username: "ops_two" };
 
 function usersAnswer(users) {

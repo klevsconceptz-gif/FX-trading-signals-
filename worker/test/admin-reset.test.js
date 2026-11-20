@@ -47,9 +47,9 @@ test("reset rejects a weak password, a short note and an unknown account without
 
 test("reset refuses the bootstrap admin account and points at the Worker secret", async () => {
   const db = fakeDb(USERS);
-  const env = { DB: db, KFX_ADMIN_USERNAME: "ADMIN_test" };
+  const env = { DB: db, ADMIN_USERNAME: "ADMIN_test" };
   await assert.rejects(adminResetPassword(env, 1, "op", { new_password: NEW_PW, note: "try bootstrap" }),
-    (error) => error.status === 409 && /KFX_ADMIN_PASSWORD/.test(error.message));
+    (error) => error.status === 409 && /ADMIN_PASSWORD/.test(error.message));
   assert.equal(db.batches.length, 0);
 });
 

@@ -40,9 +40,9 @@ npm run worker:dev
 Create `worker/.dev.vars` locally (it is git-ignored) with test-only values before using the admin login locally:
 
 ```dotenv
-KFX_ADMIN_USERNAME=operator@example.test
+ADMIN_USERNAME=operator@example.test
 KFX_ADMIN_EMAIL=operator@example.test
-KFX_ADMIN_PASSWORD=<choose a local-only password>
+ADMIN_PASSWORD=<choose a local-only password>
 ```
 
 Do not reuse a local password in production or commit `.dev.vars`.
@@ -69,9 +69,9 @@ Rules the Worker enforces, whatever the console shows:
 
 - Every write needs a `note` of 3 to 300 characters. It is stored in the audit trail with the operator and the time. The change and its audit row are written in one D1 batch, so a change never happens without its record.
 - A refused request writes nothing. Repeating a decision, such as cancelling a cancelled invoice or revoking a revoked grant, returns 409.
-- The bootstrap admin (the account named by `KFX_ADMIN_USERNAME`) cannot be edited, disabled, demoted or deleted in the console. Its username, email, phone, role and status come from the Worker secrets, and its password is set by `KFX_ADMIN_PASSWORD`. Changing the secret and redeploying changes the password on the next sign-in.
+- The bootstrap admin (the account named by `ADMIN_USERNAME`) cannot be edited, disabled, demoted or deleted in the console. Its username, email, phone, role and status come from the Worker secrets, and its password is set by `ADMIN_PASSWORD`. Changing the secret and redeploying changes the password on the next sign-in.
 - An operator cannot disable, demote or delete their own account.
-- **Sole admin.** The bootstrap account named by `KFX_ADMIN_USERNAME` is the only admin. The API refuses `role: "admin"` on create and on PATCH (422), so no console or API path can add one. At sign-in the Worker demotes any other stored admin row to `user` and writes a `role_changed` audit row in the same batch. Public sign-up and the console refuse the bootstrap username and email, because an ordinary account holding them would block the admin's sign-in.
+- **Sole admin.** The bootstrap account named by `ADMIN_USERNAME` is the only admin. The API refuses `role: "admin"` on create and on PATCH (422), so no console or API path can add one. At sign-in the Worker demotes any other stored admin row to `user` and writes a `role_changed` audit row in the same batch. Public sign-up and the console refuse the bootstrap username and email, because an ordinary account holding them would block the admin's sign-in.
 - **Native apps.** The Capacitor apps are allowed by CORS from `capacitor://localhost` and `https://localhost` only. They authenticate with the bearer token from `/api/auth/login`, not cookies.
 - An account can be deleted only when it has no payment and no access-grant records. Otherwise disable it. Disabling ends its sessions and blocks sign-in, and keeps all records.
 - Payment records and audit events are never deleted from the console.
@@ -91,8 +91,8 @@ Run these commands from the repository root in an authenticated Cloudflare/Wrang
 2. Add admin bootstrap values as Worker secrets, not committed `vars`:
 
    ```sh
-   npx wrangler secret put KFX_ADMIN_USERNAME --config worker/wrangler.jsonc
-   npx wrangler secret put KFX_ADMIN_PASSWORD --config worker/wrangler.jsonc
+   npx wrangler secret put ADMIN_USERNAME --config worker/wrangler.jsonc
+   npx wrangler secret put ADMIN_PASSWORD --config worker/wrangler.jsonc
    # Optional if the username is not an email address:
    npx wrangler secret put KFX_ADMIN_EMAIL --config worker/wrangler.jsonc
    ```

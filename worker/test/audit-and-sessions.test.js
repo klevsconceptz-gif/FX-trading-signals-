@@ -33,7 +33,7 @@ function recordingDb(answer = () => null) {
 
 const OPERATOR = { id: 1, username: "ops_two" };
 const BOOTSTRAP = "opsadmin";
-const env = { KFX_ADMIN_USERNAME: BOOTSTRAP };
+const env = { ADMIN_USERNAME: BOOTSTRAP };
 
 test("the cron sweeps expired sessions and keeps live ones", async () => {
   const db = recordingDb();

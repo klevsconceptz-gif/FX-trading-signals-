@@ -35,7 +35,7 @@ GET  /api/admin/audit-log            recent operator activity
 The full admin CRUD (create, edit and delete accounts, edit grants, create and cancel
 invoices) is served by the Cloudflare Worker in worker/src/admin.js, the production admin
 backend. This FastAPI app keeps the set above for local or self-hosted use.
-The sole-admin rule holds here too: the bootstrap account (KFX_ADMIN_USERNAME) is the only
+The sole-admin rule holds here too: the bootstrap account (ADMIN_USERNAME) is the only
 admin, and sign-in demotes any other admin row to a user.
 """
 
@@ -435,7 +435,7 @@ def admin_reset_password(user_id: int, req: PasswordResetRequest,
                          admin: User = Depends(require_admin)) -> dict[str, Any]:
     try:
         billing.reset_password(user_id, admin.username, req.new_password, req.note,
-                               bootstrap_username=os.environ.get("KFX_ADMIN_USERNAME", ""))
+                               bootstrap_username=os.environ.get("ADMIN_USERNAME", ""))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -580,8 +580,8 @@ def backtest(req: BacktestRequest, _user: Optional[User] = Depends(require_signa
 def _bootstrap_admin_from_env() -> Optional[str]:
     """Provision the admin account from the environment (no credentials in code).
 
-        KFX_ADMIN_USERNAME  required, e.g. admin
-        KFX_ADMIN_PASSWORD  required, must satisfy the password policy
+        ADMIN_USERNAME  required, e.g. admin
+        ADMIN_PASSWORD  required, must satisfy the password policy
         KFX_ADMIN_EMAIL     optional (defaults to the username)
         KFX_ADMIN_PHONE     optional
 
@@ -591,12 +591,12 @@ def _bootstrap_admin_from_env() -> Optional[str]:
     """
     import os
 
-    username = os.environ.get("KFX_ADMIN_USERNAME", "").strip()
-    password = os.environ.get("KFX_ADMIN_PASSWORD", "")
+    username = os.environ.get("ADMIN_USERNAME", "").strip()
+    password = os.environ.get("ADMIN_PASSWORD", "")
     if not username and not password:
         return None
     if not username or not password:
-        raise RuntimeError("set both KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD to provision the admin")
+        raise RuntimeError("set both ADMIN_USERNAME and ADMIN_PASSWORD to provision the admin")
     ACCOUNTS.seed_admin(
         username,
         password,

@@ -420,7 +420,7 @@ export async function grantAccess(env, userId, operator, body) {
  * Operator sets a new password for an account. The operator chooses the password; nothing
  * is generated. Bumping password_version ends every session of the account (currentUser
  * compares it on each request, including KV-cached sessions). The password is never written
- * to the audit trail. The bootstrap admin (KFX_ADMIN_USERNAME) is refused, because its
+ * to the audit trail. The bootstrap admin (ADMIN_USERNAME) is refused, because its
  * password is re-seeded from the Worker secret on each admin sign-in.
  */
 export async function adminResetPassword(env, userId, operator, body) {
@@ -434,9 +434,9 @@ export async function adminResetPassword(env, userId, operator, body) {
   const db = requireDatabase(env);
   const user = await db.prepare("SELECT id, username, role FROM users WHERE id = ?").bind(userId).first();
   if (!user) throw new ApiError(404, "user not found");
-  const bootstrap = String(env.KFX_ADMIN_USERNAME || "").trim().toLowerCase();
+  const bootstrap = String(env.ADMIN_USERNAME || "").trim().toLowerCase();
   if (bootstrap && user.username.toLowerCase() === bootstrap) {
-    throw new ApiError(409, "this is the bootstrap admin: change KFX_ADMIN_PASSWORD on the Worker and redeploy instead");
+    throw new ApiError(409, "this is the bootstrap admin: change ADMIN_PASSWORD on the Worker and redeploy instead");
   }
 
   const passwordHash = await hashPassword(newPassword);

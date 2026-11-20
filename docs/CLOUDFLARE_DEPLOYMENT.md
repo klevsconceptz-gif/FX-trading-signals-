@@ -126,14 +126,16 @@ Git-connected builds would remove the GitHub runner for the deploy, but they are
 Nothing in the signal path can run on Cloudflare's Free compute, so the scheduled job is the chosen
 design (section 5).
 
+After the first deploy with these names, delete the old Worker secrets in the Cloudflare dashboard (Workers & Pages → `fx-trading-signals` → Settings → Variables and Secrets): `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, and `KFX_ADMIN_PASSWORD_HASH` (not read by the code). Delete them only after a deploy shows `ADMIN_USERNAME` and `ADMIN_PASSWORD` set; otherwise sign-in fails.
+
 ### 4b. Deploy by hand
 
 Follow [`worker/README.md`](../worker/README.md), section "Production setup and deployment". In
 short:
 
 1. Apply the D1 migrations to the remote database: `npm run worker:migrate:remote`.
-2. Store the admin bootstrap values as Worker secrets (`KFX_ADMIN_USERNAME`,
-   `KFX_ADMIN_PASSWORD`, and `KFX_ADMIN_EMAIL` if the username is not an address). These are
+2. Store the admin bootstrap values as Worker secrets (`ADMIN_USERNAME`,
+   `ADMIN_PASSWORD`, and `KFX_ADMIN_EMAIL` if the username is not an address). These are
    secrets, not `vars`.
 3. Deploy the Worker: `npm run worker:deploy`.
 4. Deploy the Pages site. The function proxies `/api/*` to the Worker, and `KLEVS_API_ORIGIN`
@@ -193,7 +195,7 @@ provider are yours to choose, and so is the cost.
 password**). Enter the username or e-mail, the new password you choose, and a reason. The reason goes
 to the audit trail, and the password is never logged. The reset ends every session of that account.
 Give the new password to the user through a channel you trust. Sessions of that account end at once. The reset is not available for the
-bootstrap admin (`KFX_ADMIN_PASSWORD`), which you change as a Worker secret. Hashing the password runs
+bootstrap admin (`ADMIN_PASSWORD`), which you change as a Worker secret. Hashing the password runs
 on the Worker, so it counts toward the CPU limit in section 2.
 
 ## 7. Decisions before go-live
@@ -212,8 +214,8 @@ Worker (set with `wrangler secret put` or in `vars`):
 
 | Name | Kind | Purpose |
 |---|---|---|
-| `KFX_ADMIN_USERNAME` | secret | Admin account, provisioned on each start |
-| `KFX_ADMIN_PASSWORD` | secret | Admin password, applied on each start |
+| `ADMIN_USERNAME` | secret | Admin account, provisioned on each start |
+| `ADMIN_PASSWORD` | secret | Admin password, applied on each start |
 | `KFX_ADMIN_EMAIL` | secret | Admin e-mail, if the username is not an address |
 | `KFX_ADMIN_PHONE` | secret | Optional admin phone number |
 | `KLEVS_RESET_EMAIL_URL` | var | HTTPS endpoint that sends reset e-mail |
@@ -235,7 +237,7 @@ FastAPI app (set on the host that runs `fxbot.server`, for local or self-hosted 
 | Name | Purpose |
 |---|---|
 | `KFX_LIVE_DATA` | `1` (default) for live market data, `0` for the synthetic market |
-| `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | Admin bootstrap for the FastAPI app |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | Admin bootstrap for the FastAPI app |
 | `KFX_SIGNAL_ENGINE_TOKEN` | Used by the FastAPI internal engine route only. The Cloudflare deployment does not use it |
 | `KLEVS_DATABASE_URL` | Database URL for the FastAPI app. Unset uses SQLite at `data/klevs.db` |
 | `KLEVS_DEV_RESET_CODES` | Development only. Must stay unset in production (it returns reset codes) |
@@ -261,7 +263,7 @@ FastAPI app (set on the host that runs `fxbot.server`, for local or self-hosted 
 | Publish fails with "refusing to publish ... not live" | Live data was unavailable from the runner. The last live snapshot stays in place |
 | `/api/backtest` returns `503` | Backtests are not served on this deployment (section 5) |
 | Reset code never arrives | `KLEVS_RESET_EMAIL_URL` or `KLEVS_RESET_EMAIL_TOKEN` is not set (section 6) |
-| Admin login fails | `KFX_ADMIN_USERNAME` or `KFX_ADMIN_PASSWORD` is wrong. Both must be set together |
+| Admin login fails | `ADMIN_USERNAME` or `ADMIN_PASSWORD` is wrong. Both must be set together |
 | `/api/*` returns a Pages error | `KLEVS_API_ORIGIN` points at a Worker that is not deployed |
 
 ## 9. Telegram signal channel

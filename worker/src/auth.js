@@ -85,14 +85,14 @@ async function demoteOtherAdmins(env, bootstrapUser) {
 }
 
 async function ensureBootstrapAdmin(env) {
-  const username = String(env.KFX_ADMIN_USERNAME || "").trim();
-  const password = String(env.KFX_ADMIN_PASSWORD || "");
+  const username = String(env.ADMIN_USERNAME || "").trim();
+  const password = String(env.ADMIN_PASSWORD || "");
   if (!username && !password) return null;
   if (!username || !password) {
-    throw new ApiError(503, "both KFX_ADMIN_USERNAME and KFX_ADMIN_PASSWORD must be configured on the API Worker");
+    throw new ApiError(503, "both ADMIN_USERNAME and ADMIN_PASSWORD must be configured on the API Worker");
   }
   if (!adminUsernameIsValid(username)) {
-    throw new ApiError(503, "KFX_ADMIN_USERNAME must be 3-32 characters: letters, numbers, _ . - only");
+    throw new ApiError(503, "ADMIN_USERNAME must be 3-32 characters: letters, numbers, _ . - only");
   }
   const email = String(env.KFX_ADMIN_EMAIL || username).trim().toLowerCase();
   if (!emailIsValid(email)) {
@@ -103,7 +103,7 @@ async function ensureBootstrapAdmin(env) {
     throw new ApiError(503, "KFX_ADMIN_PHONE is invalid");
   }
   const passwordError = passwordPolicyError(password);
-  if (passwordError) throw new ApiError(503, `KFX_ADMIN_PASSWORD ${passwordError}`);
+  if (passwordError) throw new ApiError(503, `ADMIN_PASSWORD ${passwordError}`);
 
   const db = requireDatabase(env);
   const usernameKey = username.toLowerCase();
@@ -144,7 +144,7 @@ async function ensureBootstrapAdmin(env) {
     }
   }
 
-  // The stored display name and lookup key follow KFX_ADMIN_USERNAME. Sign-in finds the account by
+  // The stored display name and lookup key follow ADMIN_USERNAME. Sign-in finds the account by
   // username_key, so a renamed admin must get the new key too or it can never sign in. The byName
   // check above already rejects a key held by another account, so this cannot collide.
   if (user.username !== username || user.username_key !== usernameKey) {

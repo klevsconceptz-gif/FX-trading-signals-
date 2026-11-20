@@ -12,7 +12,7 @@ test("bootstrap admin username follows the same rule as user usernames", () => {
   }
 });
 
-test("renaming KFX_ADMIN_USERNAME moves the lookup key, so the new name can sign in", async () => {
+test("renaming ADMIN_USERNAME moves the lookup key, so the new name can sign in", async () => {
   const { ensureAdmin } = await import("../src/auth.js");
   const { hashPassword } = await import("../src/security.js");
   const password = "Bootstrap!Secret77";
@@ -46,7 +46,7 @@ test("renaming KFX_ADMIN_USERNAME moves the lookup key, so the new name can sign
     batch: async (statements) => statements.map(() => ({ meta: { changes: 1 } })),
   };
   await ensureAdmin({
-    KFX_ADMIN_USERNAME: "newadmin", KFX_ADMIN_EMAIL: "ops@example.test", KFX_ADMIN_PASSWORD: password, DB: db,
+    ADMIN_USERNAME: "newadmin", KFX_ADMIN_EMAIL: "ops@example.test", ADMIN_PASSWORD: password, DB: db,
   });
   const rename = writes.find((w) => /UPDATE users SET username = \?, username_key = \? WHERE id = \?/.test(w.sql));
   assert.ok(rename, "the rename must write the lookup key as well as the display name");
