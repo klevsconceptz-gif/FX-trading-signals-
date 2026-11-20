@@ -18,8 +18,8 @@ The repository now includes the Worker API at `worker/src/index.js`, with D1 bin
 
 In the API Worker's **Settings → Variables and Secrets**, configure:
 
-- `KFX_ADMIN_USERNAME` — admin login name. Store as a secret if you want the name hidden too.
-- `KFX_ADMIN_PASSWORD` — admin password; **must be a secret**.
+- `ADMIN_USERNAME` — admin login name. Store as a secret if you want the name hidden too.
+- `ADMIN_PASSWORD` — admin password; **must be a secret**.
 - `KFX_ADMIN_EMAIL` — optional if the username itself is not a valid email address.
 - `KFX_ADMIN_PHONE` — optional.
 
@@ -37,7 +37,7 @@ the latest committed snapshot to paid users. See the deployment guide, section 5
 
 ## If using the FastAPI backend instead
 
-The existing FastAPI service also supports admin bootstrap from its own runtime environment. Set `KFX_ADMIN_USERNAME` and `KFX_ADMIN_PASSWORD` on the **FastAPI service**, not on Pages. `KFX_ADMIN_EMAIL` and `KFX_ADMIN_PHONE` are optional. On each startup, the configured password is authoritative and rotates the admin password.
+The existing FastAPI service also supports admin bootstrap from its own runtime environment. Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` on the **FastAPI service**, not on Pages. `KFX_ADMIN_EMAIL` and `KFX_ADMIN_PHONE` are optional. On each startup, the configured password is authoritative and rotates the admin password.
 
 ## Troubleshooting
 

@@ -350,17 +350,19 @@ export async function adminUpdateGrant(env, grantId, actor, body) {
   if (grant.status !== "active") throw new ApiError(409, "only active grants can be changed");
   const timestamp = nowSeconds();
   const expiresAt = timestamp + days * 86400;
+  // The audit row is inserted only when this request's update applied (status active and the new expiry),
+  // in the same batch, so a refused change never leaves a record.
   const [updated] = await db.batch([
     db.prepare("UPDATE access_grants SET expires_at = ? WHERE id = ? AND status = 'active'").bind(expiresAt, grantId),
-    auditStatement(db, {
-      operator: actor.username,
-      action: "access_changed",
-      target: { id: grant.user_id, username: grant.username },
-      summary: `Set grant #${grantId} to expire in ${days} days`,
-      note,
-      grantId,
-      reference: `grant #${grantId}`,
-    }),
+    db.prepare(`
+      INSERT INTO admin_audit_events
+        (event_key, occurred_at, actor_username, action, target_user_id, target_username,
+         grant_id, reference, summary, note)
+      SELECT ?, ?, ?, 'access_changed', u.id, u.username, g.id, ?, ?, ?
+        FROM access_grants g JOIN users u ON u.id = g.user_id
+       WHERE g.id = ? AND g.status = 'active' AND g.expires_at = ?
+    `).bind(`access_changed:${randomToken(12)}`, timestamp, actor.username, `grant #${grantId}`,
+      `Set grant #${grantId} to expire in ${days} days`, note, grantId, expiresAt),
   ]);
   if (!updated?.meta?.changes) throw new ApiError(409, "the grant changed while it was being updated; reload and try again");
   return { ok: true, grant: grantView(await getGrant(db, grantId)) };
@@ -372,20 +374,21 @@ export async function adminRevokeGrant(env, grantId, actor, body) {
   const grant = await getGrant(db, grantId);
   if (grant.status !== "active") throw new ApiError(409, "this grant is already revoked");
   const timestamp = nowSeconds();
+  // The audit row is inserted only when this request's revoke applied, in the same batch.
   const [updated] = await db.batch([
     db.prepare(`
       UPDATE access_grants SET status = 'revoked', revoked_at = ?, revoked_by = ?, revoke_note = ?
        WHERE id = ? AND status = 'active'
     `).bind(timestamp, actor.username, note.slice(0, 300), grantId),
-    auditStatement(db, {
-      operator: actor.username,
-      action: "access_revoked",
-      target: { id: grant.user_id, username: grant.username },
-      summary: `Revoked grant #${grantId} (${grant.plan})`,
-      note,
-      grantId,
-      reference: `grant #${grantId}`,
-    }),
+    db.prepare(`
+      INSERT INTO admin_audit_events
+        (event_key, occurred_at, actor_username, action, target_user_id, target_username,
+         grant_id, reference, summary, note)
+      SELECT ?, ?, ?, 'access_revoked', u.id, u.username, g.id, ?, ?, ?
+        FROM access_grants g JOIN users u ON u.id = g.user_id
+       WHERE g.id = ? AND g.status = 'revoked' AND g.revoked_at = ? AND g.revoked_by = ?
+    `).bind(`access_revoked:${randomToken(12)}`, timestamp, actor.username, `grant #${grantId}`,
+      `Revoked grant #${grantId} (${grant.plan})`, note, grantId, timestamp, actor.username),
   ]);
   if (!updated?.meta?.changes) throw new ApiError(409, "this grant is already revoked");
   return { ok: true, grant: grantView(await getGrant(db, grantId)) };
@@ -398,18 +401,9 @@ export async function adminCreatePayment(env, actor, body) {
   if (!Number.isInteger(userId) || userId < 1) throw new ApiError(422, "user_id must be a positive integer");
   const note = requireNote(body.note);
   const db = requireDatabase(env);
-  const user = await getUser(db, userId);
-  const result = await createPayment(env, userId, body);
-  await auditStatement(db, {
-    operator: actor.username,
-    action: "payment_created",
-    target: user,
-    summary: `Created ${result.payment.plan} invoice (${result.payment.method})`,
-    note,
-    paymentId: result.payment.id,
-    reference: result.payment.invoice,
-  }).run();
-  return result;
+  await getUser(db, userId);
+  // The audit row is written in the same D1 batch as the invoice, so an invoice is never created unrecorded.
+  return createPayment(env, userId, body, { operator: actor.username, note });
 }
 
 export async function adminGetPayment(env, paymentId) {

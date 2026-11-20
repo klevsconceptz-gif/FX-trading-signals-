@@ -358,7 +358,7 @@ NEW_PW = "Fresh!Secret77"
 def test_admin_reset_password_sets_password_ends_sessions_and_is_audited(monkeypatch):
     from fxbot.auth import resolve_session
 
-    monkeypatch.delenv("KFX_ADMIN_USERNAME", raising=False)
+    monkeypatch.delenv("ADMIN_USERNAME", raising=False)
     _, admin = _admin()
     user, buyer = _user()
     old_token = issue_session(user.id)
@@ -391,14 +391,14 @@ def test_admin_reset_password_sets_password_ends_sessions_and_is_audited(monkeyp
 
 
 def test_admin_reset_password_refuses_bootstrap_admin_and_non_admins(monkeypatch):
-    monkeypatch.setenv("KFX_ADMIN_USERNAME", ADMIN)
+    monkeypatch.setenv("ADMIN_USERNAME", ADMIN)
     admin_user, admin = _admin()
     _, buyer = _user()
 
     r = admin.post(f"/api/admin/users/{admin_user.id}/reset-password",
                    json={"new_password": NEW_PW, "note": "try the bootstrap account"})
     assert r.status_code == 409
-    assert "KFX_ADMIN_PASSWORD" in r.json()["detail"]
+    assert "ADMIN_PASSWORD" in r.json()["detail"]
     assert ACCOUNTS.authenticate(ADMIN, ADMIN_PW).id == admin_user.id
 
     r = buyer.post(f"/api/admin/users/{admin_user.id}/reset-password",

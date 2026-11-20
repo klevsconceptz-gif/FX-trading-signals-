@@ -164,8 +164,8 @@ The operator account is provisioned from environment variables. The credentials 
 written into the code or the repository:
 
 ```bash
-export KFX_ADMIN_USERNAME='admin'            # required
-export KFX_ADMIN_PASSWORD='...'               # required, must meet the password policy
+export ADMIN_USERNAME='admin'            # required
+export ADMIN_PASSWORD='...'               # required, must meet the password policy
 export KFX_ADMIN_EMAIL='admin@klev.fx'        # optional (defaults to the username)
 export KFX_ADMIN_PHONE='+1 555 000 0000'      # optional
 export KLEVS_DATABASE_URL='...'               # optional; defaults to data/klevs.db
@@ -184,7 +184,7 @@ enters these values; nothing is pre-filled.
 
 The operator's own session has `role: "admin"`, plan `Admin` and unrestricted access. The
 Admin role cannot be created or bought through self-service registration or payment. It is
-held by one account only, the bootstrap account from `KFX_ADMIN_USERNAME`. The API and console
+held by one account only, the bootstrap account from `ADMIN_USERNAME`. The API and console
 refuse to grant it to anyone else, and sign-in demotes any other admin row to a user.
 
 ## Dashboard

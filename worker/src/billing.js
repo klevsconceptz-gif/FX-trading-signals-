@@ -127,7 +127,7 @@ function createInvoice() {
   return `KFX-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
 }
 
-export async function createPayment(env, userId, body) {
+export async function createPayment(env, userId, body, audit = null) {
   const plan = String(body.plan || "");
   const method = String(body.method || "");
   if (!Object.hasOwn(PLANS, plan)) {
@@ -180,7 +180,7 @@ export async function createPayment(env, userId, body) {
   const timestamp = nowSeconds();
   let result;
   try {
-    result = await db.batch([
+    const statements = [
       db.prepare(`
         UPDATE payments SET status = 'cancelled'
          WHERE user_id = ? AND status = 'awaiting_payment'
@@ -190,7 +190,20 @@ export async function createPayment(env, userId, body) {
           (user_id, invoice, plan, amount_usd, method, network, pay_to, status, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'awaiting_payment', ?)
       `).bind(userId, invoice, plan, PLANS[plan].price_usd, method, network, JSON.stringify(payTo), timestamp),
-    ]);
+    ];
+    // An operator-created invoice is recorded in the same batch: no invoice exists without its audit row.
+    if (audit) {
+      statements.push(db.prepare(`
+        INSERT INTO admin_audit_events
+          (event_key, occurred_at, actor_username, action, target_user_id, target_username,
+           payment_id, reference, summary, note)
+        SELECT ?, ?, ?, 'payment_created', u.id, u.username, p.id, p.invoice, ?, ?
+          FROM payments p JOIN users u ON u.id = p.user_id
+         WHERE p.invoice = ?
+      `).bind(`payment_created:${randomToken(12)}`, timestamp, audit.operator,
+        `Created ${plan} invoice (${method})`, audit.note, invoice));
+    }
+    result = await db.batch(statements);
   } catch (error) {
     if (String(error?.message || error).includes("UNIQUE constraint failed")) {
       const pending = await db.prepare(`
@@ -407,7 +420,7 @@ export async function grantAccess(env, userId, operator, body) {
  * Operator sets a new password for an account. The operator chooses the password; nothing
  * is generated. Bumping password_version ends every session of the account (currentUser
  * compares it on each request, including KV-cached sessions). The password is never written
- * to the audit trail. The bootstrap admin (KFX_ADMIN_USERNAME) is refused, because its
+ * to the audit trail. The bootstrap admin (ADMIN_USERNAME) is refused, because its
  * password is re-seeded from the Worker secret on each admin sign-in.
  */
 export async function adminResetPassword(env, userId, operator, body) {
@@ -421,9 +434,9 @@ export async function adminResetPassword(env, userId, operator, body) {
   const db = requireDatabase(env);
   const user = await db.prepare("SELECT id, username, role FROM users WHERE id = ?").bind(userId).first();
   if (!user) throw new ApiError(404, "user not found");
-  const bootstrap = String(env.KFX_ADMIN_USERNAME || "").trim().toLowerCase();
+  const bootstrap = String(env.ADMIN_USERNAME || "").trim().toLowerCase();
   if (bootstrap && user.username.toLowerCase() === bootstrap) {
-    throw new ApiError(409, "this is the bootstrap admin: change KFX_ADMIN_PASSWORD on the Worker and redeploy instead");
+    throw new ApiError(409, "this is the bootstrap admin: change ADMIN_PASSWORD on the Worker and redeploy instead");
   }
 
   const passwordHash = await hashPassword(newPassword);

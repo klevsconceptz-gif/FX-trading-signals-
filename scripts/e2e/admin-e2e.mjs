@@ -56,7 +56,7 @@ async function main() {
   check("wrong admin password is refused (401)", badLogin.status === 401, `status ${badLogin.status}`);
 
   const adminLogin = await login(ADMIN_USER, ADMIN_PASS);
-  check("admin signs in with KFX_ADMIN_PASSWORD (200)", adminLogin.status === 200, `status ${adminLogin.status}`);
+  check("admin signs in with ADMIN_PASSWORD (200)", adminLogin.status === 200, `status ${adminLogin.status}`);
   const admin = tokenOf(adminLogin);
   check("admin session has role admin", adminLogin.json?.user?.role === "admin");
 

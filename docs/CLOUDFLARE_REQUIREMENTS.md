@@ -39,7 +39,7 @@ The signal engine (`fxbot/`, Python) runs as a scheduled publisher rather than i
 | GitHub Actions: `.github/workflows/cloudflare-deploy.yml` | GitHub | Tests, migrations, Worker and secrets, Pages deploy (manual start) | Built. Not run live yet |
 | GitHub Actions: `.github/workflows/signals.yml` | GitHub | The hourly signal publish | Built. Not run live yet |
 | GitHub environment `production` | GitHub | Holds the build secrets; can require a reviewer | Set up by you (deployment guide, section 4a) |
-| Build secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, and optional admin and reset values | GitHub environment secrets | Passed to `wrangler secret put` on stdin, and to Wrangler for the publish. Never written into the build output | Set up by you |
+| Build secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and optional admin and reset values | GitHub environment secrets | Passed to `wrangler secret put` on stdin, and to Wrangler for the publish. Never written into the build output | Set up by you |
 | Variables: `CLOUDFLARE_PAGES_PROJECT` (`fx-trading-signals`, required), `KLEVS_API_ORIGIN` (optional) | GitHub environment variables | Pages target, health check | Set up by you |
 | Cloudflare API token | Cloudflare | Permissions: Workers Scripts, D1, KV, Pages (edit), account read. One account | Created by you |
 | Pages project | Cloudflare | Hosts `dist/`, proxies `/api` to the Worker (`functions/`, uploaded from the repo root) | Created by `scripts/cloudflare_bootstrap.mjs` if missing |

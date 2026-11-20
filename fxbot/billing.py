@@ -430,7 +430,7 @@ def reset_password(user_id: int, operator: str, new_password: str, note: str,
     """Operator sets a new password for an account, ends its sessions and logs the change.
 
     The operator chooses the password; nothing is generated. The password is never written
-    to the audit trail. The bootstrap admin (KFX_ADMIN_USERNAME) is refused, because the
+    to the audit trail. The bootstrap admin (ADMIN_USERNAME) is refused, because the
     server re-seeds that password from its environment on every start.
     """
     from .auth import hash_password, policy_error  # local import: auth does not import billing
@@ -446,7 +446,7 @@ def reset_password(user_id: int, operator: str, new_password: str, note: str,
         if target is None:
             raise LookupError("user not found")
         if bootstrap_username and target.username_key == bootstrap_username.strip().lower():
-            raise PermissionError("this is the bootstrap admin: change KFX_ADMIN_PASSWORD and restart instead")
+            raise PermissionError("this is the bootstrap admin: change ADMIN_PASSWORD and restart instead")
         target.password_hash = hash_password(new_password)
         target.reset_hash = None
         target.reset_expires = 0.0

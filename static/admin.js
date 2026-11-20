@@ -254,7 +254,7 @@ function renderAccountDetail({ user, grants, payments }) {
 
   $("#acct-title").textContent = `Account · ${user.username} · ${user.role === "admin" ? "operator (admin)" : "user"}`;
   $("#acct-notice").textContent = bootstrap
-    ? "This is the bootstrap admin. Its username, email, phone, role and status come from Worker secrets and cannot be changed here. Its password is set by KFX_ADMIN_PASSWORD."
+    ? "This is the bootstrap admin. Its username, email, phone, role and status come from Worker secrets and cannot be changed here. Its password is set by ADMIN_PASSWORD."
     : self
       ? "This is your own account. You can change your details, but you cannot disable or delete yourself."
       : "";

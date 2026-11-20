@@ -101,7 +101,6 @@ Two workflows:
 | `TELEGRAM_BOT_TOKEN` | No | Bot token from @BotFather. Set all three Telegram secrets, or none. Used to post signals to the private channel |
 | `TELEGRAM_CHAT_ID` | No | Numeric id of the private channel (starts with `-100`). The bot must be an admin of the channel |
 | `TELEGRAM_POST_SECRET` | No | Bearer secret for the Worker's `/api/internal/telegram/post` endpoint. The publish job no longer uses it. Any long random string |
-| `TELEGRAM_WEBHOOK_SECRET` | No | Secret Telegram sends back on the channel webhook (`X-Telegram-Bot-Api-Secret-Token`). Set with `TELEGRAM_BOT_TOKEN`. The deploy registers the webhook when it is set. Any long random string |
 
 3. Add these **environment variables** (not secret):
 
@@ -127,14 +126,16 @@ Git-connected builds would remove the GitHub runner for the deploy, but they are
 Nothing in the signal path can run on Cloudflare's Free compute, so the scheduled job is the chosen
 design (section 5).
 
+After the first deploy with these names, delete the old Worker secrets in the Cloudflare dashboard (Workers & Pages → `fx-trading-signals` → Settings → Variables and Secrets): `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, and `KFX_ADMIN_PASSWORD_HASH` (not read by the code). Delete them only after a deploy shows `ADMIN_USERNAME` and `ADMIN_PASSWORD` set; otherwise sign-in fails.
+
 ### 4b. Deploy by hand
 
 Follow [`worker/README.md`](../worker/README.md), section "Production setup and deployment". In
 short:
 
 1. Apply the D1 migrations to the remote database: `npm run worker:migrate:remote`.
-2. Store the admin bootstrap values as Worker secrets (`KFX_ADMIN_USERNAME`,
-   `KFX_ADMIN_PASSWORD`, and `KFX_ADMIN_EMAIL` if the username is not an address). These are
+2. Store the admin bootstrap values as Worker secrets (`ADMIN_USERNAME`,
+   `ADMIN_PASSWORD`, and `KFX_ADMIN_EMAIL` if the username is not an address). These are
    secrets, not `vars`.
 3. Deploy the Worker: `npm run worker:deploy`.
 4. Deploy the Pages site. The function proxies `/api/*` to the Worker, and `KLEVS_API_ORIGIN`
@@ -194,7 +195,7 @@ provider are yours to choose, and so is the cost.
 password**). Enter the username or e-mail, the new password you choose, and a reason. The reason goes
 to the audit trail, and the password is never logged. The reset ends every session of that account.
 Give the new password to the user through a channel you trust. Sessions of that account end at once. The reset is not available for the
-bootstrap admin (`KFX_ADMIN_PASSWORD`), which you change as a Worker secret. Hashing the password runs
+bootstrap admin (`ADMIN_PASSWORD`), which you change as a Worker secret. Hashing the password runs
 on the Worker, so it counts toward the CPU limit in section 2.
 
 ## 7. Decisions before go-live
@@ -213,8 +214,8 @@ Worker (set with `wrangler secret put` or in `vars`):
 
 | Name | Kind | Purpose |
 |---|---|---|
-| `KFX_ADMIN_USERNAME` | secret | Admin account, provisioned on each start |
-| `KFX_ADMIN_PASSWORD` | secret | Admin password, applied on each start |
+| `ADMIN_USERNAME` | secret | Admin account, provisioned on each start |
+| `ADMIN_PASSWORD` | secret | Admin password, applied on each start |
 | `KFX_ADMIN_EMAIL` | secret | Admin e-mail, if the username is not an address |
 | `KFX_ADMIN_PHONE` | secret | Optional admin phone number |
 | `KLEVS_RESET_EMAIL_URL` | var | HTTPS endpoint that sends reset e-mail |
@@ -222,7 +223,6 @@ Worker (set with `wrangler secret put` or in `vars`):
 | `TELEGRAM_BOT_TOKEN` | secret | Telegram bot token. Never logged or returned |
 | `TELEGRAM_CHAT_ID` | secret | Private channel id for signal posts |
 | `TELEGRAM_POST_SECRET` | secret | Bearer secret for `POST /api/internal/telegram/post` (the Worker's endpoint; not used by the publish job) |
-| `TELEGRAM_WEBHOOK_SECRET` | secret | Checks Telegram's calls to `POST /api/internal/telegram/webhook` (channel joins and departures) |
 | `KLEVS_API_ORIGIN` | Pages variable | Overrides the Worker origin the Pages function proxies to |
 
 Publisher (GitHub `production` environment; `KFX_LIVE_DATA` is set in the workflow):
@@ -237,7 +237,7 @@ FastAPI app (set on the host that runs `fxbot.server`, for local or self-hosted 
 | Name | Purpose |
 |---|---|
 | `KFX_LIVE_DATA` | `1` (default) for live market data, `0` for the synthetic market |
-| `KFX_ADMIN_USERNAME`, `KFX_ADMIN_PASSWORD`, `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | Admin bootstrap for the FastAPI app |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | Admin bootstrap for the FastAPI app |
 | `KFX_SIGNAL_ENGINE_TOKEN` | Used by the FastAPI internal engine route only. The Cloudflare deployment does not use it |
 | `KLEVS_DATABASE_URL` | Database URL for the FastAPI app. Unset uses SQLite at `data/klevs.db` |
 | `KLEVS_DEV_RESET_CODES` | Development only. Must stay unset in production (it returns reset codes) |
@@ -263,7 +263,7 @@ FastAPI app (set on the host that runs `fxbot.server`, for local or self-hosted 
 | Publish fails with "refusing to publish ... not live" | Live data was unavailable from the runner. The last live snapshot stays in place |
 | `/api/backtest` returns `503` | Backtests are not served on this deployment (section 5) |
 | Reset code never arrives | `KLEVS_RESET_EMAIL_URL` or `KLEVS_RESET_EMAIL_TOKEN` is not set (section 6) |
-| Admin login fails | `KFX_ADMIN_USERNAME` or `KFX_ADMIN_PASSWORD` is wrong. Both must be set together |
+| Admin login fails | `ADMIN_USERNAME` or `ADMIN_PASSWORD` is wrong. Both must be set together |
 | `/api/*` returns a Pages error | `KLEVS_API_ORIGIN` points at a Worker that is not deployed |
 
 ## 9. Telegram signal channel
@@ -283,21 +283,14 @@ Setup, once:
 2. Create a private channel, add the bot as an administrator with permission to post, and get the
    channel id (a number starting with `-100`) into `TELEGRAM_CHAT_ID`.
 3. Generate a long random string for `TELEGRAM_POST_SECRET`.
-   Also generate a long random string for `TELEGRAM_WEBHOOK_SECRET`.
 4. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to the `production` environment in GitHub. The
    publish job reads them there. The deploy workflow also copies all three secrets to the Worker.
    The publish job creates `telegram_state` itself if it is missing, the same as migration `0004`.
 
-Member access (channel only; sign-in is still username and password):
-
-- A member with an active plan gets one single-use invite link from the **Private channel** button in
-  the dashboard header. The Worker creates it with the Bot API (`createChatInviteLink`, `member_limit: 1`).
-- The bot needs admin rights to create invite links, ban users, and revoke links.
-- When Telegram reports a join through one of our links (`chat_member` update), the member is recorded.
-  A join without an active plan is removed at once.
-- The Worker cron (`30 0,12,13,23 * * *`) revokes unused links and removes members whose access has ended.
-  A failed call is counted and retried on the next run.
-- Deploy registers the webhook for `chat_member` updates with `scripts/register_telegram_webhook.mjs`.
+Channel membership is not managed by the site. The dashboard has no channel button, and the Worker
+has no invite or join-tracking routes. Members are added to the channel by the operator outside this
+system. The deploy deletes any old Telegram webhook with `scripts/remove_telegram_webhook.mjs`.
+The tables from migration `0005` (`channel_invites`, `channel_members`) remain in D1 but are unused.
 
 Limits: the channel is a private member feed, and the messages are trading signals. Check the
 data-source terms (Yahoo Finance, Frankfurter) before members rely on them. Two triggers can, in rare

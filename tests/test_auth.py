@@ -352,17 +352,17 @@ def test_admin_login_is_unrestricted(client):
 def test_bootstrap_from_env(monkeypatch):
     from fxbot import server
 
-    monkeypatch.delenv("KFX_ADMIN_USERNAME", raising=False)
-    monkeypatch.delenv("KFX_ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("ADMIN_USERNAME", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
     assert server._bootstrap_admin_from_env() is None
-    monkeypatch.setenv("KFX_ADMIN_USERNAME", ADMIN_USER)
-    monkeypatch.setenv("KFX_ADMIN_PASSWORD", ADMIN_PW)
+    monkeypatch.setenv("ADMIN_USERNAME", ADMIN_USER)
+    monkeypatch.setenv("ADMIN_PASSWORD", ADMIN_PW)
     monkeypatch.setenv("KFX_ADMIN_PHONE", "+15559990000")
     assert server._bootstrap_admin_from_env() == ADMIN_USER
     assert ACCOUNTS.authenticate(ADMIN_USER, ADMIN_PW).role == "admin"
     with pytest.raises(ValueError):                      # the phone number is not a login name
         ACCOUNTS.authenticate("+1 555 999 0000", ADMIN_PW)
-    monkeypatch.delenv("KFX_ADMIN_PASSWORD")
+    monkeypatch.delenv("ADMIN_PASSWORD")
     with pytest.raises(RuntimeError):
         server._bootstrap_admin_from_env()
 
@@ -426,7 +426,7 @@ def test_seed_admin_demotes_every_other_admin_row(monkeypatch):
 
 
 def test_bootstrap_username_and_email_are_reserved_from_sign_up(monkeypatch):
-    monkeypatch.setenv("KFX_ADMIN_USERNAME", "opsadmin")
+    monkeypatch.setenv("ADMIN_USERNAME", "opsadmin")
     monkeypatch.setenv("KFX_ADMIN_EMAIL", "ops@test.fx")
     with pytest.raises(ValueError, match="reserved"):
         ACCOUNTS.register("OpsAdmin", "someone@test.fx", "+15550004444", PW)
