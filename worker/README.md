@@ -5,7 +5,7 @@ This Worker is the same-origin API target for the Pages proxy. It stores account
 ## Signals (scheduled snapshot)
 
 Signal generation runs in Python, but a Worker cannot run the engine within its CPU limit. The
-scheduled workflow `.github/workflows/signals.yml` runs `scripts/publish_signals.py` at 8am and 7pm Eastern. It
+scheduled workflow `.github/workflows/signals.yml` runs `scripts/publish_signals.py` every hour. It
 scans live market data and writes the result to the D1 table `signal_cache` (migration `0002`). The
 Worker serves paid users from that table:
 

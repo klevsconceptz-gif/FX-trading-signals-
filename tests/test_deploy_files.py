@@ -168,12 +168,12 @@ def test_worker_has_no_signal_engine_proxy_left():
         assert "X-KLEVS-ENGINE-TOKEN" not in text, path.name
 
 
-def test_signal_publish_workflow_is_scheduled_gated_and_uses_build_secrets():
+def test_signal_publish_runs_hourly_without_a_clock_gate_and_uses_build_secrets():
     text = _workflow_text(SIGNALS_WORKFLOW)
-    assert re.search(r'cron: "\d+ 12,13 \* \* \*"', text)  # 8am Eastern, both UTC offsets
-    assert re.search(r'cron: "\d+ 23,0 \* \* \*"', text)   # 7pm Eastern, both UTC offsets
-    assert "TZ=America/New_York" in text  # the gate keeps only the 08 and 19 Eastern runs
-    assert re.search(r"^    needs: gate$", text, re.M)
+    assert re.search(r'cron: "\d+ \* \* \* \*"', text)  # every hour, so a new bar publishes when it closes
+    assert "cron: \"5 12,13" not in text and "TZ=America/New_York" not in text  # no fixed Eastern slots
+    assert not re.search(r"^  gate:$", text, re.M)  # the clock gate job is gone; every run publishes
+    assert "needs: gate" not in text
     assert "workflow_dispatch" in text
     assert re.search(r"^    environment: production$", text, re.M)
     assert "python -m scripts.publish_signals" in text
@@ -281,5 +281,5 @@ def test_deploys_and_the_publish_only_run_from_main():
     for path in (ROOT / ".github" / "workflows" / "cloudflare-deploy.yml", ROOT / ".github" / "workflows" / "pages-deploy.yml"):
         assert "if: github.ref == 'refs/heads/main'" in path.read_text(encoding="utf-8"), path.name
     publish = _workflow_text(SIGNALS_WORKFLOW)
-    assert "if: github.ref == 'refs/heads/main' && needs.gate.outputs.run == 'true'" in publish
+    assert "if: github.ref == 'refs/heads/main'\n" in publish
 
