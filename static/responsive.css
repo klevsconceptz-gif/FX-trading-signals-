@@ -1,0 +1,238 @@
+/* klevs FX trading App — cross-device fixes (phones, tablets, laptops, desktops).
+   Loaded last on the landing page, the member dashboard and the operator console, so it
+   corrects the earlier rules without editing them. Nothing here changes the desktop layout
+   except text size, which is raised to a readable minimum everywhere. */
+
+/* ---- notched phones: keep content clear of the rounded corners and the home bar ---- */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* ---- touch screens ---- */
+@media (pointer: coarse) {
+  /* iOS zooms the whole page when a field with text under 16px is focused. */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  /* Tap targets: at least 44 x 44 CSS px. */
+  .btn,
+  .refresh,
+  .auth-submit,
+  .auth-tab,
+  .auth-link,
+  .pw-toggle,
+  .linkish,
+  .tab,
+  .tab-link,
+  .pay-opt,
+  .faq summary,
+  .admin-page button,
+  .admin-page .tab {
+    min-height: 44px;
+  }
+  .auth-close {
+    width: 44px;
+    height: 44px;
+  }
+  .pw-toggle {
+    width: 48px;
+    min-width: 48px;
+  }
+  .nav-links a,
+  .foot-links a,
+  .linkish {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
+
+/* ---- readable text: nothing below 12px; body copy 14px on phones ---- */
+.eyebrow,
+.badge,
+.mock-conf,
+.mock-line,
+.mock-foot span,
+.show-sub,
+.disclaimer,
+.copy,
+.billing-note,
+.hint,
+.hero-trust,
+.stats span,
+.plan-for,
+.auth-label,
+.pw-checklist li,
+.pw-strength,
+.auth-error,
+.pay-opt span,
+.pay-line span,
+.pay-line code,
+.inv-code,
+.k,
+.v,
+.tab,
+.auth-tab,
+.pill,
+.chip .k,
+th,
+.admin-page .note,
+.admin-page .who,
+.admin-page .tab,
+.admin-page table,
+.admin-page th,
+.admin-page td {
+  font-size: max(12px, 0.75rem);
+}
+.btn {
+  font-size: 13px;
+}
+.faq p,
+.card p,
+.step p,
+.auth-sub,
+.auth-note,
+.sub {
+  font-size: 14px;
+}
+.hero .lead,
+.lead {
+  font-size: 16px;
+}
+
+/* ---- sign-up / log-in modal: room for the close button, scroll on short screens ---- */
+.auth-card {
+  max-height: calc(100dvh - 20px);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+}
+.auth-tabs {
+  padding-right: 44px;
+  row-gap: 8px;
+}
+.auth-tab {
+  flex: 1 1 auto;
+  text-align: center;
+  white-space: nowrap;
+}
+.auth-field input,
+.auth-field select {
+  max-width: 100%;
+}
+.pw-row input {
+  min-width: 0;
+}
+.pw-checklist {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+/* ---- operator console: login card must fit a 320px screen ---- */
+.admin-page #login {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 430px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-inline: auto;
+}
+@media (max-width: 480px) {
+  .admin-page #login {
+    margin-top: 28px;
+    margin-bottom: 28px;
+    padding: 20px 18px;
+  }
+}
+.admin-page .tabs {
+  flex-wrap: wrap;
+}
+.admin-page .card,
+.admin-page main,
+.admin-page header {
+  max-width: 100%;
+}
+
+/* ---- member dashboard: keep the top bar and tabs usable on narrow screens ---- */
+@media (max-width: 560px) {
+  .topbar {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tabs .tab {
+    flex: 0 0 auto;
+  }
+  .community-links a {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+/* ---- tablets and small laptops: avoid cramped two-column grids ---- */
+@media (min-width: 561px) and (max-width: 900px) {
+  .grid-detail,
+  .grid-top {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- smallest elements found by the device audit ---- */
+.show-row,
+.show-row b,
+.show-row div,
+.plan li,
+.plan ul li {
+  font-size: 13px;
+}
+.show-tag,
+.popular,
+.per,
+.mock-steps div,
+.mock-steps b,
+.brand span,
+.topbar .sub,
+.pulse .v,
+.chip .v,
+.chip .k,
+em,
+footer,
+footer * {
+  font-size: max(12px, 0.75rem);
+}
+.nav-cta .btn {
+  font-size: 12px;
+}
+
+/* ---- text links: keep a 24px minimum target for mouse users too (WCAG 2.2 AA) ---- */
+.nav-links a,
+.foot-links a,
+.linkish {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+.linkish {
+  padding: 4px 2px;
+}
+
+/* ---- inputs: 14px everywhere; touch screens get 16px from the rule above ---- */
+.auth-field input,
+.auth-field select {
+  font-size: 14px;
+}
+.admin-page .ok {
+  font-size: 12px;
+}
+.price .per {
+  font-size: 12px;
+}
+
+.admin-page header .note {
+  font-size: 12px;
+}
