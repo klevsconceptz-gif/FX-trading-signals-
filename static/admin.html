@@ -30,16 +30,30 @@
 
 <main id="console" class="hidden">
   <nav class="tabs">
-    <button class="tab active" data-tab="payments">Payments</button>
+    <button class="tab active" data-tab="general">General</button>
+    <button class="tab" data-tab="payments">Payments</button>
     <button class="tab" data-tab="users">Accounts</button>
     <button class="tab" data-tab="grants">Access grants</button>
     <button class="tab" data-tab="settings">Payment details</button>
     <button class="tab" data-tab="activity">Activity log</button>
+    <a class="tab-link" href="/app" target="_blank" rel="noopener" title="Open the signals dashboard as a registered user sees it">User dashboard ↗</a>
   </nav>
   <div class="err" id="g-err"></div>
 
+  <!-- general overview -->
+  <section id="tab-general">
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0;margin-right:auto">Project overview</h2>
+        <button id="overview-refresh">Refresh</button>
+      </div>
+      <p class="note">Status and counts only. Secrets, wallet details, bank details and passwords are never shown here.</p>
+      <div id="overview-body"><em>Loading…</em></div>
+    </div>
+  </section>
+
   <!-- payments -->
-  <section id="tab-payments">
+  <section id="tab-payments" class="hidden">
     <div class="card">
       <div class="row" style="margin-bottom:10px">
         <h2 style="margin:0;margin-right:auto">Payment queue</h2>

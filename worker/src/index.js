@@ -50,6 +50,7 @@ import {
 } from "./http.js";
 import { SYMBOLS, UNIVERSE } from "./universe.js";
 import { signalHealth, signalResponse } from "./signals.js";
+import { adminOverview } from "./overview.js";
 import { postSignalUpdates, telegramRequestAuthorized, telegramConfigured } from "./telegram.js";
 
 const APP_NAME = "klevs FX trading App";
@@ -199,6 +200,10 @@ async function handleApi(request, env) {
   if (path === "/api/admin/payment-settings" && method === "PUT") {
     const admin = await requireAdmin(env, request);
     return jsonResponse(await updatePaymentSettings(env, admin.username, await parseJson(request)));
+  }
+  if (path === "/api/admin/overview" && method === "GET") {
+    await requireAdmin(env, request);
+    return jsonResponse(await adminOverview(env));
   }
   if (path === "/api/admin/audit-log" && method === "GET") {
     await requireAdmin(env, request);

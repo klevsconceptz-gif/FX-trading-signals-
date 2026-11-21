@@ -71,6 +71,12 @@
 .admin-page button:active:not(:disabled) { transform: translateY(1px); }
 .admin-page .tab { border-color: transparent; background: transparent; color: #94a8b7; }
 .admin-page .tab:hover { color: var(--text); background: rgba(120, 221, 195, 0.055); }
+.admin-page .tab-link {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 8px 13px;
+  border: 1px dashed rgba(120, 221, 195, 0.32); border-radius: 10px;
+  color: var(--accent); font: 600 11.5px/1.3 var(--font-body); text-decoration: none; white-space: nowrap;
+}
+.admin-page .tab-link:hover { background: rgba(120, 221, 195, 0.08); }
 .admin-page .tab.active {
   border-color: rgba(120, 221, 195, 0.20);
   background: rgba(120, 221, 195, 0.10);
@@ -239,3 +245,17 @@
   .admin-page .crypto-row .c-net, .admin-page .crypto-row .c-addr { width: 100% !important; min-width: 100%; flex: 1 1 100%; }
   .admin-page #tab-activity table { min-width: 810px; }
 }
+
+/* ---------- general overview ---------- */
+.admin-page .ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.admin-page .ov-card { border: 1px solid rgba(137, 164, 184, 0.16); border-radius: 12px; padding: 12px 14px; background: rgba(23, 38, 56, 0.6); }
+.admin-page .ov-card h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #94a8b7; }
+.admin-page .ov-row { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: 12.5px; }
+.admin-page .ov-row span { color: #94a8b7; }
+.admin-page .ov-row b { font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.admin-page .ov-state { font-weight: 750; }
+.admin-page .ov-state.fresh { color: var(--green, #23c17b); }
+.admin-page .ov-state.stale { color: #f2b63d; }
+.admin-page .ov-state.missing { color: #f0556b; }
+.admin-page .ov-heading { margin: 18px 0 8px; font-size: 13px; }
+.admin-page .ov-activity { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; }
