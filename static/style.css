@@ -108,6 +108,18 @@ main { padding: 18px 22px 40px; }
 .conf-bar i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--accent, #3b82f6); }
 .conf-cell span { font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
 
+/* forex heatmap */
+.heatmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.heat-tile {
+  display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left;
+  padding: 9px 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text, #e6edf7); cursor: pointer; font: inherit;
+}
+.heat-tile:hover { border-color: var(--accent, #4da3ff); }
+.heat-name { font-weight: 700; font-size: 13px; }
+.heat-side { font-size: 11px; letter-spacing: 0.04em; }
+.heat-meta { font-size: 11px; opacity: 0.8; font-variant-numeric: tabular-nums; }
+
 /* ---------- insights ---------- */
 .insights { list-style: none; display: flex; flex-direction: column; gap: 9px; }
 .insights li {

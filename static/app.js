@@ -208,8 +208,39 @@ function renderScan() {
     })
   );
 
+  renderHeatmap(all);
   renderCorrelation(SCAN.correlation);
   populateBacktestSymbols(all);
+}
+
+// Forex heatmap: one tile per instrument. Colour is the signal side; brightness is the confidence.
+function renderHeatmap(rows) {
+  const el = $("#heatmap");
+  if (!el) return;
+  if (!rows || rows.length === 0) {
+    el.innerHTML = `<div class="empty">No instruments yet</div>`;
+    return;
+  }
+  el.innerHTML = rows
+    .map((p) => {
+      const conf = typeof p.confidence === "number" && Number.isFinite(p.confidence)
+        ? Math.max(0, Math.min(1, p.confidence)) : 0;
+      const rgb = p.side === "BUY" ? "35,193,123" : p.side === "SELL" ? "240,85,107" : "139,152,173";
+      const alpha = p.side === "WAIT" ? 0.14 : 0.18 + conf * 0.62;
+      const label = p.side === "WAIT" ? "WAIT" : `${p.side} NOW`;
+      return `<button class="heat-tile" data-symbol="${esc(p.symbol)}" style="background:rgba(${rgb},${alpha.toFixed(2)})" title="${esc(p.display)} · ${label} · confidence ${pct(p.confidence, 0)}">
+        <span class="heat-name">${esc(p.display)}</span>
+        <span class="heat-side">${label}</span>
+        <span class="heat-meta">${pct(p.confidence, 0)} · ${fmt(p.price)}</span>
+      </button>`;
+    })
+    .join("");
+  el.querySelectorAll(".heat-tile").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      loadPair(btn.dataset.symbol);
+      $("#pair-title").scrollIntoView({ behavior: "smooth", block: "center" });
+    })
+  );
 }
 
 // sortable headers
@@ -375,6 +406,23 @@ function drawCandles(canvas, candles, overlays, plan) {
   drawLine(overlays.ema200, "#9d7bff");
   drawLine(overlays.bb_upper, "#2c3a52", [4, 4]);
   drawLine(overlays.bb_lower, "#2c3a52", [4, 4]);
+
+  // buy marker: an arrow under the latest candle while the pair's current signal is BUY NOW
+  if (plan && plan.side === "BUY" && candles.length) {
+    const last = candles[candles.length - 1];
+    const xx = x(candles.length - 1);
+    const yy = y(last.l) + 6;
+    ctx.fillStyle = "#23c17b";
+    ctx.beginPath();
+    ctx.moveTo(xx, yy);
+    ctx.lineTo(xx - 6, yy + 10);
+    ctx.lineTo(xx + 6, yy + 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.font = "bold 10px Consolas, monospace";
+    ctx.fillText("BUY", xx - 12, yy + 22);
+    ctx.font = "10px Consolas, monospace";
+  }
 
   // plan levels
   const level = (v, color, label) => {
