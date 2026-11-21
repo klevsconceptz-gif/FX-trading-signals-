@@ -19,6 +19,12 @@ const fmt = (v, d = 5) =>
     : Number(v).toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: Math.min(d, 4) });
 
 const pct = (v, d = 2) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(d)}%`);
+// Confidence as a bar with its percentage. Values outside 0..1 are clamped so the bar stays in its track.
+const confCell = (v) => {
+  if (typeof v !== "number" || !Number.isFinite(v)) return "—";
+  const w = Math.max(0, Math.min(1, v)) * 100;
+  return `<div class="conf-cell"><div class="conf-bar" role="img" aria-label="Confidence ${pct(v, 0)}"><i style="width:${w.toFixed(0)}%"></i></div><span>${pct(v, 0)}</span></div>`;
+};
 
 function sideClass(side) {
   return side === "BUY" ? "buy" : side === "SELL" ? "sell" : "wait";
@@ -176,7 +182,7 @@ function renderScan() {
       (p) => `<tr data-symbol="${p.symbol}">
       <td><strong>${p.display}</strong></td>
       <td><span class="badge ${sideClass(p.side)}">${p.side === "WAIT" ? "WAIT" : p.side + " NOW"}</span></td>
-      <td>${pct(p.confidence, 0)}</td>
+      <td>${confCell(p.confidence)}</td>
       <td>${String(p.regime).replace("_", " ")}</td>
       <td>${fmt(p.price)}</td>
       <td>${pct(p.p_up, 0)}</td>
