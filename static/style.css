@@ -102,6 +102,12 @@ main { padding: 18px 22px 40px; }
 }
 .str-row .sc { text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
 
+/* confidence bars in the signals table */
+.conf-cell { display: flex; align-items: center; gap: 8px; min-width: 96px; }
+.conf-bar { flex: 1; height: 8px; border-radius: 4px; background: var(--card2); overflow: hidden; position: relative; }
+.conf-bar i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--accent, #3b82f6); }
+.conf-cell span { font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
+
 /* ---------- insights ---------- */
 .insights { list-style: none; display: flex; flex-direction: column; gap: 9px; }
 .insights li {
