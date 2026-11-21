@@ -294,3 +294,7 @@ footer { padding: 29px 20px; background: rgba(10, 18, 29, 0.92); border-color: r
   .foot-inner { align-items: flex-start; }
   .foot-links { gap: 12px; flex-wrap: wrap; }
 }
+
+/* Telegram community section (landing): anchors styled as buttons */
+a.btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.telegram-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }

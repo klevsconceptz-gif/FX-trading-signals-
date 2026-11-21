@@ -385,3 +385,7 @@ footer { padding: 22px 18px; color: #8499a9; font-size: 10.5px; border-color: rg
   .metric { min-width: calc(50% - 8px); flex: 1 1 calc(50% - 8px); }
   .pair-meta .chip { flex: 1 1 calc(50% - 8px); }
 }
+
+/* Telegram community links (dashboard) */
+.community-links { display: flex; flex-wrap: wrap; gap: 10px; }
+.community-links a { text-decoration: none; display: inline-flex; align-items: center; }
