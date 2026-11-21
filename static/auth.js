@@ -91,14 +91,14 @@
   }
 
   /* ---------- password field factory ---------- */
-  function passwordField(id, label, { checklist = true } = {}) {
+  function passwordField(id, label, { checklist = true, autocomplete = "new-password" } = {}) {
     const wrap = document.createElement("label");
     wrap.className = "auth-field";
     wrap.innerHTML = `
       <span class="auth-label">${label}</span>
       <div class="pw-row">
-        <input type="password" id="${id}" autocomplete="new-password" maxlength="128" required />
-        <button type="button" class="pw-toggle" data-for="${id}" tabindex="-1" title="Show password">👁</button>
+        <input type="password" id="${id}" autocomplete="${autocomplete}" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="128" required />
+        <button type="button" class="pw-toggle" data-for="${id}" title="Show password" aria-label="Show password">👁</button>
       </div>
       ${checklist ? `
       <div class="pw-meter"><i id="${id}-bar"></i></div>
@@ -140,6 +140,7 @@
     input.type = showing ? "password" : "text";
     btn.textContent = showing ? "👁" : "🙈";
     btn.title = showing ? "Show password" : "Hide password";
+    btn.setAttribute("aria-label", btn.title);
     input.focus();
   });
 
@@ -167,10 +168,10 @@
           <p class="auth-sub">Username, email, phone number and password. Access to the bot is unlocked after you pay and the operator verifies the payment.</p>
           <label class="auth-field"><span class="auth-label">Username</span>
             <input type="text" id="reg-username" required minlength="3" maxlength="32"
-                   pattern="[A-Za-z0-9_.\\-]{3,32}" placeholder="fxtrader24" autocomplete="username" />
+                   pattern="[A-Za-z0-9_.\\-]{3,32}" placeholder="fxtrader24" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" />
           </label>
           <label class="auth-field"><span class="auth-label">Email</span>
-            <input type="email" id="reg-email" required maxlength="200" placeholder="you@example.com" autocomplete="email" />
+            <input type="email" id="reg-email" required maxlength="200" placeholder="you@example.com" autocomplete="email" autocapitalize="none" spellcheck="false" />
           </label>
           <label class="auth-field"><span class="auth-label">Phone number</span>
             <input type="tel" id="reg-phone" required maxlength="20" placeholder="+1 555 123 4567" autocomplete="tel" />
@@ -184,7 +185,7 @@
           <p class="auth-sub">Log in with your username and password. Operator accounts can sign in here too and continue to the admin console.</p>
           <label class="auth-field"><span class="auth-label">Username</span>
             <input type="text" id="log-ident" required maxlength="200"
-                   placeholder="fxtrader24" autocomplete="username" />
+                   placeholder="fxtrader24" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" />
           </label>
           <div id="log-password-slot"></div>
           <button class="auth-submit" type="submit" id="log-submit">Log in →</button>
@@ -195,7 +196,7 @@
           <h3>Reset your password</h3>
           <p class="auth-sub">We e-mail a 7-digit code to the address on your account. It expires in 15 minutes.</p>
           <label class="auth-field"><span class="auth-label">Email</span>
-            <input type="email" id="fg-email" required maxlength="200" placeholder="you@example.com" />
+            <input type="email" id="fg-email" required maxlength="200" placeholder="you@example.com" autocomplete="email" autocapitalize="none" spellcheck="false" />
           </label>
           <button class="auth-submit" type="submit" id="fg-submit">Send reset code →</button>
         </form>
@@ -252,7 +253,7 @@
     document.body.appendChild(el);
 
     el.querySelector("#reg-password-slot").appendChild(passwordField("reg-password", "Password"));
-    el.querySelector("#log-password-slot").appendChild(passwordField("log-password", "Password", { checklist: false }));
+    el.querySelector("#log-password-slot").appendChild(passwordField("log-password", "Password", { checklist: false, autocomplete: "current-password" }));
     el.querySelector("#rst-password-slot").appendChild(passwordField("rst-password", "New password"));
     return el;
   }

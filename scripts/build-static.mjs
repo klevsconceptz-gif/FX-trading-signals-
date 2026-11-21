@@ -17,4 +17,8 @@ await copyFile(path.join(staticDir, "index.html"), path.join(outputDir, "app", "
 await mkdir(path.join(outputDir, "admin"), { recursive: true });
 await copyFile(path.join(staticDir, "admin.html"), path.join(outputDir, "admin", "index.html"));
 
+// Crawler files must sit at the site root.
+await copyFile(path.join(staticDir, "robots.txt"), path.join(outputDir, "robots.txt"));
+await copyFile(path.join(staticDir, "sitemap.xml"), path.join(outputDir, "sitemap.xml"));
+
 console.log("Built Cloudflare Pages frontend in dist/ (API routes proxy to the Cloudflare Worker).");

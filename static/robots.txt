@@ -1,0 +1,8 @@
+# Public marketing pages may be crawled. The signed-in dashboard, the operator console and the API are not.
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /admin
+Disallow: /api/
+
+Sitemap: https://fx-trading-signals.pages.dev/sitemap.xml

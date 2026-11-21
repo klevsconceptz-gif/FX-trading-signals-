@@ -1,0 +1,14 @@
+{
+  "name": "klevs FX trading App",
+  "short_name": "KFX",
+  "description": "FX buy and sell instructions with predicted outcome, take-profit, stop-loss and time-stop.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#09111c",
+  "theme_color": "#09111c",
+  "icons": [
+    { "src": "/static/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
