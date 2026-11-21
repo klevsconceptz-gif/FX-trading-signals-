@@ -88,11 +88,12 @@ async function write(fn, onError) {
 }
 
 /* ---------- tabs ---------- */
-const TAB_NAMES = ["payments", "users", "grants", "settings", "activity"];
+const TAB_NAMES = ["general", "payments", "users", "grants", "settings", "activity"];
 
 function showTab(name) {
   document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
   TAB_NAMES.forEach((n) => $(`#tab-${n}`).classList.toggle("hidden", n !== name));
+  if (name === "general") loadGeneral();
   if (name === "payments") loadPayments();
   if (name === "users") loadUsers();
   if (name === "grants") loadGrants();
@@ -625,6 +626,63 @@ async function loadAuditLog() {
   }
 }
 
+/* ---------- general overview ---------- */
+const stateLabel = { fresh: "Fresh", stale: "Stale", missing: "Missing" };
+
+function overviewCard(title, rows) {
+  return `<div class="ov-card"><h3>${esc(title)}</h3>${rows
+    .map(([k, v]) => `<div class="ov-row"><span>${esc(k)}</span><b>${v}</b></div>`)
+    .join("")}</div>`;
+}
+
+function renderOverview(o) {
+  const st = o.signals.state;
+  const signalsCard = overviewCard("Signals", [
+    ["Snapshot", `<span class="ov-state ${esc(st)}">${esc(stateLabel[st] || st)}</span>`],
+    ["Published", esc(fmtDate(o.signals.generated_at))],
+    ["Data source", `<span title="${esc(o.signals.data_source || "")}">${esc((o.signals.data_source || "—").slice(0, 60))}</span>`],
+    ["Max age", `${Math.round(o.signals.max_age_seconds / 3600)} h`],
+  ]);
+  const telegramCard = overviewCard("Telegram", [
+    ["Configured", o.telegram.configured ? "Yes" : "No"],
+    ["Last check", esc(fmtDate(o.telegram.last_check_at))],
+    ["Tracked signals", esc(o.telegram.tracked_signals)],
+  ]);
+  const accountsCard = overviewCard("Accounts", [
+    ["Total", esc(o.accounts.total)],
+    ["Admins", esc(o.accounts.admins)],
+    ["Disabled", esc(o.accounts.disabled)],
+  ]);
+  const accessCard = overviewCard("Access", [
+    ["Paid users", esc(o.access.paid_users)],
+    ["Active grants", esc(o.access.active_grants)],
+  ]);
+  const p = o.payments;
+  const paymentsCard = overviewCard("Payments", [
+    ["Awaiting payment", esc(p.awaiting_payment)],
+    ["Submitted for review", esc(p.submitted)],
+    ["Confirmed", esc(p.confirmed)],
+    ["Rejected", esc(p.rejected)],
+    ["Cancelled", esc(p.cancelled)],
+  ]);
+  const activity = (o.recent_activity || []).map((e) =>
+    `<li>${esc(fmtDate(e.occurred_at))} · ${esc(e.actor || "—")} · ${esc(e.action)}${e.target_username ? ` · ${esc(e.target_username)}` : ""}</li>`
+  ).join("");
+  return `<div class="ov-grid">${signalsCard}${telegramCard}${accountsCard}${accessCard}${paymentsCard}</div>
+    <h3 class="ov-heading">Recent activity</h3>
+    ${activity ? `<ul class="ov-activity">${activity}</ul>` : `<div class="empty">No admin activity yet.</div>`}`;
+}
+
+async function loadGeneral() {
+  const body = $("#overview-body");
+  try {
+    body.innerHTML = renderOverview(await api("GET", "/api/admin/overview"));
+  } catch (err) {
+    if (!guard(err)) body.innerHTML = `<div class="err">${esc(err.message)}</div>`;
+  }
+}
+
+$("#overview-refresh").addEventListener("click", loadGeneral);
 $("#audit-refresh").addEventListener("click", loadAuditLog);
 
 $("#add-crypto").addEventListener("click", () => $("#crypto-rows").appendChild(cryptoRow()));
@@ -659,7 +717,7 @@ $("#set-save").addEventListener("click", async () => {
     if (me.user.role !== "admin") return showGate("This account is not an operator account.");
     operator = { id: Number(me.user.id), username: me.user.username };
     showConsole(me.user.username);
-    loadPayments();
+    loadGeneral();
   } catch (err) {
     if (!guard(err)) showGate(err.message);
   }

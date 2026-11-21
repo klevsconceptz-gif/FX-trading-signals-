@@ -16,6 +16,10 @@ import pandas as pd
 
 from .universe import BY_SYMBOL
 
+# A conversion rate older than this is refused. 72 hours spans a normal weekend close
+# (Friday evening to Sunday evening UTC), so a quiet weekend does not block sizing.
+MAX_CONVERSION_RATE_AGE = pd.Timedelta(hours=72)
+
 
 def _utc_index(index: pd.Index) -> pd.DatetimeIndex:
     result = pd.DatetimeIndex(index)
@@ -96,9 +100,18 @@ def conversion_rate_series(
 
 
 def latest_conversion_rate(
-    history: dict[str, pd.DataFrame], source: str, target: str
+    history: dict[str, pd.DataFrame],
+    source: str,
+    target: str,
+    *,
+    now: Optional[pd.Timestamp] = None,
+    max_age: pd.Timedelta = MAX_CONVERSION_RATE_AGE,
 ) -> float:
-    """Return the latest available conversion rate, failing closed if missing."""
+    """Return the latest available conversion rate, failing closed if missing or stale.
+
+    Every pair on the conversion path must have a close no older than ``max_age`` measured
+    from ``now`` (UTC). Without this check, a stalled feed could size trades on a rate days old.
+    """
     frames = [frame for frame in history.values() if not frame.empty]
     if not frames:
         raise ValueError("market history is empty; cannot convert currencies")
@@ -106,4 +119,17 @@ def latest_conversion_rate(
     rate = conversion_rate_series(history, source, target, pd.DatetimeIndex([latest_index])).iloc[0]
     if not np.isfinite(rate) or rate <= 0:
         raise ValueError(f"no current FX conversion rate from {source} to {target}")
+
+    current = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+    current = current.tz_localize("UTC") if current.tzinfo is None else current.tz_convert("UTC")
+    for symbol, _inverse in _conversion_path(history, source.upper(), target.upper()) or []:
+        closes = history[symbol]["close"].dropna()
+        last_close = _utc_index(pd.DatetimeIndex([closes.index[-1]]))[0]
+        age = current - last_close
+        if age > max_age:
+            hours = age.total_seconds() / 3600
+            raise ValueError(
+                f"stale FX conversion rate from {source} to {target}: {symbol} last closed "
+                f"{hours:.0f} hours ago (limit {max_age.total_seconds() / 3600:.0f} hours)"
+            )
     return float(rate)

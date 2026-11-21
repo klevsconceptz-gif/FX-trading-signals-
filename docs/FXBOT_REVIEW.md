@@ -39,7 +39,7 @@ correctness or security risk with a bounded blast radius. **Low** = hygiene, dea
 
 5. **Conversion rates have no maximum age.** `fxbot/conversion.py:88` forward-fills the latest rate
    with no limit, and `latest_conversion_rate` feeds position sizing. A stalled feed
-   can size trades with a rate days old. **Open.**
+   can size trades with a rate days old. **Fixed:** `latest_conversion_rate` refuses a rate when any pair on the conversion path last closed more than 72 hours before now (UTC). The 72 hours spans a weekend close.
 
 6. **Partial publish leaves pair rows and no commit marker.** `fxbot/publish.py:97` writes each
    `pair:` row before the `scan` row (`:104`, the commit marker). If a run fails between them, the
