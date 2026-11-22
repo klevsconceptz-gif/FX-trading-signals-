@@ -94,3 +94,24 @@ def test_browser_scripts_parse_on_older_browsers():
         src = _read(STATIC / name)
         assert not re.search(r"\?\?", src), f"{name} uses ??"
         assert not re.search(r"[\w)\]]\?\.[A-Za-z_\[(]", src), f"{name} uses ?."
+
+
+def test_fonts_are_self_hosted_and_no_page_calls_google_fonts():
+    for page in ("landing.html", "index.html", "admin.html"):
+        html = (ROOT / "static" / page).read_text(encoding="utf-8")
+        assert "fonts.googleapis.com" not in html and "fonts.gstatic.com" not in html, page
+        assert 'href="/static/fonts.css"' in html, page
+    fonts = (ROOT / "static" / "fonts.css").read_text(encoding="utf-8")
+    assert "url(/static/fonts/" in fonts and "https://" not in fonts
+    for font_file in re.findall(r"url\(/static/(fonts/[^)]+)\)", fonts):
+        assert (ROOT / "static" / font_file).is_file(), font_file
+    for family in ("DM Sans", "IBM Plex Mono", "Manrope"):
+        assert f"font-family: '{family}'" in fonts
+    # "optional" keeps the layout still: a web font is used only if it arrives straight away.
+    assert fonts.count("font-display: optional;") == fonts.count("@font-face")
+
+
+def test_fingerprinted_assets_are_cached_for_a_year_and_other_static_files_briefly():
+    headers = (ROOT / "static" / "_headers").read_text(encoding="utf-8")
+    assert "/assets/*\n  Cache-Control: public, max-age=31536000, immutable" in headers
+    assert "/static/*\n  Cache-Control: public, max-age=3600" in headers
