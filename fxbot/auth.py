@@ -119,12 +119,12 @@ def policy_error(password: str) -> Optional[str]:
 
 
 def _reserved_identity(username: str, email: str) -> bool:
-    """The bootstrap admin's username and email (ADMIN_USERNAME, KFX_ADMIN_EMAIL) belong to
+    """The bootstrap admin's username and email (ADMIN_USERNAME, ADMIN_EMAIL_ADDRESS) belong to
     that account only, so public sign-up cannot take them."""
     bootstrap = os.environ.get("ADMIN_USERNAME", "").strip().lower()
     if not bootstrap:
         return False
-    bootstrap_email = (os.environ.get("KFX_ADMIN_EMAIL") or os.environ.get("ADMIN_USERNAME") or "").strip().lower()
+    bootstrap_email = (os.environ.get("ADMIN_EMAIL_ADDRESS") or os.environ.get("ADMIN_USERNAME") or "").strip().lower()
     return username.lower() == bootstrap or email.lower() == bootstrap_email
 
 
@@ -269,7 +269,7 @@ class AccountStore:
             raise ValueError("admin username must be 1-64 characters with no spaces")
         email = (email if email is not None else username).strip().lower()
         if not EMAIL_RE.match(email):
-            raise ValueError("admin email must be a valid address (set KFX_ADMIN_EMAIL)")
+            raise ValueError("admin email must be a valid address (set ADMIN_EMAIL_ADDRESS)")
         phone = (phone or "").strip()
         if phone and not PHONE_RE.match(phone):
             raise ValueError("invalid admin phone number")

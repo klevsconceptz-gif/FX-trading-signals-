@@ -135,7 +135,7 @@ short:
 
 1. Apply the D1 migrations to the remote database: `npm run worker:migrate:remote`.
 2. Store the admin bootstrap values as Worker secrets (`ADMIN_USERNAME`,
-   `ADMIN_PASSWORD`; `KFX_ADMIN_EMAIL` is optional). These are
+   `ADMIN_PASSWORD`; `ADMIN_EMAIL_ADDRESS` is optional). These are
    secrets, not `vars`.
 3. Deploy the Worker: `npm run worker:deploy`.
 4. Deploy the Pages site. The function proxies `/api/*` to the Worker, and `KLEVS_API_ORIGIN`
@@ -216,7 +216,7 @@ Worker (set with `wrangler secret put` or in `vars`):
 |---|---|---|
 | `ADMIN_USERNAME` | secret | Admin account, provisioned on each start |
 | `ADMIN_PASSWORD` | secret | Admin password, applied on each start |
-| `KFX_ADMIN_EMAIL` | secret | Optional admin e-mail. Unset: a placeholder `<ADMIN_USERNAME>@bootstrap.invalid` is used |
+| `ADMIN_EMAIL_ADDRESS` | secret | Optional admin e-mail. Unset: a placeholder `<ADMIN_USERNAME>@bootstrap.invalid` is used |
 | `KFX_ADMIN_PHONE` | secret | Optional admin phone number |
 | `KLEVS_RESET_EMAIL_URL` | var | HTTPS endpoint that sends reset e-mail |
 | `KLEVS_RESET_EMAIL_TOKEN` | secret | Token for the reset-e-mail endpoint |
@@ -237,7 +237,7 @@ FastAPI app (set on the host that runs `fxbot.server`, for local or self-hosted 
 | Name | Purpose |
 |---|---|
 | `KFX_LIVE_DATA` | `1` (default) for live market data, `0` for the synthetic market |
-| `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `KFX_ADMIN_EMAIL`, `KFX_ADMIN_PHONE` | Admin bootstrap for the FastAPI app |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_EMAIL_ADDRESS`, `KFX_ADMIN_PHONE` | Admin bootstrap for the FastAPI app |
 | `KFX_SIGNAL_ENGINE_TOKEN` | Used by the FastAPI internal engine route only. The Cloudflare deployment does not use it |
 | `KLEVS_DATABASE_URL` | Database URL for the FastAPI app. Unset uses SQLite at `data/klevs.db` |
 | `KLEVS_DEV_RESET_CODES` | Development only. Must stay unset in production (it returns reset codes) |

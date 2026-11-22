@@ -82,7 +82,7 @@ test("sign-in demotes every other admin row, in one batch with its audit row", a
     },
   };
   const user = await ensureAdmin({
-    ADMIN_USERNAME: "opsadmin", KFX_ADMIN_EMAIL: "ops@example.test", ADMIN_PASSWORD: password, DB: db,
+    ADMIN_USERNAME: "opsadmin", ADMIN_EMAIL_ADDRESS: "ops@example.test", ADMIN_PASSWORD: password, DB: db,
   });
   assert.equal(user.id, 1);
   assert.equal(batches.length, 1, "one demotion batch for the one other admin row");
@@ -96,7 +96,7 @@ test("sign-in demotes every other admin row, in one batch with its audit row", a
 
 test("the bootstrap username and email are reserved from public sign-up and the console", async () => {
   const untouched = { prepare: () => { throw new Error("must not touch the database"); } };
-  const env = { ADMIN_USERNAME: "opsadmin", KFX_ADMIN_EMAIL: "ops@example.test", DB: untouched };
+  const env = { ADMIN_USERNAME: "opsadmin", ADMIN_EMAIL_ADDRESS: "ops@example.test", DB: untouched };
   await assert.rejects(registerAccount(env, { username: "OpsAdmin", email: "x@example.test", phone: "+1 201 555 0100", password: "Fresh!Secret77" }),
     (e) => e.status === 422 && /reserved/.test(e.message));
   await assert.rejects(registerAccount(env, { username: "someone", email: "OPS@example.test", phone: "+1 201 555 0100", password: "Fresh!Secret77" }),
@@ -115,7 +115,7 @@ test("the bootstrap admin signs in with only ADMIN_USERNAME and ADMIN_PASSWORD",
   const password = "Bootstrap!Secret77";
   const { bootstrapEmail } = await import("../src/roles.js");
   assert.equal(bootstrapEmail({ ADMIN_USERNAME: "Opsadmin" }), "opsadmin@bootstrap.invalid");
-  assert.equal(bootstrapEmail({ ADMIN_USERNAME: "opsadmin", KFX_ADMIN_EMAIL: "Ops@Example.test" }), "ops@example.test");
+  assert.equal(bootstrapEmail({ ADMIN_USERNAME: "opsadmin", ADMIN_EMAIL_ADDRESS: "Ops@Example.test" }), "ops@example.test");
   assert.equal(bootstrapEmail({}), "");
 
   const created = [];

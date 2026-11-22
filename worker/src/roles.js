@@ -12,9 +12,9 @@ export const ROLE_USER = "user";
 // mailed to: the admin password comes from the ADMIN_PASSWORD secret, not from a reset e-mail.
 export const BOOTSTRAP_EMAIL_DOMAIN = "bootstrap.invalid";
 
-// The bootstrap admin's email: KFX_ADMIN_EMAIL when set, otherwise a placeholder built from ADMIN_USERNAME.
+// The bootstrap admin's email: ADMIN_EMAIL_ADDRESS when set, otherwise a placeholder built from ADMIN_USERNAME.
 export function bootstrapEmail(env) {
-  const explicit = String(env?.KFX_ADMIN_EMAIL || "").trim().toLowerCase();
+  const explicit = String(env?.ADMIN_EMAIL_ADDRESS || "").trim().toLowerCase();
   if (explicit) return explicit;
   const username = bootstrapUsername(env);
   return username ? `${username}@${BOOTSTRAP_EMAIL_DOMAIN}` : "";

@@ -46,7 +46,7 @@ test("renaming ADMIN_USERNAME moves the lookup key, so the new name can sign in"
     batch: async (statements) => statements.map(() => ({ meta: { changes: 1 } })),
   };
   await ensureAdmin({
-    ADMIN_USERNAME: "newadmin", KFX_ADMIN_EMAIL: "ops@example.test", ADMIN_PASSWORD: password, DB: db,
+    ADMIN_USERNAME: "newadmin", ADMIN_EMAIL_ADDRESS: "ops@example.test", ADMIN_PASSWORD: password, DB: db,
   });
   const rename = writes.find((w) => /UPDATE users SET username = \?, username_key = \? WHERE id = \?/.test(w.sql));
   assert.ok(rename, "the rename must write the lookup key as well as the display name");

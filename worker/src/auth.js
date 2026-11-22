@@ -94,10 +94,10 @@ async function ensureBootstrapAdmin(env) {
   if (!adminUsernameIsValid(username)) {
     throw new ApiError(503, "ADMIN_USERNAME must be 3-32 characters: letters, numbers, _ . - only");
   }
-  // KFX_ADMIN_EMAIL is optional; without it the bootstrap email is derived from ADMIN_USERNAME.
+  // ADMIN_EMAIL_ADDRESS is optional; without it the bootstrap email is derived from ADMIN_USERNAME.
   const email = bootstrapEmail(env);
   if (!emailIsValid(email)) {
-    throw new ApiError(503, "KFX_ADMIN_EMAIL is not a valid e-mail address");
+    throw new ApiError(503, "ADMIN_EMAIL_ADDRESS is not a valid e-mail address");
   }
   const phone = String(env.KFX_ADMIN_PHONE || "").trim();
   if (phone && !phoneIsValid(phone)) {

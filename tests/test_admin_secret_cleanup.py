@@ -27,7 +27,7 @@ def test_deletes_only_the_three_retired_names():
         assert name in WORKFLOW
     # The only names this job may delete are the retired ones; no current admin secret is touched.
     assert "wrangler secret delete" in WORKFLOW
-    for current in ("ADMIN_USERNAME", "ADMIN_PASSWORD", "KFX_ADMIN_EMAIL"):
+    for current in ("ADMIN_USERNAME", "ADMIN_PASSWORD", "ADMIN_EMAIL_ADDRESS"):
         assert f"wrangler secret delete {current}" not in WORKFLOW
         assert f'"{current}"' not in WORKFLOW
     assert "wrangler secret put" not in WORKFLOW
