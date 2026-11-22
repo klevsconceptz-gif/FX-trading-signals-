@@ -32,7 +32,7 @@
       const r = await fetch(url, opts);
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const err = new Error(typeof body.detail === "string" ? body.detail : "request failed");
+        const err = new Error(typeof body.detail === "string" ? body.detail : `request failed (${r.status})`);
         err.status = r.status;
         throw err;
       }
