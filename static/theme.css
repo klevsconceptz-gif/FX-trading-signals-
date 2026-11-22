@@ -247,7 +247,7 @@ code, .mono, .chip .v, .metric .v, .level .val, .price {
 
 @media (max-width: 560px) {
   .auth-modal { align-items: flex-start; padding: 10px; }
-  .auth-card { max-height: calc(100dvh - 20px); padding: 22px 17px 20px; border-radius: 18px; }
+  .auth-card { max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); padding: 22px 17px 20px; border-radius: 18px; }
   .auth-tabs { margin-right: 31px; margin-bottom: 17px; }
   .auth-tab { min-height: 35px; padding: 8px 7px; font-size: 10px; }
   .auth-view h3 { font-size: 19px; }

@@ -13,7 +13,7 @@
   }
   const KEY = "kfx_sub";
 
-  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[c]);
 
@@ -32,7 +32,7 @@
       const r = await fetch(url, opts);
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const err = new Error(typeof body.detail === "string" ? body.detail : "request failed");
+        const err = new Error(typeof body.detail === "string" ? body.detail : `request failed (${r.status})`);
         err.status = r.status;
         throw err;
       }
@@ -405,9 +405,9 @@
 
   async function createInvoice() {
     const el = modal();
-    const plan = el.querySelector("input[name=pay-plan]:checked")?.value || state.plan;
-    const method = el.querySelector("input[name=pay-method]:checked")?.value;
-    const network = $(el, "#pay-network")?.value;
+    const plan = (el.querySelector("input[name=pay-plan]:checked") || {}).value || state.plan;
+    const method = (el.querySelector("input[name=pay-method]:checked") || {}).value;
+    const network = ($(el, "#pay-network") || {}).value;
     if (!method) return alertBox(el, "plan", "Choose a payment method.");
     const btn = $(el, "#pay-create");
     btn.disabled = true; btn.textContent = "Creating invoice…";
@@ -520,11 +520,11 @@
       }
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !document.getElementById("auth-modal")?.hidden) close();
+      if (e.key === "Escape" && !(document.getElementById("auth-modal") || {}).hidden) close();
     });
     $(el, "#auth-close").addEventListener("click", close);
     $(el, "#auth-open-app").addEventListener("click", () => {
-      window.location.href = readSession()?.role === "admin" ? appRoute("admin") : appRoute("app");
+      window.location.href = (readSession() || {}).role === "admin" ? appRoute("admin") : appRoute("app");
     });
 
     /* plan + method controls */

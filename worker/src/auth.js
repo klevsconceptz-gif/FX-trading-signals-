@@ -1,6 +1,6 @@
 import { ApiError, getBearerToken, requireDatabase, requireKV } from "./http.js";
 import { auditStatement } from "./audit.js";
-import { ROLE_ADMIN, ROLE_USER, effectiveRole, isReservedIdentity, withEffectiveRole } from "./roles.js";
+import { ROLE_ADMIN, ROLE_USER, bootstrapEmail, effectiveRole, isReservedIdentity, withEffectiveRole } from "./roles.js";
 import {
   PASSWORD_RULES,
   adminUsernameIsValid,
@@ -94,9 +94,10 @@ async function ensureBootstrapAdmin(env) {
   if (!adminUsernameIsValid(username)) {
     throw new ApiError(503, "ADMIN_USERNAME must be 3-32 characters: letters, numbers, _ . - only");
   }
-  const email = String(env.KFX_ADMIN_EMAIL || username).trim().toLowerCase();
+  // ADMIN_EMAIL_ADDRESS is optional; without it the bootstrap email is derived from ADMIN_USERNAME.
+  const email = bootstrapEmail(env);
   if (!emailIsValid(email)) {
-    throw new ApiError(503, "configure a valid KFX_ADMIN_EMAIL for the admin account");
+    throw new ApiError(503, "ADMIN_EMAIL_ADDRESS is not a valid e-mail address");
   }
   const phone = String(env.KFX_ADMIN_PHONE || "").trim();
   if (phone && !phoneIsValid(phone)) {

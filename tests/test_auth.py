@@ -427,7 +427,7 @@ def test_seed_admin_demotes_every_other_admin_row(monkeypatch):
 
 def test_bootstrap_username_and_email_are_reserved_from_sign_up(monkeypatch):
     monkeypatch.setenv("ADMIN_USERNAME", "opsadmin")
-    monkeypatch.setenv("KFX_ADMIN_EMAIL", "ops@test.fx")
+    monkeypatch.setenv("ADMIN_EMAIL_ADDRESS", "ops@test.fx")
     with pytest.raises(ValueError, match="reserved"):
         ACCOUNTS.register("OpsAdmin", "someone@test.fx", "+15550004444", PW)
     with pytest.raises(ValueError, match="reserved"):

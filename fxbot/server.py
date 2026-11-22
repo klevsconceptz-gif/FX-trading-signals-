@@ -582,7 +582,7 @@ def _bootstrap_admin_from_env() -> Optional[str]:
 
         ADMIN_USERNAME  required, e.g. admin
         ADMIN_PASSWORD  required, must satisfy the password policy
-        KFX_ADMIN_EMAIL     optional (defaults to the username)
+        ADMIN_EMAIL_ADDRESS     optional (defaults to the username)
         KFX_ADMIN_PHONE     optional
 
     Accounts live in memory, so this runs on every start.  Returns the admin
@@ -600,7 +600,7 @@ def _bootstrap_admin_from_env() -> Optional[str]:
     ACCOUNTS.seed_admin(
         username,
         password,
-        email=os.environ.get("KFX_ADMIN_EMAIL") or None,
+        email=os.environ.get("ADMIN_EMAIL_ADDRESS") or None,
         phone=os.environ.get("KFX_ADMIN_PHONE") or None,
     )
     return username

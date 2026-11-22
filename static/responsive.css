@@ -47,6 +47,13 @@ body {
     align-items: center;
     min-height: 44px;
   }
+  /* The compact header buttons and the sign-up modal buttons set a smaller height of their own,
+     which outranks the rule above. Touch screens keep the 44 px target. */
+  .nav-cta .btn,
+  .auth-card .btn,
+  .auth-view .btn {
+    min-height: 44px !important;
+  }
 }
 
 /* ---- readable text: nothing below 12px; body copy 14px on phones ---- */
@@ -104,6 +111,7 @@ th,
 
 /* ---- sign-up / log-in modal: room for the close button, scroll on short screens ---- */
 .auth-card {
+  max-height: calc(100vh - 20px);
   max-height: calc(100dvh - 20px);
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;

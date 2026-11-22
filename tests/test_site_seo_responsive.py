@@ -36,11 +36,20 @@ def test_members_and_operator_pages_stay_out_of_search():
     assert 'content="noindex, nofollow"' in _read(STATIC / "admin.html")
 
 
-def test_crawler_files_block_private_routes_and_point_to_sitemap():
+def test_crawler_files_block_the_api_and_point_to_sitemap():
     robots = _read(STATIC / "robots.txt")
-    for path in ("/app", "/admin", "/api/"):
-        assert f"Disallow: {path}" in robots
+    assert "Disallow: /api/" in robots
+    # /app and /admin carry noindex; blocking them here would hide that instruction from crawlers.
+    assert "Disallow: /app" not in robots and "Disallow: /admin" not in robots
     assert f"Sitemap: {CANONICAL}/sitemap.xml" in robots
+
+
+def test_pages_headers_are_shipped_to_the_site_root():
+    headers = _read(STATIC / "_headers")
+    assert "X-Content-Type-Options: nosniff" in headers
+    assert "X-Frame-Options: DENY" in headers
+    assert "Cache-Control: public, max-age=3600" in headers
+    assert '"_headers"' in _read(ROOT / "scripts" / "build-static.mjs")
     sitemap = _read(STATIC / "sitemap.xml")
     assert f"<loc>{CANONICAL}/</loc>" in sitemap
     assert "/app" not in sitemap and "/admin" not in sitemap
@@ -76,3 +85,12 @@ def test_touch_targets_and_16px_inputs_for_touch_screens():
     assert "@media (pointer: coarse)" in css
     assert "font-size: 16px !important" in css
     assert "min-height: 44px" in css
+
+
+def test_browser_scripts_parse_on_older_browsers():
+    # Optional chaining (?.) and nullish coalescing (??) need iOS 13.4+ and Chrome 80+. Older phones
+    # would fail to load the whole script and sign-up would stop working. Keep to ES2018.
+    for name in ("admin.js", "app.js", "auth.js", "landing.js", "runtime.js"):
+        src = _read(STATIC / name)
+        assert not re.search(r"\?\?", src), f"{name} uses ??"
+        assert not re.search(r"[\w)\]]\?\.[A-Za-z_\[(]", src), f"{name} uses ?."

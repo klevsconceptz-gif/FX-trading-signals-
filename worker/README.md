@@ -41,7 +41,7 @@ Create `worker/.dev.vars` locally (it is git-ignored) with test-only values befo
 
 ```dotenv
 ADMIN_USERNAME=operator@example.test
-KFX_ADMIN_EMAIL=operator@example.test
+ADMIN_EMAIL_ADDRESS=operator@example.test
 ADMIN_PASSWORD=<choose a local-only password>
 ```
 
@@ -94,7 +94,7 @@ Run these commands from the repository root in an authenticated Cloudflare/Wrang
    npx wrangler secret put ADMIN_USERNAME --config worker/wrangler.jsonc
    npx wrangler secret put ADMIN_PASSWORD --config worker/wrangler.jsonc
    # Optional if the username is not an email address:
-   npx wrangler secret put KFX_ADMIN_EMAIL --config worker/wrangler.jsonc
+   npx wrangler secret put ADMIN_EMAIL_ADDRESS --config worker/wrangler.jsonc
    ```
 
    The Worker creates or updates the admin record in D1 when `/api/auth/login` is called. The password is PBKDF2-hashed before it is stored. A changed configured password rotates the hash and invalidates existing sessions.

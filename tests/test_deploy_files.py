@@ -233,10 +233,11 @@ def test_pages_workflow_deploys_pages_only_on_main_pushes_and_manual_runs():
     assert "concurrency:" in text and "cloudflare-deploy" in text
 
 
-def test_deploy_stops_when_the_admin_email_is_missing():
+def test_deploy_does_not_require_an_admin_email():
     text = _workflow_text()
-    assert "ADMIN_EMAIL_ADDRESS must be set" in text
-    assert "Without it the Worker refuses every sign-in" in text
+    assert "ADMIN_EMAIL_ADDRESS must be set" not in text
+    assert "ADMIN_EMAIL_ADDRESS is optional" in text
+    assert "<ADMIN_USERNAME>@bootstrap.invalid" in text
 
 
 def test_worker_deploys_on_main_pushes_that_change_the_worker_and_leaves_pages_manual():

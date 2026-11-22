@@ -1,8 +1,8 @@
-# Public marketing pages may be crawled. The signed-in dashboard, the operator console and the API are not.
+# Public marketing pages may be crawled. The API is not.
+# The dashboard (/app) and the operator console (/admin) are marked noindex. They are not blocked
+# here, so crawlers can read that instruction.
 User-agent: *
 Allow: /
-Disallow: /app
-Disallow: /admin
 Disallow: /api/
 
 Sitemap: https://fx-trading-signals.pages.dev/sitemap.xml
