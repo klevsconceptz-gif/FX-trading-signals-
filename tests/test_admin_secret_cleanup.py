@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / ".github" / "workflows" / "delete-old-admin-secrets.yml").read_text(encoding="utf-8")
-RETIRED = ["KFX_ADMIN_USERNAME", "KFX_ADMIN_PASSWORD", "KFX_ADMIN_PASSWORD_HASH"]
+RETIRED = ["KFX_ADMIN_USERNAME", "KFX_ADMIN_PASSWORD", "KFX_ADMIN_PASSWORD_HASH", "KFX_ADMIN_EMAIL"]
 
 
 def test_runs_only_on_demand_from_main_with_the_confirmation_text():
@@ -22,7 +22,7 @@ def test_uses_the_production_environment_and_the_worker_config():
     assert "--config worker/wrangler.jsonc" in WORKFLOW
 
 
-def test_deletes_only_the_three_retired_names():
+def test_deletes_only_the_retired_names():
     for name in RETIRED:
         assert name in WORKFLOW
     # The only names this job may delete are the retired ones; no current admin secret is touched.
@@ -34,7 +34,13 @@ def test_deletes_only_the_three_retired_names():
 
 
 def test_refuses_to_run_while_code_still_reads_a_retired_name():
-    assert 'grep -rn "KFX_ADMIN_USERNAME\\|KFX_ADMIN_PASSWORD" worker/src' in WORKFLOW
+    assert 'grep -rn "KFX_ADMIN_USERNAME\\|KFX_ADMIN_PASSWORD\\|KFX_ADMIN_EMAIL" worker/src' in WORKFLOW
+
+
+def test_keeps_the_admin_email_when_it_is_not_on_the_worker():
+    assert "grep -qx KFX_ADMIN_EMAIL /tmp/secret-names.txt" in WORKFLOW
+    assert "grep -qx ADMIN_EMAIL_ADDRESS /tmp/secret-names.txt" in WORKFLOW
+    assert "Not deleting anything" in WORKFLOW
 
 
 def test_secrets_only_enter_through_env_mappings_never_run_lines():
