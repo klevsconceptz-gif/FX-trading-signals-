@@ -20,5 +20,7 @@ await copyFile(path.join(staticDir, "admin.html"), path.join(outputDir, "admin",
 // Crawler files must sit at the site root.
 await copyFile(path.join(staticDir, "robots.txt"), path.join(outputDir, "robots.txt"));
 await copyFile(path.join(staticDir, "sitemap.xml"), path.join(outputDir, "sitemap.xml"));
+// Pages reads response headers from a _headers file at the site root.
+await copyFile(path.join(staticDir, "_headers"), path.join(outputDir, "_headers"));
 
 console.log("Built Cloudflare Pages frontend in dist/ (API routes proxy to the Cloudflare Worker).");

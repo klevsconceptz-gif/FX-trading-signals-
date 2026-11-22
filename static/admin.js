@@ -5,7 +5,7 @@
 const SESSION_KEY = "kfx_sub";
 const PLANS = ["starter", "pro", "elite"];
 const $ = (s) => document.querySelector(s);
-const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
+const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 })[c]);
 const fmtDate = (ts) => (ts ? new Date(ts * 1000).toLocaleString() : "—");
@@ -104,7 +104,8 @@ function showTab(name) {
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab)));
 
 function activeTab() {
-  return document.querySelector(".tab.active")?.dataset.tab;
+  const active = document.querySelector(".tab.active");
+  return active ? active.dataset.tab : undefined;
 }
 
 /* After any write: refresh only what the operator is looking at. */
@@ -414,7 +415,7 @@ $("#ad-invoice").addEventListener("click", async () => {
     note,
   }), (m) => { msg.textContent = m; });
   if (result) {
-    msg.textContent = `Invoice ${result.payment?.invoice || ""} created.`;
+    msg.textContent = `Invoice ${(result.payment && result.payment.invoice) || ""} created.`;
     $("#ad-inv-note").value = "";
   }
 });

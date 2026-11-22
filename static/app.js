@@ -95,7 +95,7 @@ async function apiFetch(url, opts = {}) {
   return res;
 }
 
-const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
+const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 })[c]);
 
@@ -138,7 +138,7 @@ function renderScan() {
   $("#chip-breadth").textContent = pct(SCAN.breadth, 0);
   $("#chip-mood").textContent = SCAN.summary.market_mood || "—";
   $("#chip-signals").textContent =
-    `${SCAN.summary.buy_signals ?? 0}▲ / ${SCAN.summary.sell_signals ?? 0}▼`;
+    `${SCAN.summary.buy_signals == null ? 0 : SCAN.summary.buy_signals}▲ / ${SCAN.summary.sell_signals == null ? 0 : SCAN.summary.sell_signals}▼`;
 
   renderInstructions(SCAN.instructions || []);
 
@@ -560,16 +560,16 @@ $("#btn-backtest").addEventListener("click", async () => {
 function renderBacktest(out) {
   const m = out.metrics || {};
   const cards = [
-    ["Trades", m.trades ?? 0],
+    ["Trades", m.trades == null ? 0 : m.trades],
     ["Win rate", m.win_rate ? pct(m.win_rate, 1) : "—"],
-    ["Profit factor", m.profit_factor ?? "—"],
+    ["Profit factor", m.profit_factor == null ? "—" : m.profit_factor],
     ["Total P&L", m.total_pnl ? "$" + fmt(m.total_pnl, 0) : "—"],
     ["Return", m.total_return_pct !== undefined ? m.total_return_pct + "%" : "—"],
     ["Expectancy", m.expectancy_r !== undefined ? m.expectancy_r + "R" : "—"],
-    ["Sharpe", m.sharpe ?? "—"],
-    ["Sortino", m.sortino ?? "—"],
+    ["Sharpe", m.sharpe == null ? "—" : m.sharpe],
+    ["Sortino", m.sortino == null ? "—" : m.sortino],
     ["Max DD", m.max_drawdown_pct !== undefined ? m.max_drawdown_pct + "%" : "—"],
-    ["Avg win / loss", `${m.avg_win ?? 0} / ${m.avg_loss ?? 0}`],
+    ["Avg win / loss", `${m.avg_win == null ? 0 : m.avg_win} / ${m.avg_loss == null ? 0 : m.avg_loss}`],
   ];
   $("#bt-metrics").innerHTML = cards
     .map(

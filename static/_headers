@@ -1,0 +1,9 @@
+# Cloudflare Pages response headers. Copied to the site root by scripts/build-static.mjs.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+
+/static/*
+  Cache-Control: public, max-age=3600
