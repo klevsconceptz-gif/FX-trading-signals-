@@ -37,17 +37,22 @@ def test_pages_static_build_preserves_app_routes_when_node_is_available():
     )
     assert "API routes proxy to the Cloudflare Worker" in build.stdout
 
-    assert (ROOT / "dist" / "index.html").read_bytes() == (
-        ROOT / "static" / "landing.html"
-    ).read_bytes()
-    assert (ROOT / "dist" / "app" / "index.html").read_bytes() == (
-        ROOT / "static" / "index.html"
-    ).read_bytes()
-    assert (ROOT / "dist" / "admin" / "index.html").read_bytes() == (
-        ROOT / "static" / "admin.html"
-    ).read_bytes()
+    # Each page matches its source except that CSS and JS references point at fingerprinted files.
+    fingerprint = re.compile(r"/assets/((?:[^\"'\s)?#>]+)\.[0-9a-f]{10})(\.(?:css|js|woff2|woff))")
+    for dist_page, source_page in (
+        ("index.html", "landing.html"),
+        ("app/index.html", "index.html"),
+        ("admin/index.html", "admin.html"),
+    ):
+        built = (ROOT / "dist" / dist_page).read_text(encoding="utf-8")
+        unhashed = fingerprint.sub(lambda m: f"/static/{m.group(1)[:-11]}{m.group(2)}", built)
+        assert unhashed == (ROOT / "static" / source_page).read_text(encoding="utf-8"), dist_page
+        for ref in fingerprint.finditer(built):
+            assert (ROOT / "dist" / "assets" / (ref.group(1) + ref.group(2))).is_file(), ref.group(0)
     for asset in ("app.js", "auth.js", "admin.js", "style.css", "landing.css"):
-        assert (ROOT / "dist" / "static" / asset).is_file()
+        stem, suffix = Path(asset).stem, Path(asset).suffix
+        assert list((ROOT / "dist" / "assets").glob(f"{stem}.*{suffix}")), asset
+    assert "/static/fonts.css" not in (ROOT / "dist" / "index.html").read_text(encoding="utf-8")
 
 
 def test_pages_api_proxy_forwards_requests_when_node_is_available():
