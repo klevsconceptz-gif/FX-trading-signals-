@@ -166,7 +166,7 @@ written into the code or the repository:
 ```bash
 export ADMIN_USERNAME='admin'            # required
 export ADMIN_PASSWORD='...'               # required, must meet the password policy
-export KFX_ADMIN_EMAIL='admin@klev.fx'        # optional (defaults to the username)
+export KFX_ADMIN_EMAIL='admin@klev.fx'        # optional (unset: uses <ADMIN_USERNAME>@bootstrap.invalid)
 export KFX_ADMIN_PHONE='+1 555 000 0000'      # optional
 export KLEVS_DATABASE_URL='...'               # optional; defaults to data/klevs.db
 .venv/bin/python -m uvicorn fxbot.server:app --host 0.0.0.0 --port 8000

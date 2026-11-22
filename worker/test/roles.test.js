@@ -110,3 +110,48 @@ test("the console refuses an admin role even when no bootstrap is configured", a
   await assert.rejects(adminCreateUser({ DB: untouched }, operator, { username: "new_op", email: "n@x.test", password: "Fresh!Secret77", role: "admin", note: "make op" }),
     (e) => e.status === 422);
 });
+
+test("the bootstrap admin signs in with only ADMIN_USERNAME and ADMIN_PASSWORD", async () => {
+  const password = "Bootstrap!Secret77";
+  const { bootstrapEmail } = await import("../src/roles.js");
+  assert.equal(bootstrapEmail({ ADMIN_USERNAME: "Opsadmin" }), "opsadmin@bootstrap.invalid");
+  assert.equal(bootstrapEmail({ ADMIN_USERNAME: "opsadmin", KFX_ADMIN_EMAIL: "Ops@Example.test" }), "ops@example.test");
+  assert.equal(bootstrapEmail({}), "");
+
+  const created = [];
+  let row = null;
+  const db = {
+    prepare(sql) {
+      return {
+        bind(...args) {
+          return {
+            sql,
+            args,
+            first: async () => {
+              if (/username_key = \?/.test(sql)) return row && args[0] === row.username_key ? row : null;
+              if (/email = \?/.test(sql)) return row && args[0] === row.email ? row : null;
+              if (/FROM users WHERE id = \?/.test(sql)) return row;
+              return null;
+            },
+            all: async () => ({ results: [] }),
+            run: async () => {
+              if (/INSERT INTO users/.test(sql)) {
+                row = {
+                  id: 1, username: args[0], username_key: args[1], email: args[2], phone: null, phone_key: null,
+                  password_hash: args[5], role: "admin", password_version: 1, created_at: 1, disabled_at: 0,
+                };
+                created.push(args);
+              }
+              return { meta: { changes: 1, last_row_id: 1 } };
+            },
+          };
+        },
+      };
+    },
+    batch: async (statements) => statements.map(() => ({ meta: { changes: 1 } })),
+  };
+  const user = await ensureAdmin({ ADMIN_USERNAME: "opsadmin", ADMIN_PASSWORD: password, DB: db });
+  assert.equal(user.id, 1);
+  assert.equal(user.email, "opsadmin@bootstrap.invalid");
+  assert.equal(created.length, 1, "the admin row is created on first sign-in");
+});

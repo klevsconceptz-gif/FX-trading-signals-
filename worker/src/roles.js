@@ -7,9 +7,17 @@
 export const ROLE_ADMIN = "admin";
 export const ROLE_USER = "user";
 
-// The bootstrap admin's email (KFX_ADMIN_EMAIL, or the username when no email is set).
+// Reserved domain (RFC 2606) for the bootstrap admin's placeholder email. Usernames cannot contain
+// "@", so an admin who sets only ADMIN_USERNAME and ADMIN_PASSWORD gets this address. It is never
+// mailed to: the admin password comes from the ADMIN_PASSWORD secret, not from a reset e-mail.
+export const BOOTSTRAP_EMAIL_DOMAIN = "bootstrap.invalid";
+
+// The bootstrap admin's email: KFX_ADMIN_EMAIL when set, otherwise a placeholder built from ADMIN_USERNAME.
 export function bootstrapEmail(env) {
-  return String(env?.KFX_ADMIN_EMAIL || env?.ADMIN_USERNAME || "").trim().toLowerCase();
+  const explicit = String(env?.KFX_ADMIN_EMAIL || "").trim().toLowerCase();
+  if (explicit) return explicit;
+  const username = bootstrapUsername(env);
+  return username ? `${username}@${BOOTSTRAP_EMAIL_DOMAIN}` : "";
 }
 
 // The bootstrap username and email are reserved: an ordinary account holding them would block the

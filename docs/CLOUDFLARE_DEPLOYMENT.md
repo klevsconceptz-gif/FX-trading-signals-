@@ -135,7 +135,7 @@ short:
 
 1. Apply the D1 migrations to the remote database: `npm run worker:migrate:remote`.
 2. Store the admin bootstrap values as Worker secrets (`ADMIN_USERNAME`,
-   `ADMIN_PASSWORD`, and `KFX_ADMIN_EMAIL` if the username is not an address). These are
+   `ADMIN_PASSWORD`; `KFX_ADMIN_EMAIL` is optional). These are
    secrets, not `vars`.
 3. Deploy the Worker: `npm run worker:deploy`.
 4. Deploy the Pages site. The function proxies `/api/*` to the Worker, and `KLEVS_API_ORIGIN`
@@ -216,7 +216,7 @@ Worker (set with `wrangler secret put` or in `vars`):
 |---|---|---|
 | `ADMIN_USERNAME` | secret | Admin account, provisioned on each start |
 | `ADMIN_PASSWORD` | secret | Admin password, applied on each start |
-| `KFX_ADMIN_EMAIL` | secret | Admin e-mail, if the username is not an address |
+| `KFX_ADMIN_EMAIL` | secret | Optional admin e-mail. Unset: a placeholder `<ADMIN_USERNAME>@bootstrap.invalid` is used |
 | `KFX_ADMIN_PHONE` | secret | Optional admin phone number |
 | `KLEVS_RESET_EMAIL_URL` | var | HTTPS endpoint that sends reset e-mail |
 | `KLEVS_RESET_EMAIL_TOKEN` | secret | Token for the reset-e-mail endpoint |

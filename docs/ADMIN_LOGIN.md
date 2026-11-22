@@ -20,7 +20,7 @@ In the API Worker's **Settings → Variables and Secrets**, configure:
 
 - `ADMIN_USERNAME` — admin login name. Store as a secret if you want the name hidden too.
 - `ADMIN_PASSWORD` — admin password; **must be a secret**.
-- `KFX_ADMIN_EMAIL` — optional if the username itself is not a valid email address.
+- `KFX_ADMIN_EMAIL` — optional. If unset, the admin account uses a placeholder address `<ADMIN_USERNAME>@bootstrap.invalid`, so `ADMIN_USERNAME` and `ADMIN_PASSWORD` are enough to sign in. Set it only if you want the admin to receive password-reset e-mail.
 - `KFX_ADMIN_PHONE` — optional.
 
 The password must be at least 10 characters and include uppercase, lowercase, a number, and a symbol. Set these on the **API Worker**, not the Pages project. Never put credential values in `wrangler.jsonc`, source control, or chat.
