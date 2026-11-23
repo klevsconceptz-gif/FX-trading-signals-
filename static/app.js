@@ -8,6 +8,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 let SCAN = null;          // last scan report
 let PAIR = null;          // last pair detail
 let scanInProgress = false; // avoid overlapping manual/automatic refresh requests
+let scanFailed = false;     // the last scan request did not reach the server
 let sortKey = "confidence";
 let sortDir = -1;
 
@@ -86,7 +87,9 @@ function renderInstructions(list) {
 // every market request carries the session token; 401/403 drop the user back to the paywall
 async function apiFetch(url, opts = {}) {
   const headers = { ...(opts.headers || {}), ...(window.Auth ? window.Auth.headers() : {}) };
-  const res = await fetch(url, { ...opts, headers });
+  // A full scan can take about a minute on first load, so it gets a longer time limit.
+  const timeoutMs = url.startsWith("/api/scan") ? 90000 : 20000;
+  const res = await window.KLEVS.request(url, { ...opts, headers }, { timeoutMs });
   if (res.status === 401) {
     lockPaywall("Your session has ended. Log in again to continue.", true);
   } else if (res.status === 403) {
@@ -119,10 +122,23 @@ async function loadScan(refresh = false) {
       throw new Error(body.detail || `server returned ${res.status}`);
     }
     SCAN = await res.json();
+    scanFailed = false;
     renderScan();
   } catch (e) {
-    if (!SCAN) $("#chip-source").textContent = "unavailable";
-    $("#insights").innerHTML = `<li class="warn">Failed to load scan: ${esc(e.message || e)}</li>`;
+    if (e.network) {
+      // Keep the last loaded signals on screen and say why they may be out of date.
+      scanFailed = true;
+      if (!SCAN) $("#chip-source").textContent = "offline";
+      if (SCAN) renderScan();
+      const note = SCAN
+        ? "Connection problem: showing the last loaded signals. They refresh when you reconnect or press Rescan."
+        : "Connection problem: the signals will load automatically when you reconnect.";
+      if (SCAN) $("#insights").insertAdjacentHTML("afterbegin", `<li class="warn">${esc(note)}</li>`);
+      else $("#insights").innerHTML = `<li class="warn">${esc(note)}</li>`;   // replaces the "scanning…" hint
+    } else {
+      if (!SCAN) $("#chip-source").textContent = "unavailable";
+      $("#insights").innerHTML = `<li class="warn">Failed to load scan: ${esc(e.message || e)}</li>`;
+    }
   } finally {
     scanInProgress = false;
     btn.disabled = false;
@@ -669,9 +685,13 @@ function lockPaywall(message, clearSession = false) {
   $("#btn-logout").hidden = !localStorage.getItem("kfx_sub");
 }
 
+const OFFLINE_PAYWALL_MESSAGE =
+  "We couldn't reach the server, so your access could not be checked. Check your connection, then press \"I have already paid\" to try again.";
+
 async function initSubscriberGate() {
   const s = window.Auth ? await window.Auth.refresh() : null;
-  if (s && s.access_active) return unlockApp(s);
+  if (s && s.access_active) return unlockApp(s);   // includes the last known access when offline
+  if (s && s.offline) return lockPaywall(OFFLINE_PAYWALL_MESSAGE);
   if (s) return lockPaywall("Your account has no active access yet. Choose a plan and pay; access unlocks once the operator verifies your payment.");
   return lockPaywall();
 }
@@ -688,6 +708,7 @@ $("#pw-pay").addEventListener("click", () => window.Auth.open("plan"));
 $("#pw-status").addEventListener("click", async () => {
   const s = await window.Auth.refresh();
   if (s && s.access_active) return unlockApp(s);
+  if (s && s.offline) return lockPaywall(OFFLINE_PAYWALL_MESSAGE);
   window.Auth.open(s ? "status" : "login");
 });
 $("#pw-login").addEventListener("click", () => window.Auth.open("login"));
@@ -699,3 +720,7 @@ $("#btn-refresh").addEventListener("click", () => loadScan(true));
 initSubscriberGate();
 // live instruction feed: re-scan every 5 minutes (models are cached, so this is cheap)
 setInterval(() => { if ($("#paywall").hidden) loadScan(true); }, 5 * 60 * 1000);
+// back online after a failed scan: load the signals again without asking the user
+window.addEventListener("online", () => {
+  if (scanFailed && !scanInProgress && $("#paywall").hidden) loadScan(true);
+});

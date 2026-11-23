@@ -29,7 +29,8 @@
         opts.headers["Content-Type"] = "application/json";
         opts.body = JSON.stringify(payload);
       }
-      const r = await fetch(url, opts);
+      const request = window.KLEVS && window.KLEVS.request ? window.KLEVS.request : (u, o) => fetch(u, o);
+      const r = await request(url, opts);
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
         const err = new Error(typeof body.detail === "string" ? body.detail : `request failed (${r.status})`);
@@ -554,7 +555,9 @@
         });
         await routeAfterAuth(data, "Account created");
       } catch (err) {
-        alertBox(el, "register", err.message);
+        alertBox(el, "register", err.network
+          ? "The connection dropped while creating your account. Log in with the same username and password: if the account was created, you will be signed in."
+          : err.message);
       } finally {
         btn.disabled = false; btn.textContent = "Create account →";
       }
@@ -625,7 +628,9 @@
       const me = await API.get("/api/me");
       return saveFromPayload(me);
     } catch (err) {
-      if (err.status === 401) writeSession(null);
+      if (err.status === 401) { writeSession(null); return null; }
+      // No answer from the server: keep the session, mark it offline, and let the caller say so.
+      if (err.network) return { ...s, offline: true };
       return null;
     }
   }

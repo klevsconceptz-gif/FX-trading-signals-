@@ -23,7 +23,8 @@ async function api(method, url, payload) {
   const headers = {};
   if (s && s.token) headers.Authorization = `Bearer ${s.token}`;
   if (payload !== undefined) headers["Content-Type"] = "application/json";
-  const r = await fetch(url, { method, headers, body: payload === undefined ? undefined : JSON.stringify(payload) });
+  const request = window.KLEVS && window.KLEVS.request ? window.KLEVS.request : (u, o) => fetch(u, o);
+  const r = await request(url, { method, headers, body: payload === undefined ? undefined : JSON.stringify(payload) });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) {
     const err = new Error(typeof body.detail === "string" ? body.detail : `request failed (${r.status})`);
