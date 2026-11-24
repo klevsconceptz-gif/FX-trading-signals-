@@ -1,0 +1,47 @@
+# One-time bulk grant: one month (30 days) of Pro access for every existing customer account.
+# Manual only, and only from main. It runs scripts/sql/grant_existing_accounts.sql against the
+# production D1 database. Each account's grant has a fixed key, so running it again adds nothing.
+name: Grant one month to existing accounts
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type exactly: GRANT ONE MONTH'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grant-existing-accounts
+  cancel-in-progress: false
+
+jobs:
+  grant:
+    name: Grant one month to existing accounts
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'GRANT ONE MONTH'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Count accounts before the grant
+        run: |
+          npx wrangler d1 execute klev --remote --config worker/wrangler.jsonc \
+            --command "SELECT COUNT(*) AS customer_accounts FROM users WHERE role <> 'admin'; SELECT COUNT(*) AS bulk_grants_before FROM access_grants WHERE grant_key LIKE 'bulk-one-month-v1:%';"
+      - name: Grant one month to existing accounts
+        run: npx wrangler d1 execute klev --remote --config worker/wrangler.jsonc --file scripts/sql/grant_existing_accounts.sql
+      - name: Count bulk grants after the grant
+        run: |
+          npx wrangler d1 execute klev --remote --config worker/wrangler.jsonc \
+            --command "SELECT COUNT(*) AS bulk_grants_after FROM access_grants WHERE grant_key LIKE 'bulk-one-month-v1:%';"
