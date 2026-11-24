@@ -13,7 +13,7 @@ Worker serves paid users from that table:
 - They return `503` before the first publish, when the snapshot is older than
   12 hours, and when a row belongs to a run that is not yet
   committed.
-- `POST /api/backtest` returns `503` on this deployment. Run `scripts/backtest.py` locally.
+- `GET /api/backtest` (list) and `GET /api/backtest/<SYMBOL>` (one result) serve the stored backtests to paid members. The results are written by the **Run backtests** workflow (manual, GitHub Actions) from live data; the Worker does not compute them. A pair with no stored result returns `404`.
 - The publisher refuses to publish anything that is not live data.
 
 The Worker has no engine origin or engine token. It makes no outbound calls for signals.

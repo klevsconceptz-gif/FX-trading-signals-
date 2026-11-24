@@ -152,17 +152,9 @@
         <label>Pair
           <select id="bt-symbol"></select>
         </label>
-        <label>Equity ($)
-          <input type="number" id="bt-equity" value="10000" min="100" step="100" />
-        </label>
-        <label>Risk / trade (%)
-          <input type="number" id="bt-risk" value="0.75" min="0.05" max="5" step="0.05" />
-        </label>
-        <label>Bars
-          <input type="number" id="bt-bars" value="3000" min="300" max="10000" step="100" />
-        </label>
-        <button class="refresh" id="btn-backtest">▶ Run backtest</button>
+        <button class="refresh" id="btn-backtest">↻ Reload result</button>
       </div>
+      <p class="hint" id="bt-status">Backtests run on live market data in a scheduled job. The latest stored result for the pair is shown here.</p>
       <div id="bt-metrics" class="bt-metrics"></div>
       <canvas id="equity-chart" width="980" height="300"></canvas>
       <div class="table-wrap">

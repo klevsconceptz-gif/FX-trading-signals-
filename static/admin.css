@@ -39,6 +39,7 @@
 .admin-page #btn-logout { min-width: 84px; }
 
 .admin-page main {
+  box-sizing: border-box;   /* the padding sits inside the width, so the page never scrolls sideways */
   width: min(100%, 1500px);
   max-width: 1500px;
   margin: 0 auto;
@@ -136,6 +137,7 @@
 .admin-page label.f > select,
 .admin-page label.f > textarea { margin-top: 6px; }
 .admin-page input, .admin-page select, .admin-page textarea {
+  box-sizing: border-box;   /* width:100% includes the padding and border, so the field fits its column */
   width: 100%;
   min-height: 39px;
   padding: 9px 11px;
