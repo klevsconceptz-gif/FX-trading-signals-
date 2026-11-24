@@ -454,3 +454,27 @@ export async function adminCancelPayment(env, paymentId, actor, body) {
   const row = await db.prepare("SELECT * FROM payments WHERE id = ?").bind(paymentId).first();
   return { ok: true, payment: paymentView(row) };
 }
+
+// Permanent deletion of a payment record and the access grant it created. There is no audit entry
+// for a delete (the operator chose this), so nothing records the deleted row afterwards. Audit rows
+// written earlier for this payment stay, because the audit table has no foreign keys.
+export async function adminDeletePayment(env, paymentId) {
+  const db = requireDatabase(env);
+  const existing = await db.prepare("SELECT id FROM payments WHERE id = ?").bind(paymentId).first();
+  if (!existing) throw new ApiError(404, "payment not found");
+  // The grant points at its payment, so it is removed first, in the same transaction.
+  const [grants] = await db.batch([
+    db.prepare("DELETE FROM access_grants WHERE payment_id = ?").bind(paymentId),
+    db.prepare("DELETE FROM payments WHERE id = ?").bind(paymentId),
+  ]);
+  return { ok: true, deleted: { payment_id: paymentId, grants_removed: Number(grants?.meta?.changes || 0) } };
+}
+
+// Permanent deletion of one access grant, in any state. Nothing is recorded in the audit log.
+export async function adminDeleteGrant(env, grantId) {
+  const db = requireDatabase(env);
+  const existing = await db.prepare("SELECT id FROM access_grants WHERE id = ?").bind(grantId).first();
+  if (!existing) throw new ApiError(404, "grant not found");
+  await db.prepare("DELETE FROM access_grants WHERE id = ?").bind(grantId).run();
+  return { ok: true, deleted: { grant_id: grantId } };
+}

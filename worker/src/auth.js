@@ -15,7 +15,12 @@ import {
   verifyPassword,
 } from "./security.js";
 
-export const SESSION_TTL_SECONDS = 14 * 24 * 60 * 60;
+// A session ends at most this long after sign-in, whatever the activity.
+export const SESSION_TTL_SECONDS = 24 * 60 * 60;
+// A session ends after this long with no request.
+export const SESSION_IDLE_SECONDS = 15 * 60;
+// last_seen_at is written at most this often, so an active user does not write on every request.
+const SESSION_TOUCH_SECONDS = 60;
 export const LOGIN_MAX_FAILURES = 10;
 export const LOGIN_LOCK_SECONDS = 15 * 60;
 export const RESET_CODE_TTL_SECONDS = 15 * 60;
@@ -184,9 +189,9 @@ export async function issueSession(env, user) {
   const expiresAt = createdAt + SESSION_TTL_SECONDS;
   const passwordVersion = Number(user.password_version || 1);
   await db.prepare(`
-    INSERT INTO user_sessions(token_hash, user_id, password_version, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(tokenHash, user.id, passwordVersion, createdAt, expiresAt).run();
+    INSERT INTO user_sessions(token_hash, user_id, password_version, created_at, expires_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(tokenHash, user.id, passwordVersion, createdAt, expiresAt, createdAt).run();
   const cached = { user: publicUser(user, env), password_version: passwordVersion };
   await kv.put(`session:${tokenHash}`, JSON.stringify(cached), { expirationTtl: SESSION_CACHE_SECONDS });
   return token;
@@ -201,17 +206,26 @@ export async function currentUser(env, request) {
   const key = `session:${tokenHash}`;
   const timestamp = nowSeconds();
   const session = await db.prepare(`
-    SELECT s.user_id, s.expires_at, s.password_version, u.password_version AS current_password_version,
-           u.disabled_at AS current_disabled_at
+    SELECT s.user_id, s.created_at, s.last_seen_at, s.expires_at, s.password_version,
+           u.password_version AS current_password_version, u.disabled_at AS current_disabled_at
       FROM user_sessions AS s
       JOIN users AS u ON u.id = s.user_id
      WHERE s.token_hash = ?
   `).bind(tokenHash).first();
-  if (!session || session.expires_at <= timestamp || session.password_version !== session.current_password_version
+  const lastSeen = Number(session?.last_seen_at || session?.created_at || 0);
+  const expired = !session
+    || session.expires_at <= timestamp
+    || timestamp - Number(session.created_at || 0) >= SESSION_TTL_SECONDS
+    || timestamp - lastSeen > SESSION_IDLE_SECONDS;
+  if (expired || session.password_version !== session.current_password_version
       || Number(session.current_disabled_at || 0) > 0) {
     if (session) await db.prepare("DELETE FROM user_sessions WHERE token_hash = ?").bind(tokenHash).run();
     await kv.delete(key);
     return null;
+  }
+
+  if (timestamp - lastSeen >= SESSION_TOUCH_SECONDS) {
+    await db.prepare("UPDATE user_sessions SET last_seen_at = ? WHERE token_hash = ?").bind(timestamp, tokenHash).run();
   }
 
   const cached = await kv.get(key, { type: "json" });

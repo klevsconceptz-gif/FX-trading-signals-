@@ -158,7 +158,7 @@ function renderPayments(rows) {
       <td>${esc(p.method === "crypto" ? `crypto · ${p.network}` : "bank wire")}</td>
       <td>${ref}${sender}</td>
       <td><span class="pill s-${esc(p.status)}">${esc(p.status.replace("_", " "))}</span></td>
-      <td>${decision}</td>
+      <td>${decision}<div class="row"><button class="bad" data-act="delete" data-id="${p.id}">Delete</button></div></td>
     </tr>`;
   }).join("");
 }
@@ -167,6 +167,7 @@ const PAYMENT_PROMPTS = {
   confirm: "Confirm this payment and grant 30 days of access? Only do this after checking the wallet or bank statement.",
   reject: "Reject this payment? The buyer will see the reason and can try again.",
   cancel: "Cancel this open invoice? Nothing is granted and the invoice cannot be paid after this.",
+  delete: "Permanently delete this payment? If it granted access, that access is removed too. Nothing is kept in the audit log.",
 };
 
 $("#tab-payments").addEventListener("click", async (e) => {
@@ -174,6 +175,13 @@ $("#tab-payments").addEventListener("click", async (e) => {
   if (!btn) return;
   const id = btn.dataset.id;
   const act = btn.dataset.act;
+  if (act === "delete") {
+    if (!window.confirm(PAYMENT_PROMPTS.delete)) return;
+    btn.disabled = true;
+    const gone = await write(() => api("DELETE", `/api/admin/payments/${id}`));
+    if (gone === null) btn.disabled = false;
+    return;
+  }
   const note = document.querySelector(`[data-note-for="${id}"]`).value.trim();
   if ((act === "reject" || act === "cancel") && note.length < 3) {
     setErr("A reason of at least 3 characters is required. It is kept in the audit trail.");
@@ -292,7 +300,7 @@ function renderAccountDetail({ user, grants, payments }) {
       <td>${fmtDate(g.expires_at)}</td>
       <td>${esc(g.granted_by)}</td>
       <td>${esc(g.note || "—")}${g.revoke_note ? `<div class="note">Revoked: ${esc(g.revoke_note)}</div>` : ""}</td>
-      <td class="row">${actions}</td>
+      <td class="row">${actions}<button class="bad" data-grant-delete="${g.id}">Delete</button></td>
     </tr>`;
   }).join("") || `<tr><td colspan="6" class="note">No access grants yet.</td></tr>`;
 
@@ -304,7 +312,7 @@ function renderAccountDetail({ user, grants, payments }) {
       <td>$${esc(Number(p.amount_usd).toFixed(2))}</td>
       <td>${esc(p.method === "crypto" ? `crypto · ${p.network}` : "bank wire")}</td>
       <td><span class="pill s-${esc(p.status)}">${esc(p.status.replace("_", " "))}</span></td>
-      <td>${open ? `<button class="bad" data-pay-cancel="${p.id}">Cancel invoice</button>` : `<span class="note">—</span>`}</td>
+      <td>${open ? `<button class="bad" data-pay-cancel="${p.id}">Cancel invoice</button>` : ""}<button class="bad" data-pay-delete="${p.id}">Delete</button></td>
     </tr>`;
   }).join("") || `<tr><td colspan="6" class="note">No invoices yet.</td></tr>`;
 }
@@ -373,6 +381,16 @@ async function revokeGrant(id) {
   await write(() => api("POST", `/api/admin/grants/${id}/revoke`, { note }));
 }
 
+async function deletePayment(id) {
+  if (!window.confirm(PAYMENT_PROMPTS.delete)) return;
+  await write(() => api("DELETE", `/api/admin/payments/${id}`));
+}
+
+async function deleteGrant(id) {
+  if (!window.confirm("Permanently delete this access grant? The access it gave ends at once. Nothing is kept in the audit log.")) return;
+  await write(() => api("DELETE", `/api/admin/grants/${id}`));
+}
+
 async function cancelInvoice(id) {
   const note = promptNote("Reason for cancelling this invoice (required, in the audit trail):");
   if (note === null) return;
@@ -389,6 +407,10 @@ $("#tab-users").addEventListener("click", async (e) => {
   if (grantRevoke) { revokeGrant(grantRevoke.dataset.grantRevoke); return; }
   const payCancel = e.target.closest("button[data-pay-cancel]");
   if (payCancel) { cancelInvoice(payCancel.dataset.payCancel); return; }
+  const payDelete = e.target.closest("button[data-pay-delete]");
+  if (payDelete) { deletePayment(payDelete.dataset.payDelete); return; }
+  const grantDelete = e.target.closest("button[data-grant-delete]");
+  if (grantDelete) { deleteGrant(grantDelete.dataset.grantDelete); return; }
 });
 
 $("#acct-close").addEventListener("click", () => {
@@ -529,7 +551,7 @@ function renderGrants(rows) {
       <td>${fmtDate(g.expires_at)}</td>
       <td>${esc(g.granted_by)}</td>
       <td>${esc(g.note || "—")}${g.revoke_note ? `<div class="note">Revoked: ${esc(g.revoke_note)}</div>` : ""}</td>
-      <td class="row">${actions}</td>
+      <td class="row">${actions}<button class="bad" data-grant-delete="${g.id}">Delete</button></td>
     </tr>`;
   }).join("");
 }
@@ -537,6 +559,8 @@ function renderGrants(rows) {
 $("#tab-grants").addEventListener("click", (e) => {
   const extend = e.target.closest("button[data-grant-extend]");
   if (extend) { extendGrant(extend.dataset.grantExtend); return; }
+  const grantDel = e.target.closest("button[data-grant-delete]");
+  if (grantDel) { deleteGrant(grantDel.dataset.grantDelete); return; }
   const revoke = e.target.closest("button[data-grant-revoke]");
   if (revoke) { revokeGrant(revoke.dataset.grantRevoke); return; }
 });

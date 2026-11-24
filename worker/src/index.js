@@ -31,6 +31,8 @@ import {
   adminCancelPayment,
   adminCreatePayment,
   adminCreateUser,
+  adminDeleteGrant,
+  adminDeletePayment,
   adminDeleteUser,
   adminGetPayment,
   adminGetUser,
@@ -224,7 +226,7 @@ async function handleApi(request, env) {
     return jsonResponse(await adminDeleteUser(env, userId, admin, await parseJson(request)));
   }
 
-  // Access grants: list, change expiry, revoke one grant.
+  // Access grants: list, change expiry, revoke one grant, delete one permanently.
   if (path === "/api/admin/grants" && method === "GET") {
     await requireAdmin(env, request);
     return jsonResponse(await adminListGrants(env, url.searchParams));
@@ -239,10 +241,13 @@ async function handleApi(request, env) {
     if (grantMatch[2] && method === "POST") {
       return jsonResponse(await adminRevokeGrant(env, grantId, admin, await parseJson(request)));
     }
+    if (!grantMatch[2] && method === "DELETE") {
+      return jsonResponse(await adminDeleteGrant(env, grantId));
+    }
   }
 
-  // Payment records: create an invoice for a user, read one, cancel an open one.
-  // Confirm and reject are handled above. Payment records are never deleted.
+  // Payment records: create an invoice for a user, read one, cancel an open one, delete one permanently.
+  // Confirm and reject are handled above.
   if (path === "/api/admin/payments" && method === "POST") {
     const admin = await requireAdmin(env, request);
     return jsonResponse(await adminCreatePayment(env, admin, await parseJson(request)));
@@ -251,6 +256,10 @@ async function handleApi(request, env) {
   if (paymentMatch && method === "GET") {
     await requireAdmin(env, request);
     return jsonResponse(await adminGetPayment(env, positiveInteger(paymentMatch[1], "payment_id")));
+  }
+  if (paymentMatch && method === "DELETE") {
+    await requireAdmin(env, request);
+    return jsonResponse(await adminDeletePayment(env, positiveInteger(paymentMatch[1], "payment_id")));
   }
   const paymentCancelMatch = /^\/api\/admin\/payments\/(\d+)\/cancel$/.exec(path);
   if (paymentCancelMatch && method === "POST") {

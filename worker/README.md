@@ -74,7 +74,7 @@ Rules the Worker enforces, whatever the console shows:
 - **Sole admin.** The bootstrap account named by `ADMIN_USERNAME` is the only admin. The API refuses `role: "admin"` on create and on PATCH (422), so no console or API path can add one. At sign-in the Worker demotes any other stored admin row to `user` and writes a `role_changed` audit row in the same batch. Public sign-up and the console refuse the bootstrap username and email, because an ordinary account holding them would block the admin's sign-in.
 - **Native apps.** The Capacitor apps are allowed by CORS from `capacitor://localhost` and `https://localhost` only. They authenticate with the bearer token from `/api/auth/login`, not cookies.
 - An account can be deleted only when it has no payment and no access-grant records. Otherwise disable it. Disabling ends its sessions and blocks sign-in, and keeps all records.
-- Payment records and audit events are never deleted from the console.
+- Payment records and access grants can be deleted permanently from the console, in any state. A delete removes the grant a payment created too, and writes no audit entry. Audit events are never deleted from the console.
 
 Tests: `npm run worker:test` covers the guard rules offline. `npm run e2e:admin` runs about 84 checks against a running Worker (`BASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`), including sign-in, lockout, reset, the role matrix, CRUD and the audit trail. It creates test accounts, invoices and grants, so run it against the local Worker or a staging Worker, never production.
 
