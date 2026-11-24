@@ -536,6 +536,9 @@ function renderCorrelation(corr) {
 
 /* ---------------- backtest lab ---------------- */
 
+let backtestLoaded = false;
+let backtestSeq = 0;
+
 function populateBacktestSymbols(rows) {
   const sel = $("#bt-symbol");
   if (sel.options.length) return;
@@ -545,33 +548,47 @@ function populateBacktestSymbols(rows) {
     o.textContent = `${r.display} (${r.symbol})`;
     sel.appendChild(o);
   });
+  sel.addEventListener("change", loadBacktest);
+  if (!backtestLoaded && sel.options.length) {
+    backtestLoaded = true;
+    loadBacktest();
+  }
 }
 
-$("#btn-backtest").addEventListener("click", async () => {
+$("#btn-backtest").addEventListener("click", loadBacktest);
+
+// Shows the stored result for the selected pair. The backtest job (GitHub Actions) writes the results;
+// this page only reads them. Paid members only, like every other market request.
+async function loadBacktest() {
+  const symbol = $("#bt-symbol").value;
+  if (!symbol) return;
+  const seq = ++backtestSeq;
   const btn = $("#btn-backtest");
+  const status = $("#bt-status");
   btn.disabled = true;
-  btn.textContent = "Running…";
+  btn.textContent = "Loading…";
   try {
-    const res = await apiFetch("/api/backtest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        symbol: $("#bt-symbol").value,
-        equity: Number($("#bt-equity").value),
-        risk_per_trade_pct: Number($("#bt-risk").value),
-        bars: Number($("#bt-bars").value),
-      }),
-    });
-    const out = await res.json();
+    const res = await apiFetch(`/api/backtest/${encodeURIComponent(symbol)}`);
+    const out = await res.json().catch(() => ({}));
+    if (seq !== backtestSeq) return;            // a newer pair was chosen while this loaded
     if (!res.ok) throw new Error(out.detail || "backtest unavailable");
     renderBacktest(out);
+    const p = out.params || {};
+    status.textContent = `Stored ${out.run_at} · ${out.data_source} · ${p.bars_used || p.bars} bars · ` +
+      `equity $${fmt(p.equity, 0)} · risk ${p.risk_per_trade_pct}% per trade`;
   } catch (e) {
-    $("#bt-metrics").innerHTML = `<div class="metric"><div class="k">Error</div><div class="v">${e}</div></div>`;
+    if (seq !== backtestSeq) return;
+    drawEquity($("#equity-chart"), null);
+    $("#trades-table tbody").innerHTML = "";
+    $("#bt-metrics").innerHTML = `<div class="metric"><div class="k">Backtest</div><div class="v">${esc(e.message || e)}</div></div>`;
+    status.textContent = "No stored result to show for this pair yet.";
   } finally {
-    btn.disabled = false;
-    btn.textContent = "▶ Run backtest";
+    if (seq === backtestSeq) {
+      btn.disabled = false;
+      btn.textContent = "↻ Reload result";
+    }
   }
-});
+}
 
 function renderBacktest(out) {
   const m = out.metrics || {};

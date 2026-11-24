@@ -181,6 +181,26 @@
       </div>
       <p class="note">Disable stops sign-in and ends current sessions; it keeps all records. Delete is only possible for accounts with no payment or access records.</p>
 
+      <h3 style="margin:18px 0 8px">Access</h3>
+      <p class="note" id="ga-status"></p>
+      <div class="grid2">
+        <label class="f">Plan
+          <select id="ga-plan"><option value="starter">Starter</option><option value="pro" selected>Pro</option><option value="elite">Elite</option></select>
+        </label>
+        <label class="f">Days (added to any access still running)
+          <input id="ga-days" type="number" min="1" max="366" value="30" />
+        </label>
+        <label class="f">Reason (required, in the audit trail)
+          <input id="ga-note" maxlength="300" />
+        </label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="ok" id="ga-grant">Grant access</button>
+        <button class="bad" id="ga-revoke">Revoke access</button>
+        <span class="note" id="ga-msg"></span>
+      </div>
+      <p class="note">Revoke ends every active access grant of this account now. Both actions are recorded in the audit trail. Use Grant only with a verified payment or an agreed exception.</p>
+
       <h3 style="margin:18px 0 8px">Access grants</h3>
       <div style="overflow-x:auto"><table>
         <thead><tr><th>Plan</th><th>Status</th><th>Expires</th><th>Granted by</th><th>Note</th><th>Actions</th></tr></thead>

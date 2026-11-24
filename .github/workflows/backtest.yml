@@ -1,0 +1,50 @@
+# Runs the backtest on live market data and stores the results in Cloudflare D1 for the Backtest Lab.
+# Manual only: start it from the Actions tab (Run workflow). Paid members read the stored results
+# through the Worker; they are never published as static files.
+#
+# The job stores only live results. If live data is not available, nothing is written and the run fails.
+# Each run replaces the stored result for every symbol it backtests.
+name: Run backtests
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Comma-separated symbols (e.g. EURUSD,GBPUSD), or 'all'"
+        required: false
+        default: "all"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: run-backtests
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    name: Backtest live data and store results
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      KFX_LIVE_DATA: "1"
+      BACKTEST_SYMBOLS: ${{ inputs.symbols }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt -r requirements-live.txt
+      - name: Backtest live data and store the results in D1
+        run: python -m scripts.publish_backtests --symbols "${BACKTEST_SYMBOLS:-all}"

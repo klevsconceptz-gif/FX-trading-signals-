@@ -262,6 +262,8 @@ function renderAccountDetail({ user, grants, payments }) {
   const self = operator && user.id === operator.id;
   const bootstrap = user.managed_by_env;
   const hasRecords = grants.length > 0 || payments.length > 0;
+  openAccountName = user.username;
+  renderAccessControls(user, grants);
 
   $("#acct-title").textContent = `Account · ${user.username} · ${user.role === "admin" ? "operator (admin)" : "user"}`;
   $("#acct-notice").textContent = bootstrap
@@ -316,6 +318,56 @@ function renderAccountDetail({ user, grants, payments }) {
     </tr>`;
   }).join("") || `<tr><td colspan="6" class="note">No invoices yet.</td></tr>`;
 }
+
+/* Grant or revoke access from the account card. Operators (admins) always have access, so grants do not apply to them. */
+let openAccountName = "";
+
+function renderAccessControls(user, grants) {
+  const operatorAccount = user.role === "admin";
+  const active = grants.filter((g) => g.status === "active" && g.active);
+  const status = operatorAccount
+    ? "This is an operator account. It always has access, so grants and revocations do not apply."
+    : active.length
+      ? `Current access: ${active.map((g) => `${g.plan} until ${fmtDate(g.expires_at)}`).join(", ")}.`
+      : "No active access. Grant access below, or confirm a payment in the Payments tab.";
+  $("#ga-status").textContent = status;
+  $("#ga-grant").disabled = operatorAccount;
+  $("#ga-revoke").disabled = operatorAccount || !grants.some((g) => g.status === "active");
+}
+
+async function grantFromAccount() {
+  const msg = $("#ga-msg");
+  msg.textContent = "";
+  const plan = $("#ga-plan").value;
+  const days = Number($("#ga-days").value);
+  const note = $("#ga-note").value.trim();
+  if (!Number.isInteger(days) || days < 1 || days > 366) { msg.textContent = "Enter a whole number of days from 1 to 366."; return; }
+  if (note.length < 3) { msg.textContent = "A reason of at least 3 characters is required."; return; }
+  if (!window.confirm(`Grant ${plan} access to ${openAccountName} for ${days} days?`)) return;
+  const result = await write(() => api("POST", `/api/admin/users/${openAccountId}/grant`, { plan, days, note }),
+    (m) => { msg.textContent = m; });
+  if (result) {
+    msg.textContent = `Granted ${plan} access for ${days} days.`;
+    $("#ga-note").value = "";
+  }
+}
+
+async function revokeFromAccount() {
+  const msg = $("#ga-msg");
+  msg.textContent = "";
+  const note = $("#ga-note").value.trim();
+  if (note.length < 3) { msg.textContent = "A reason of at least 3 characters is required."; return; }
+  if (!window.confirm(`Revoke all active access for ${openAccountName} now? They lose paid access at once.`)) return;
+  const result = await write(() => api("POST", `/api/admin/users/${openAccountId}/revoke`, { note }),
+    (m) => { msg.textContent = m; });
+  if (result) {
+    msg.textContent = result.revoked ? `Revoked ${result.revoked} active grant${result.revoked === 1 ? "" : "s"}.` : "No active access to revoke.";
+    $("#ga-note").value = "";
+  }
+}
+
+$("#ga-grant").addEventListener("click", grantFromAccount);
+$("#ga-revoke").addEventListener("click", revokeFromAccount);
 
 async function saveAccount() {
   $("#acct-msg").textContent = "";
@@ -400,7 +452,7 @@ async function cancelInvoice(id) {
 
 $("#tab-users").addEventListener("click", async (e) => {
   const view = e.target.closest("button[data-view]");
-  if (view) { openAccount(view.dataset.view); return; }
+  if (view) { $("#ga-msg").textContent = ""; openAccount(view.dataset.view); return; }
   const grantExtend = e.target.closest("button[data-grant-extend]");
   if (grantExtend) { extendGrant(grantExtend.dataset.grantExtend); return; }
   const grantRevoke = e.target.closest("button[data-grant-revoke]");

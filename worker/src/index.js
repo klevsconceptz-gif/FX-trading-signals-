@@ -54,6 +54,7 @@ import { SYMBOLS, UNIVERSE } from "./universe.js";
 import { signalHealth, signalResponse } from "./signals.js";
 import { adminOverview } from "./overview.js";
 import { postSignalUpdates, telegramRequestAuthorized, telegramConfigured } from "./telegram.js";
+import { backtestResponse, listBacktests } from "./backtest.js";
 
 const APP_NAME = "klevs FX trading App";
 const VERSION = "1.0.0";
@@ -286,9 +287,14 @@ async function handleApi(request, env) {
     if (!SYMBOLS.has(symbol)) throw new ApiError(404, `unknown symbol ${symbol}`);
     return signalResponse(env, `pair:${symbol}`);
   }
-  if (path === "/api/backtest" && method === "POST") {
+  if (path === "/api/backtest" && method === "GET") {
     await requirePaidAccess(env, request);
-    throw new ApiError(503, "backtests are not served by the Cloudflare deployment; run scripts/backtest.py locally");
+    return jsonResponse(await listBacktests(env));
+  }
+  const backtestMatch = /^\/api\/backtest\/([A-Za-z0-9]+)$/.exec(path);
+  if (backtestMatch && method === "GET") {
+    await requirePaidAccess(env, request);
+    return backtestResponse(env, backtestMatch[1]);
   }
 
   if (path.startsWith("/api/")) throw new ApiError(404, "not found");
