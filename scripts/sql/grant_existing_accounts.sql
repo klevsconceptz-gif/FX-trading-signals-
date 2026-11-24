@@ -5,6 +5,9 @@
 -- still running. Each grant has a fixed key per account, so running this file again adds nothing.
 -- Every grant gets an audit row.
 --
+-- Scope: only the accounts that exist when this runs. Sign-up never creates a grant, so an account
+-- registered later gets access only when an admin grants it (Accounts tab, or Access grants tab).
+--
 -- Run it only through the "Grant one month to existing accounts" workflow (manual, on main).
 
 INSERT OR IGNORE INTO access_grants
