@@ -168,9 +168,9 @@ def test_worker_has_no_signal_engine_proxy_left():
         assert "X-KLEVS-ENGINE-TOKEN" not in text, path.name
 
 
-def test_signal_publish_runs_hourly_without_a_clock_gate_and_uses_build_secrets():
+def test_signal_publish_runs_twice_hourly_without_a_clock_gate_and_uses_build_secrets():
     text = _workflow_text(SIGNALS_WORKFLOW)
-    assert re.search(r'cron: "\d+ \* \* \* \*"', text)  # every hour, so a new bar publishes when it closes
+    assert 'cron: "5,35 * * * *"' in text  # twice an hour, so a late or skipped GitHub run still leaves a fresh snapshot
     assert "cron: \"5 12,13" not in text and "TZ=America/New_York" not in text  # no fixed Eastern slots
     assert not re.search(r"^  gate:$", text, re.M)  # the clock gate job is gone; every run publishes
     assert "needs: gate" not in text

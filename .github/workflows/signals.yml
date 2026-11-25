@@ -1,6 +1,7 @@
-# Publishes the latest live FX signals to Cloudflare D1 every hour, 5 minutes past the hour, so a new
-# 1h bar is published as soon as it closes. Each run posts to Telegram only the signals that are new or
-# changed (dedupe state in D1), so an hourly run does not repeat messages.
+# Publishes the latest live FX signals to Cloudflare D1 twice an hour, at 5 and 35 minutes past the hour
+# (UTC), so a new 1h bar is published soon after it closes. GitHub sometimes starts a scheduled run late or
+# skips it, so two runs per hour keep the snapshot fresh. Each run posts to Telegram only the signals that
+# are new or changed (dedupe state in D1), so a run does not repeat messages.
 # The Worker serves the stored snapshot to paid users. GitHub runs scheduled workflows only from the
 # default branch. GitHub can start a scheduled run late; the run publishes whatever is live when it starts.
 #
@@ -10,7 +11,7 @@ name: Publish signals
 
 on:
   schedule:
-    - cron: "5 * * * *"   # every hour, 5 minutes past, UTC
+    - cron: "5,35 * * * *"   # twice an hour, at 5 and 35 minutes past, UTC
   workflow_dispatch:
 
 permissions:
