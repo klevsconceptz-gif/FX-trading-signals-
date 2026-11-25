@@ -23,7 +23,7 @@ from .ml import MarketForecaster
 from .risk import RiskDecision, RiskManager
 from .signals import TradePlan, build_plan
 from .strength import CurrencyStrength, compute_strength, correlation_matrix, detect_regime
-from .universe import BY_SYMBOL
+from .universe import BY_SYMBOL, format_price, price_digits
 
 
 @dataclass
@@ -216,21 +216,21 @@ class MarketEngine:
             if p.side == "BUY":
                 verdict, action = "BUY NOW", "buy"
                 one_line = (
-                    f"BUY {p.display} NOW @ {p.entry:.5g} → predicted "
-                    f"{p.target / p.entry - 1:+.2%} to {p.target:.5g} "
-                    f"(P≈{p.p_target_first:.0%}) → SELL {p.target:.5g} "
+                    f"BUY {p.display} NOW @ {format_price(p.symbol, p.entry)} → predicted "
+                    f"{p.target / p.entry - 1:+.2%} to {format_price(p.symbol, p.target)} "
+                    f"(P≈{p.p_target_first:.0%}) → SELL {format_price(p.symbol, p.target)} "
                     f"({self.cfg.signal.partial_profit_fraction:.0%} at +{p.risk_reward:.1f}R, "
-                    f"rest trailed to {p.target2:.5g}) / SELL ALL at stop {p.stop:.5g} "
+                    f"rest trailed to {format_price(p.symbol, p.target2)}) / SELL ALL at stop {format_price(p.symbol, p.stop)} "
                     f"/ time stop {p.time_stop_bars} bars"
                 )
             else:
                 verdict, action = "SELL NOW", "sell"
                 one_line = (
-                    f"SELL {p.display} NOW (short) @ {p.entry:.5g} → predicted "
-                    f"{p.target / p.entry - 1:+.2%} to {p.target:.5g} "
-                    f"(P≈{p.p_target_first:.0%}) → BUY BACK {p.target:.5g} "
+                    f"SELL {p.display} NOW (short) @ {format_price(p.symbol, p.entry)} → predicted "
+                    f"{p.target / p.entry - 1:+.2%} to {format_price(p.symbol, p.target)} "
+                    f"(P≈{p.p_target_first:.0%}) → BUY BACK {format_price(p.symbol, p.target)} "
                     f"({self.cfg.signal.partial_profit_fraction:.0%} at +{p.risk_reward:.1f}R, "
-                    f"rest trailed to {p.target2:.5g}) / BUY BACK ALL at stop {p.stop:.5g} "
+                    f"rest trailed to {format_price(p.symbol, p.target2)}) / BUY BACK ALL at stop {format_price(p.symbol, p.stop)} "
                     f"/ time stop {p.time_stop_bars} bars"
                 )
             out.append({
@@ -240,20 +240,20 @@ class MarketEngine:
                 "verdict": verdict,
                 "action": action,
                 "confidence": round(p.confidence, 3),
-                "entry": round(p.entry, 6),
+                "entry": round(p.entry, price_digits(p.symbol)),
                 "prediction": p.predicted_outcome,
                 "p_target_first": round(p.p_target_first, 3),
                 "expected_bars": p.expected_bars,
                 "one_line": one_line,
                 "exit_orders": [
-                    {"label": "take profit", "price": round(p.target, 6),
+                    {"label": "take profit", "price": round(p.target, price_digits(p.symbol)),
                      "instruction": f"sell {self.cfg.signal.partial_profit_fraction * 100:.0f}% at "
-                                    f"{p.target:.5g} (+{p.risk_reward:.1f}R), "
+                                    f"{format_price(p.symbol, p.target)} (+{p.risk_reward:.1f}R), "
                                     f"then move the stop to breakeven"},
-                    {"label": "sell the rest", "price": round(p.target2, 6),
-                     "instruction": f"trail the remainder toward {p.target2:.5g}"},
-                    {"label": "stop loss", "price": round(p.stop, 6),
-                     "instruction": f"sell ALL at {p.stop:.5g} if the prediction is wrong"},
+                    {"label": "sell the rest", "price": round(p.target2, price_digits(p.symbol)),
+                     "instruction": f"trail the remainder toward {format_price(p.symbol, p.target2)}"},
+                    {"label": "stop loss", "price": round(p.stop, price_digits(p.symbol)),
+                     "instruction": f"sell ALL at {format_price(p.symbol, p.stop)} if the prediction is wrong"},
                     {"label": "time stop", "price": None,
                      "instruction": f"close at market if unresolved after "
                                     f"{p.time_stop_bars} bars — the predicted move never came"},
@@ -270,7 +270,7 @@ class MarketEngine:
                 "verdict": "DO NOT BUY",
                 "action": "wait",
                 "confidence": round(p.confidence, 3),
-                "entry": round(p.entry, 6),
+                "entry": round(p.entry, price_digits(p.symbol)),
                 "prediction": p.predicted_outcome,
                 "p_target_first": 0.0,
                 "expected_bars": 0,
@@ -374,17 +374,17 @@ class MarketEngine:
             action = "BUY" if p.side == "BUY" else "SELL (short)"
             out.append(
                 f"WHEN TO BUY/SELL — {p.display}: the system instructs {action} NOW near "
-                f"{p.entry:.5g} (confidence {p.confidence:.0%}, composite edge {p.score:+.2f}, "
+                f"{format_price(p.symbol, p.entry)} (confidence {p.confidence:.0%}, composite edge {p.score:+.2f}, "
                 f"regime {p.regime.replace('_', ' ')})."
             )
             out.append(
                 f"PREDICTED OUTCOME — {p.display}: {p.predicted_outcome}"
             )
             out.append(
-                f"WHEN TO SELL/EXIT — {p.display}: take profit (sell) {p.target:.5g} "
-                f"= 1:{p.risk_reward:.2f}R; stop-loss (sell all) {p.stop:.5g} "
+                f"WHEN TO SELL/EXIT — {p.display}: take profit (sell) {format_price(p.symbol, p.target)} "
+                f"= 1:{p.risk_reward:.2f}R; stop-loss (sell all) {format_price(p.symbol, p.stop)} "
                 f"({p.stop_dist / p.atr:.1f} ATR away); sell the rest on the trail to "
-                f"{p.target2:.5g}; time-stop close after {p.time_stop_bars} bars; "
+                f"{format_price(p.symbol, p.target2)}; time-stop close after {p.time_stop_bars} bars; "
                 f"sell immediately if the signal flips."
             )
         if not active:

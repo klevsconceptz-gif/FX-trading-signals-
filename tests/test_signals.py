@@ -62,8 +62,10 @@ def test_first_partial_target_matches_configured_r_multiple():
     plan = build_plan("EURUSD", df, cfg)
 
     assert plan.side == "BUY"
-    assert plan.risk_reward == 1.75
-    assert plan.target == pytest.approx(plan.entry + 1.75 * (plan.entry - plan.stop))
+    # prices are rounded to the broker's decimals, so the R multiple holds to a tick, never below the minimum
+    assert plan.risk_reward == pytest.approx(1.75, abs=1e-3)
+    assert plan.risk_reward >= 1.75
+    assert plan.target == pytest.approx(plan.entry + 1.75 * (plan.entry - plan.stop), abs=1e-4)
     assert "+1.8R" in " ".join(plan.actions)
 
 

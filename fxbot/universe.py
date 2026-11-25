@@ -6,6 +6,7 @@ and the scanner, so adding an instrument here extends the entire platform.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -105,11 +106,11 @@ EXOTICS: list[Instrument] = [
 # Metals quoted against USD (traded like FX on most retail platforms) ---------
 METAL_INSTRUMENTS: list[Instrument] = [
     Instrument("XAUUSD", "XAU", "USD", kind="metal", pip=0.01, start_price=2320.0,
-               typical_spread_pips=0.30,
+               typical_spread_pips=30.0,        # 30 pips × 0.01 = 0.30 USD per oz
                description="Gold / US Dollar — the classic macro hedge",
                lot_size_units=100.0),
     Instrument("XAGUSD", "XAG", "USD", kind="metal", pip=0.001, start_price=27.40,
-               typical_spread_pips=0.025,
+               typical_spread_pips=30.0,        # 30 pips × 0.001 = 0.030 USD per oz
                description="Silver / US Dollar — higher-beta precious metal",
                lot_size_units=5_000.0),
 ]
@@ -117,6 +118,40 @@ METAL_INSTRUMENTS: list[Instrument] = [
 UNIVERSE: list[Instrument] = MAJORS + MINORS + EXOTICS + METAL_INSTRUMENTS
 
 BY_SYMBOL: dict[str, Instrument] = {ins.symbol: ins for ins in UNIVERSE}
+
+
+# --- broker quoting ----------------------------------------------------------
+# Brokers quote and accept prices to a fixed number of decimals: 5 for most FX
+# pairs, 3 for JPY crosses, 2 for gold and 3 for silver. A signal price with more
+# decimals is not a price the broker can fill, so every plan price is rounded here.
+MIN_LOT = 0.01          # smallest order size on standard retail accounts (lot steps of 0.01)
+
+
+def price_digits(symbol: str) -> int:
+    """Decimals a broker quotes ``symbol`` with."""
+    ins = BY_SYMBOL.get(symbol)
+    if ins is None:
+        return 5
+    if ins.kind == "metal":
+        return 2 if ins.symbol == "XAUUSD" else 3
+    return 3 if ins.quote == "JPY" else 5
+
+
+def format_price(symbol: str, value: float) -> str:
+    """A price as the broker shows it, e.g. 149.123 for USDJPY, 2320.45 for gold."""
+    return f"{float(value):.{price_digits(symbol)}f}"
+
+
+def round_price(symbol: str, value: float, *, away_from: float | None = None) -> float:
+    """Round ``value`` to the broker's decimals. With ``away_from``, round in the
+    direction away from that price (used for stops, so rounding never shrinks risk)."""
+    digits = price_digits(symbol)
+    scale = 10 ** digits
+    x = float(value) * scale
+    if away_from is not None:
+        x = math.floor(x + 1e-9) if float(value) < float(away_from) else math.ceil(x - 1e-9)
+        return round(x / scale, digits)
+    return round(round(x) / scale, digits)
 
 
 def default_universe(kinds: tuple[str, ...] = ("fx", "metal")) -> list[Instrument]:

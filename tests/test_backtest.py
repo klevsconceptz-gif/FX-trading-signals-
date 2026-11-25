@@ -213,7 +213,10 @@ def test_backtest_short_history_raises(cfg):
 
 
 def test_pinned_eurusd_baseline_matches_cli_path():
-    """Regression pin for the deterministic synthetic market; update intentionally when it changes."""
+    """Regression pin for the deterministic synthetic market; update intentionally when it changes.
+
+    Re-pinned when sizing moved to whole 0.01-lot steps and prices to broker decimals: the same
+    65 trades, with slightly smaller position sizes."""
     from fxbot.config import AppConfig
     from fxbot.data import MarketData
 
@@ -224,5 +227,5 @@ def test_pinned_eurusd_baseline_matches_cli_path():
     df = MarketData(cfg.data).load(["EURUSD"])["EURUSD"]
     m = run_backtest("EURUSD", df, cfg, equity=10_000.0).metrics
     assert m["trades"] == 65
-    assert m["profit_factor"] == pytest.approx(1.632, abs=0.001)
-    assert m["total_return_pct"] == pytest.approx(15.701, abs=0.001)
+    assert m["profit_factor"] == pytest.approx(1.631, abs=0.001)
+    assert m["total_return_pct"] == pytest.approx(15.674, abs=0.001)
