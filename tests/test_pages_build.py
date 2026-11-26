@@ -54,6 +54,12 @@ def test_pages_static_build_preserves_app_routes_when_node_is_available():
         assert list((ROOT / "dist" / "assets").glob(f"{stem}.*{suffix}")), asset
     assert "/static/fonts.css" not in (ROOT / "dist" / "index.html").read_text(encoding="utf-8")
 
+    # The landing page is served only at /. The old /static/landing.html copy is gone and redirects there.
+    assert not (ROOT / "dist" / "static" / "landing.html").exists()
+    assert not (ROOT / "dist" / "static" / "_redirects").exists()
+    redirects = (ROOT / "dist" / "_redirects").read_text(encoding="utf-8")
+    assert "/static/landing.html  /  301" in redirects
+
 
 def test_pages_api_proxy_forwards_requests_when_node_is_available():
     if not shutil.which("node"):
