@@ -51,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
     mode = "dry run, SQL written" if result["dry_run"] else "published to D1"
     print(f"{mode}: source={result['data_source']} pairs={result['pairs']} "
           f"statements={result['statements']} bytes={result['bytes']} generated_at={result['generated_at']:.0f}")
+    for symbol in result.get("unavailable", []):
+        # shown on the run page: the snapshot is still published, with this instrument marked unavailable
+        print(f"::warning title=Signal unavailable::{symbol} had no live data this run and is marked unavailable")
     return 0
 
 

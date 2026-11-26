@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from .universe import UNIVERSE
+from .universe import BY_SYMBOL, UNIVERSE
 
 # D1 limits one SQL statement to 100 KB. Stay well below it.
 MAX_STATEMENT_BYTES = 90_000
@@ -72,20 +72,93 @@ def upsert_statement(key: str, run_id: int, generated_at: float, data_source: st
     return statement
 
 
-def collect(engine: Any) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
-    """Run one scan on live data and return (report, pair payloads). Refuses non-live data."""
-    report = engine.scan(reload=True).to_dict()
-    source = str(report.get("data_source", ""))
-    if not source.startswith("live"):
-        raise PublishError(f"refusing to publish: the data source is '{source or 'unknown'}', not live")
-    pairs: dict[str, dict[str, Any]] = {}
-    for instrument in UNIVERSE:
-        payload = engine.pair_report(instrument.symbol)
-        if payload is not None:
-            pairs[instrument.symbol] = payload
-    if not pairs:
-        raise PublishError("no pair data was produced by the scan")
-    return report, pairs
+# A scan can come back synthetic (a provider rate-limited an FX pair) or without an optional
+# metal (Yahoo drops XAUUSD=X now and then). Retry before giving up, so the snapshot stays live.
+UNAVAILABLE_RETRY_ATTEMPTS = 3
+UNAVAILABLE_RETRY_SECONDS = 60.0
+
+
+def _missing_reasons(engine: Any) -> dict[str, str]:
+    """Why each optional instrument was left out of the last live load, keyed by symbol."""
+    reasons: dict[str, str] = {}
+    data = getattr(engine, "data", None)
+    for note in getattr(data, "excluded", None) or []:
+        symbol, _, rest = str(note).partition(" (")
+        if symbol:
+            reasons[symbol] = rest.rstrip(")") or "no live data"
+    return reasons
+
+
+def _unavailable_instruction(symbol: str, reason: str) -> dict[str, Any]:
+    ins = BY_SYMBOL[symbol]
+    name = ins.description.split(" / ")[0] or ins.display
+    label = f"{symbol} ({name})"
+    return {
+        "uid": symbol, "symbol": symbol, "display": ins.display,
+        "verdict": "UNAVAILABLE", "action": "wait",
+        "confidence": None, "entry": None,
+        "prediction": (f"No signal for {label}: live data could not be loaded ({reason}). "
+                       "It is retried on every scheduled publish."),
+        "p_target_first": 0.0, "expected_bars": 0,
+        "one_line": f"{label}: live data unavailable, so no buy or sell signal. ({reason})",
+        "exit_orders": [], "actions": [],
+    }
+
+
+def collect(engine: Any, *, retry_attempts: Optional[int] = None,
+            retry_seconds: Optional[float] = None) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Run one scan on live data and return (report, pair payloads).
+
+    Refuses non-live data after the retries. An optional instrument that is still missing is
+    published as ``unavailable``: its pair row and an UNAVAILABLE instruction say so, so the
+    page never silently drops gold or silver.
+    """
+    attempts = max(1, UNAVAILABLE_RETRY_ATTEMPTS if retry_attempts is None else retry_attempts)
+    delay = UNAVAILABLE_RETRY_SECONDS if retry_seconds is None else retry_seconds
+    for attempt in range(1, attempts + 1):
+        report = engine.scan(reload=True).to_dict()
+        source = str(report.get("data_source", ""))
+        last = attempt == attempts
+        if not source.startswith("live"):
+            if last:
+                raise PublishError(f"refusing to publish: the data source is '{source or 'unknown'}', not live")
+            time.sleep(delay)
+            continue
+        pairs: dict[str, dict[str, Any]] = {}
+        for instrument in UNIVERSE:
+            payload = engine.pair_report(instrument.symbol)
+            if payload is not None:
+                pairs[instrument.symbol] = payload
+        if not pairs:
+            if last:
+                raise PublishError("no pair data was produced by the scan")
+            time.sleep(delay)
+            continue
+        missing = [ins.symbol for ins in UNIVERSE if ins.symbol not in pairs]
+        if missing and not last:
+            time.sleep(delay)
+            continue
+        reasons = _missing_reasons(engine)
+        unavailable = {symbol: reasons.get(symbol, "no live data") for symbol in missing}
+        _add_unavailable(report, pairs, unavailable)
+        return report, pairs
+    raise PublishError("refusing to publish: no live snapshot")  # unreachable; keeps type checkers calm
+
+
+def _add_unavailable(report: dict[str, Any], pairs: dict[str, dict[str, Any]],
+                     unavailable: dict[str, str]) -> None:
+    """Record instruments with no live data as explicit unavailable rows, never as silent gaps."""
+    report["unavailable"] = [
+        {"symbol": symbol, "display": BY_SYMBOL[symbol].display, "reason": reason}
+        for symbol, reason in sorted(unavailable.items())
+    ]
+    instructions = report.setdefault("instructions", [])
+    for symbol, reason in sorted(unavailable.items()):
+        pairs[symbol] = {
+            "symbol": symbol, "display": BY_SYMBOL[symbol].display, "status": "unavailable",
+            "reason": reason, "generated_at": report["generated_at"],
+        }
+        instructions.append(_unavailable_instruction(symbol, reason))
 
 
 def build_sql(report: dict[str, Any], pairs: dict[str, dict[str, Any]], run_id: Optional[int] = None) -> str:
@@ -166,6 +239,7 @@ def publish(engine: Any, *, out: Path, dry_run: bool = False,
         "statements": sql.count(";\n"),
         "bytes": len(sql.encode("utf-8")),
         "dry_run": dry_run,
+        "unavailable": [item["symbol"] for item in report.get("unavailable", [])],
     }
     if not dry_run and telegram_token and telegram_chat_id:
         from .telegram import post_new_signals

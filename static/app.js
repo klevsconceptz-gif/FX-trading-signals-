@@ -285,6 +285,18 @@ async function loadPair(symbol) {
 
 function renderPair() {
   if (!PAIR) return;
+  if (PAIR.status === "unavailable") {
+    // the publisher could not load live data for this market: say so, and clear the old chart
+    $("#pair-title").innerHTML = `${esc(PAIR.display)} <span class="hint">live data unavailable</span>`;
+    $("#pair-meta").innerHTML = "";
+    for (const id of ["chart", "rsi-chart"]) {
+      const c = $(`#${id}`);
+      if (c && c.getContext) c.getContext("2d").clearRect(0, 0, c.width, c.height);
+    }
+    $("#plan-box").innerHTML = `<h3>Trade instructions — ${esc(PAIR.display)}</h3>
+      <p class="hint">No signal. Live data could not be loaded for this market (${esc(PAIR.reason)}). It is retried on every scheduled publish.</p>`;
+    return;
+  }
   const p = PAIR.plan;
   $("#pair-title").innerHTML =
     `${PAIR.display} <span class="hint">${PAIR.timeframe} · regime ${PAIR.regime.replace("_", " ")} · ADX ${PAIR.adx}</span>`;

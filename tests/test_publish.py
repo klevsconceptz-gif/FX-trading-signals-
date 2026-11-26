@@ -13,6 +13,12 @@ from fxbot.publish import publish as run_publish
 from fxbot.universe import UNIVERSE
 
 STATEMENT_END = re.compile(r"\);\n$")
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_wait(monkeypatch):
+    """Missing-instrument retries sleep in production; the tests here must not."""
+    monkeypatch.setattr(publish, "UNAVAILABLE_RETRY_SECONDS", 0.0)
 PAYLOAD = re.compile(r"'((?:[^']|'')*)'\);\n$")
 
 
