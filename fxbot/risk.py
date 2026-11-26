@@ -7,6 +7,7 @@ limits apply to the proposed/open positions tracked by this manager.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -14,7 +15,7 @@ import numpy as np
 
 from .config import RiskConfig
 from .signals import TradePlan
-from .universe import BY_SYMBOL
+from .universe import BY_SYMBOL, MIN_LOT
 
 
 @dataclass
@@ -66,7 +67,14 @@ class RiskManager:
         risk_amount *= correlation_scale * drawdown_scale
         loss_per_unit = stop_dist * float(rate)  # account currency per base unit
         units = risk_amount / loss_per_unit
-        lots = units / instrument.lot_size_units
+        # Brokers only fill whole 0.01-lot steps. Round down, so the loss at the stop
+        # never exceeds the risk budget, and recompute the risk on the lots actually sized.
+        lots = math.floor(units / instrument.lot_size_units / MIN_LOT + 1e-9) * MIN_LOT
+        if lots < MIN_LOT - 1e-12:
+            return RiskDecision(False, 0, 0, 0, 0, 0.0,
+                                f"position below the {MIN_LOT} lot minimum at this account size")
+        units = lots * instrument.lot_size_units
+        risk_amount = units * loss_per_unit
         position_value = units * plan.entry * float(rate)
 
         plan.units = float(units)

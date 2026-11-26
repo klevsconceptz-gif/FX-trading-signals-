@@ -36,7 +36,7 @@ from .config import SignalConfig
 from .indicators import compute_all, support_resistance
 from .ml import Forecast
 from .strength import CurrencyStrength, detect_regime
-from .universe import BY_SYMBOL
+from .universe import BY_SYMBOL, format_price, round_price
 
 # ---------------------------------------------------------------------------
 # factor scores
@@ -205,7 +205,7 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
     if forecast and forecast.accuracy:
         confidence = float(np.clip(confidence * (0.85 + 0.3 * forecast.accuracy), 0, 1))
 
-    close = float(ind["close"].iloc[-1])
+    close = round_price(symbol, float(ind["close"].iloc[-1]))   # the broker's quote precision
     atr_v = float(ind["atr14"].iloc[-1])
     if not np.isfinite(atr_v) or atr_v <= 0:
         atr_v = close * 0.002
@@ -213,6 +213,9 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
     sr = support_resistance(ind.tail(300))
     notes: list[str] = []
     actions: list[str] = []
+
+    def px(value: float) -> str:
+        return format_price(symbol, value)
 
     if abs(score) < cfg.entry_threshold:
         side = "WAIT"
@@ -275,6 +278,23 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
             if supports:
                 target2 = min(target2, supports[-1])
 
+        # ---- broker prices ------------------------------------------------
+        # Stops and targets are rounded to the broker's decimals, both away from entry: the
+        # stop is never tighter than modelled and the reward is never smaller, so the
+        # reported reward:risk stays at or above the model's and the broker sees valid prices.
+        stop = round_price(symbol, stop, away_from=close)
+        risk = abs(close - stop)
+        # the first target is re-derived from the broker-priced stop so it keeps exactly partial_r
+        target = close + partial_r * risk if side == "BUY" else close - partial_r * risk
+        target = round_price(symbol, target, away_from=close)
+        target2 = round_price(symbol, target2, away_from=close)
+        if side == "BUY":
+            target2 = max(target2, target)
+        else:
+            target2 = min(target2, target)
+        if risk > 0:
+            rr = abs(target - close) / risk
+
         # ---- outcome prediction -------------------------------------------
         # P(target before stop) on a driftless walk = 1/(1+R:R), nudged by the
         # model's directional probability — an estimate, not a guarantee.
@@ -300,8 +320,8 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
         else:
             model_line = "ML model: not trained on this pair — plan relies on technical factors only"
         predicted_outcome = (
-            f"Plan targets a move {dir_word} to the take-profit at {target:.5g} "
-            f"({move_pct:+.2f}%) vs the stop at {stop:.5g} "
+            f"Plan targets a move {dir_word} to the take-profit at {px(target)} "
+            f"({move_pct:+.2f}%) vs the stop at {px(stop)} "
             f"({stop_pct:+.2f}%), risk-reward 1:{rr:.2f}. "
             f"{model_line}. Estimated chance the take-profit is reached before the "
             f"stop ≈ {p_target:.0%}; typically resolved in ~{expected_bars} bars."
@@ -310,11 +330,11 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
         # ---- explicit action sequence --------------------------------------
         if side == "BUY":
             actions = [
-                f"① BUY NOW — open a long at market ≈ {close:.5g} (enter on the next candle).",
+                f"① BUY NOW — open a long at market ≈ {px(close)} (enter on the next candle).",
                 f"② TAKE-PROFIT (sell): sell {cfg.partial_profit_fraction * 100:.0f}% at "
-                f"{target:.5g} (+{partial_r:.1f}R), then move the stop to breakeven.",
-                f"③ SELL THE REST: trail toward {target2:.5g} (stretch target / structure).",
-                f"④ STOP-LOSS (sell all): {stop:.5g} — if price touches this the prediction "
+                f"{px(target)} (+{partial_r:.1f}R), then move the stop to breakeven.",
+                f"③ SELL THE REST: trail toward {px(target2)} (stretch target / structure).",
+                f"④ STOP-LOSS (sell all): {px(stop)} — if price touches this the prediction "
                 f"is wrong; exit immediately and take the loss.",
                 f"⑤ TIME STOP (sell): if the trade is unresolved after "
                 f"{cfg.time_stop_bars} bars, close at market — the predicted move did not "
@@ -323,11 +343,11 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
             ]
         else:
             actions = [
-                f"① SELL NOW — open a short at market ≈ {close:.5g} (enter on the next candle).",
+                f"① SELL NOW — open a short at market ≈ {px(close)} (enter on the next candle).",
                 f"② TAKE-PROFIT (buy to cover): cover {cfg.partial_profit_fraction * 100:.0f}% at "
-                f"{target:.5g} (+{partial_r:.1f}R), then move the stop to breakeven.",
-                f"③ COVER THE REST: trail toward {target2:.5g} (stretch target / structure).",
-                f"④ STOP-LOSS (buy to cover all): {stop:.5g} — if price touches this the "
+                f"{px(target)} (+{partial_r:.1f}R), then move the stop to breakeven.",
+                f"③ COVER THE REST: trail toward {px(target2)} (stretch target / structure).",
+                f"④ STOP-LOSS (buy to cover all): {px(stop)} — if price touches this the "
                 f"prediction is wrong; exit immediately and take the loss.",
                 f"⑤ TIME STOP (cover): if the trade is unresolved after "
                 f"{cfg.time_stop_bars} bars, close at market — the predicted move did not "
@@ -340,14 +360,14 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
             f"{'Trend-following' if trending else 'Mean-reversion'} playbook."
         )
         notes.append(
-            f"Enter on the next candle near {close:.5g}. "
-            f"Stop-loss {stop:.5g} ({abs(close - stop) / atr_v:.2f} ATR) — "
+            f"Enter on the next candle near {px(close)}. "
+            f"Stop-loss {px(stop)} ({abs(close - stop) / atr_v:.2f} ATR) — "
             f"the trade thesis is invalidated there."
         )
         notes.append(
-            f"Take profit {cfg.partial_profit_fraction * 100:.0f}% at {target:.5g} "
+            f"Take profit {cfg.partial_profit_fraction * 100:.0f}% at {px(target)} "
             f"(+{partial_r:.1f}R), move stop to breakeven, "
-            f"trail the rest toward {target2:.5g}."
+            f"trail the rest toward {px(target2)}."
         )
         if forecast:
             notes.append(

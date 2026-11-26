@@ -133,7 +133,9 @@ def test_correlation_scales_proposed_trade():
 
     assert decision.accepted
     assert decision.scale == pytest.approx(0.25)  # shared USD and high correlation
-    assert decision.risk_amount == pytest.approx(18.75)
+    # sized to whole 0.01-lot steps, rounded down: at most the budget, and within one step of it
+    assert decision.risk_amount <= 18.75 + 1e-9
+    assert decision.risk_amount > 18.75 - 5.0      # one 0.01 lot on this 0.005 stop risks $5
 
 
 def test_kelly_fraction():
