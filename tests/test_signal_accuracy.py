@@ -128,3 +128,19 @@ def test_instruction_text_shows_broker_precision(scanned):
         symbol = item["symbol"]
         assert format_price(symbol, plans[symbol]["target"]) in item["one_line"], symbol
         assert format_price(symbol, plans[symbol]["stop"]) in item["one_line"], symbol
+
+
+def test_worker_universe_matches_python_universe():
+    """The Worker serves /api/universe from its own copy; pip and spread must match the engine."""
+    import re
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[1] / "worker" / "src" / "universe.js").read_text(encoding="utf-8")
+    rows = re.findall(
+        r'symbol: "([A-Z]+)".*?pip: ([0-9.]+), typical_spread_pips: ([0-9.]+)', text
+    )
+    assert {r[0] for r in rows} == set(BY_SYMBOL), "Worker and engine list different instruments"
+    for symbol, pip, spread in rows:
+        ins = BY_SYMBOL[symbol]
+        assert float(pip) == pytest.approx(ins.pip), symbol
+        assert float(spread) == pytest.approx(ins.typical_spread_pips), symbol
