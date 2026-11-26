@@ -261,6 +261,13 @@ class MarketEngine:
                      "instruction": "sell immediately if the system flips to a contrary signal"},
                 ],
                 "actions": p.actions,
+                # position size. The published lots are the risk-based size; per-lot figures let each
+                # user's chosen lot size show its own risk and first target in the browser.
+                "lots": round(p.lots, 2),
+                "risk_amount": round(p.risk_amount, 2),
+                "risk_per_lot": round(p.risk_amount / p.lots, 4) if p.lots else None,
+                "reward_per_lot": round(p.risk_amount / p.lots * p.risk_reward, 4) if p.lots else None,
+                "lot_units": BY_SYMBOL[p.symbol].lot_size_units if p.symbol in BY_SYMBOL else None,
             })
         for p in watch[:5]:
             out.append({

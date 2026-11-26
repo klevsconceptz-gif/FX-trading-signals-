@@ -389,3 +389,10 @@ footer { padding: 22px 18px; color: #8499a9; font-size: 10.5px; border-color: rg
 /* Telegram community links (dashboard) */
 .community-links { display: flex; flex-wrap: wrap; gap: 10px; }
 .community-links a { text-decoration: none; display: inline-flex; align-items: center; }
+
+/* lot size: the user's own choice above the live instructions */
+.lot-control { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+.lot-control label { font-weight: 600; }
+.lot-control input { width: 120px; }
+.ins-size { font-size: 0.92rem; margin-top: 6px; }
+.ins-size .warn { color: var(--amber, #b7791f); }
