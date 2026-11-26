@@ -31,6 +31,10 @@ await rm(outputDir, { recursive: true, force: true });
 await mkdir(outputDir, { recursive: true });
 await cp(staticDir, path.join(outputDir, "static"), { recursive: true });
 
+// The landing page is served only at /. Its source stays in static/ (the Python dev server and
+// the mobile bundle read it), but the copy under /static/ would duplicate the home page, so drop it.
+await rm(path.join(outputDir, "static", "landing.html"));
+
 // Keep the public app routes: landing page, dashboard, admin.
 await copyFile(path.join(staticDir, "landing.html"), path.join(outputDir, "index.html"));
 await mkdir(path.join(outputDir, "app"), { recursive: true });
@@ -43,6 +47,9 @@ await copyFile(path.join(staticDir, "robots.txt"), path.join(outputDir, "robots.
 await copyFile(path.join(staticDir, "sitemap.xml"), path.join(outputDir, "sitemap.xml"));
 // Pages reads response headers from a _headers file at the site root.
 await copyFile(path.join(staticDir, "_headers"), path.join(outputDir, "_headers"));
+// Pages reads redirects from a _redirects file at the site root. Keep it out of the public /static/ copy.
+await copyFile(path.join(staticDir, "_redirects"), path.join(outputDir, "_redirects"));
+await rm(path.join(outputDir, "static", "_redirects"));
 
 // Fingerprint CSS, JS and fonts: minify the text ones, hash the final bytes, and write them to
 // dist/assets/ under a name that changes whenever the content does. References are rewritten to match.

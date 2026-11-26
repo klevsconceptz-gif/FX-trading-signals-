@@ -1,0 +1,3 @@
+# Permanent redirects for Cloudflare Pages. Copied to the site root by scripts/build-static.mjs.
+# /static/landing.html was a second copy of the home page. Its address now redirects to /.
+/static/landing.html  /  301
