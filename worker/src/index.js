@@ -55,6 +55,7 @@ import { signalHealth, signalResponse } from "./signals.js";
 import { adminOverview } from "./overview.js";
 import { postSignalUpdates, telegramRequestAuthorized, telegramConfigured } from "./telegram.js";
 import { backtestResponse, listBacktests } from "./backtest.js";
+import { getTradeSettings, updateTradeSettings } from "./tradeSettings.js";
 
 const APP_NAME = "klevs FX trading App";
 const VERSION = "1.0.0";
@@ -266,6 +267,15 @@ async function handleApi(request, env) {
   if (paymentCancelMatch && method === "POST") {
     const admin = await requireAdmin(env, request);
     return jsonResponse(await adminCancelPayment(env, positiveInteger(paymentCancelMatch[1], "payment_id"), admin, await parseJson(request)));
+  }
+
+  if (path === "/api/me/trade-settings" && method === "GET") {
+    const user = await authenticated(env, request);
+    return jsonResponse(await getTradeSettings(env, user));
+  }
+  if (path === "/api/me/trade-settings" && method === "PUT") {
+    const user = await authenticated(env, request);
+    return jsonResponse(await updateTradeSettings(env, user, await parseJson(request)));
   }
 
   if (path === "/api/universe" && method === "GET") {

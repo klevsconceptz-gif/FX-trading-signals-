@@ -67,6 +67,7 @@ function renderInstructions(list) {
           <button class="ins-link" data-symbol="${ins.symbol}">chart &amp; full plan →</button>
         </div>
         <div class="ins-line">${ins.one_line}</div>
+        ${sizeLine(ins)}
         <div class="ins-pred">🔮 ${ins.prediction}</div>
         ${exitLine ? `<div class="ins-exits">${exitLine}</div>` : ""}
       </div>`;
@@ -124,6 +125,7 @@ async function loadScan(refresh = false) {
     SCAN = await res.json();
     scanFailed = false;
     renderScan();
+    if (!TRADE.loaded) loadTradeSettings();
   } catch (e) {
     if (e.network) {
       // Keep the last loaded signals on screen and say why they may be out of date.
@@ -732,7 +734,10 @@ if (window.Auth) {
 
 $("#pw-msg").dataset.default = $("#pw-msg").textContent;
 
-$("#btn-logout").addEventListener("click", () => { window.Auth.logout(); });
+$("#btn-logout").addEventListener("click", () => {
+  TRADE = { lotSize: null, loaded: false };   // the next account must not inherit this lot size
+  window.Auth.logout();
+});
 $("#pw-pay").addEventListener("click", () => window.Auth.open("plan"));
 $("#pw-status").addEventListener("click", async () => {
   const s = await window.Auth.refresh();
@@ -743,9 +748,77 @@ $("#pw-status").addEventListener("click", async () => {
 $("#pw-login").addEventListener("click", () => window.Auth.open("login"));
 $("#pw-forgot").addEventListener("click", () => window.Auth.open("forgot"));
 
+/* ---------------- lot size: each registered user's own choice ---------------- */
+
+// The published signals are shared, so a user's lot size only changes what that user sees:
+// risk and first target are the per-lot figures from the signal, multiplied by the user's lots.
+let TRADE = { lotSize: null, loaded: false };
+const money = (v) => `${Number(v).toFixed(2)} USD`;
+
+function sizeLine(ins) {
+  if ((ins.action !== "buy" && ins.action !== "sell") || ins.lots == null) return "";
+  const yours = TRADE.lotSize;
+  if (yours == null) {
+    return `<div class="ins-size">Signal size ${ins.lots.toFixed(2)} lots · risk ${money(ins.risk_amount)} at the stop · first target ${money(ins.reward_per_lot * ins.lots)} <span class="hint">change it above</span></div>`;
+  }
+  const warn = yours > ins.lots * 2
+    ? ` <span class="warn">more than twice the signal size (${ins.lots.toFixed(2)} lots)</span>`
+    : ` <span class="hint">signal size ${ins.lots.toFixed(2)} lots</span>`;
+  return `<div class="ins-size">Your size ${yours.toFixed(2)} lots · risk ${money(ins.risk_per_lot * yours)} at the stop · first target ${money(ins.reward_per_lot * yours)}${warn}</div>`;
+}
+
+function paintLotControl() {
+  $("#lot-input").value = TRADE.lotSize == null ? "" : TRADE.lotSize.toFixed(2);
+  $("#lot-status").textContent = TRADE.lotSize == null
+    ? "Using the signal size (risk-based)."
+    : `Using your size of ${TRADE.lotSize.toFixed(2)} lots.`;
+}
+
+async function loadTradeSettings() {
+  let res;
+  try {
+    res = await apiFetch("/api/me/trade-settings");
+  } catch (e) {
+    return;                                // offline: keep the signal size until we can check again
+  }
+  if (!res.ok) return;
+  const body = await res.json();
+  TRADE = { lotSize: body.lot_size, loaded: true };
+  paintLotControl();
+  if (SCAN) renderInstructions(SCAN.instructions || []);
+}
+
+async function saveLotSize(value) {
+  const res = await apiFetch("/api/me/trade-settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lot_size: value }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    $("#lot-status").textContent = body.detail || "Could not save your lot size.";
+    return;
+  }
+  const body = await res.json();
+  TRADE = { lotSize: body.lot_size, loaded: true };
+  paintLotControl();
+  if (SCAN) renderInstructions(SCAN.instructions || []);
+}
+
 /* ---------------- boot ---------------- */
 
 $("#btn-refresh").addEventListener("click", () => loadScan(true));
+$("#lot-save").addEventListener("click", () => {
+  const raw = $("#lot-input").value.trim();
+  const value = Number(raw);
+  const onGrid = Math.abs(Math.round(value * 100) - value * 100) < 1e-6;
+  if (raw === "" || !Number.isFinite(value) || value < 0.01 || value > 50 || !onGrid) {
+    $("#lot-status").textContent = "Enter a lot size from 0.01 to 50 in steps of 0.01, or use the signal size.";
+    return;
+  }
+  saveLotSize(Math.round(value * 100) / 100);
+});
+$("#lot-reset").addEventListener("click", () => saveLotSize(null));
 initSubscriberGate();
 // live instruction feed: re-scan every 5 minutes (models are cached, so this is cheap)
 setInterval(() => { if ($("#paywall").hidden) loadScan(true); }, 5 * 60 * 1000);

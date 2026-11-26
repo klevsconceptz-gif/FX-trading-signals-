@@ -144,3 +144,15 @@ def test_worker_universe_matches_python_universe():
         ins = BY_SYMBOL[symbol]
         assert float(pip) == pytest.approx(ins.pip), symbol
         assert float(spread) == pytest.approx(ins.typical_spread_pips), symbol
+
+
+def test_active_instructions_carry_per_lot_risk_for_user_sizes(scanned):
+    """Each user's chosen lot size is shown in the browser from these per-lot figures."""
+    report, _ = scanned
+    active = [i for i in report["instructions"] if i["verdict"] in ("BUY NOW", "SELL NOW")]
+    assert active
+    for item in active:
+        assert item["lots"] >= MIN_LOT - 1e-12, item["symbol"]
+        assert item["risk_per_lot"] * item["lots"] == pytest.approx(item["risk_amount"], abs=0.02), item["symbol"]
+        assert item["reward_per_lot"] == pytest.approx(item["risk_per_lot"] * 1.5, rel=0.01), item["symbol"]
+        assert item["lot_units"] == BY_SYMBOL[item["symbol"]].lot_size_units

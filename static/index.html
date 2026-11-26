@@ -77,6 +77,13 @@
         <span class="hint">when to buy · predicted outcome · when to sell — refreshed hourly</span>
         <span class="hint" id="instruction-time"></span>
       </h2>
+      <div class="lot-control" id="lot-control">
+        <label for="lot-input">Your lot size</label>
+        <input id="lot-input" type="number" min="0.01" max="50" step="0.01" inputmode="decimal" placeholder="signal size" aria-describedby="lot-status" />
+        <button id="lot-save" type="button">Save</button>
+        <button id="lot-reset" type="button">Use signal size</button>
+        <span class="hint" id="lot-status"></span>
+      </div>
       <div id="instructions" class="instructions"><div class="empty">Scanning market…</div></div>
     </div>
 
