@@ -1,2 +1,1 @@
 yfinance>=1.7,<2     # live hourly FX/metal bars from Yahoo Finance (optional)
-soupsieve>=4.0       # transitive (yfinance -> beautifulsoup4); 2.x has known advisories (CVE-2026-126190/126191/126193)
