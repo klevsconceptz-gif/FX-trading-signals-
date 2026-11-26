@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from fxbot import publish
 from fxbot.config import AppConfig
 from fxbot.data import ProviderError, SyntheticMarket, YFinanceProvider
 from fxbot.engine import MarketEngine
-from fxbot import publish
 from fxbot.publish import PublishError, build_sql, collect
 from fxbot.universe import UNIVERSE
 

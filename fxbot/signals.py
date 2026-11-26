@@ -288,10 +288,7 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
         target = close + partial_r * risk if side == "BUY" else close - partial_r * risk
         target = round_price(symbol, target, away_from=close)
         target2 = round_price(symbol, target2, away_from=close)
-        if side == "BUY":
-            target2 = max(target2, target)
-        else:
-            target2 = min(target2, target)
+        target2 = max(target2, target) if side == "BUY" else min(target2, target)
         if risk > 0:
             rr = abs(target - close) / risk
 
