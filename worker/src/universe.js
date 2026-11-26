@@ -30,8 +30,8 @@ export const UNIVERSE = Object.freeze([
   { symbol: "EURSEK", display: "EUR/SEK", kind: "fx", description: "Euro / Swedish Krona", pip: 0.0001, typical_spread_pips: 15.0 },
   { symbol: "EURNOK", display: "EUR/NOK", kind: "fx", description: "Euro / Norwegian Krone", pip: 0.0001, typical_spread_pips: 20.0 },
   { symbol: "EURMXN", display: "EUR/MXN", kind: "fx", description: "Euro / Mexican Peso", pip: 0.0001, typical_spread_pips: 35.0 },
-  { symbol: "XAUUSD", display: "XAUUSD", kind: "metal", description: "Gold / US Dollar — the classic macro hedge", pip: 0.01, typical_spread_pips: 0.3 },
-  { symbol: "XAGUSD", display: "XAGUSD", kind: "metal", description: "Silver / US Dollar — higher-beta precious metal", pip: 0.001, typical_spread_pips: 0.025 },
+  { symbol: "XAUUSD", display: "XAUUSD", kind: "metal", description: "Gold / US Dollar — the classic macro hedge", pip: 0.01, typical_spread_pips: 30 },
+  { symbol: "XAGUSD", display: "XAGUSD", kind: "metal", description: "Silver / US Dollar — higher-beta precious metal", pip: 0.001, typical_spread_pips: 30 },
 ]);
 
 export const SYMBOLS = new Set(UNIVERSE.map((instrument) => instrument.symbol));
