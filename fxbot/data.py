@@ -344,8 +344,59 @@ class YFinanceProvider(_Provider):
         return raw.rename(columns=str.lower)[OHLC_COLS].dropna().astype(float)
 
 
+GOLD_SPOT_URL = "https://api.gold-api.com/price/XAU"
+
+
+class GoldFuturesSpotProvider(_Provider):
+    """XAUUSD only: hourly history from COMEX gold futures (GC=F), level set to live spot.
+
+    Used when Yahoo has no spot ticker (XAUUSD=X). The futures bars are shifted by one constant,
+    so the last close equals the current spot price from gold-api.com. A constant shift leaves the
+    indicators (EMA, ATR, ranges, RSI, momentum) unchanged; only the absolute price level moves.
+    Anything else (other symbols, missing spot, empty history) returns None or raises ProviderError.
+    """
+
+    name = "gold_futures_spot"
+
+    def native_hours(self, cfg: DataConfig) -> float:
+        return 1.0 if cfg.timeframe == "1h" else 24.0
+
+    def unavailable_reason(self) -> Optional[str]:
+        return YFinanceProvider().unavailable_reason()
+
+    def fetch(self, ins: Instrument, cfg: DataConfig) -> Optional[pd.DataFrame]:
+        if ins.symbol != "XAUUSD" or cfg.timeframe != "1h":
+            return None
+        import yfinance as yf
+
+        try:
+            raw = yf.download("GC=F", period="730d", interval="60m", progress=False,
+                              auto_adjust=True, timeout=cfg.request_timeout)
+        except Exception as exc:
+            raise ProviderError(f"gold_futures_spot: futures {type(exc).__name__}") from exc
+        if raw is None or len(raw) == 0:
+            raise ProviderError("gold_futures_spot: empty futures response")
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+        futures = raw.rename(columns=str.lower)[OHLC_COLS].dropna().astype(float)
+        if len(futures) == 0:
+            raise ProviderError("gold_futures_spot: no futures bars")
+
+        try:
+            quote = _try_fetch_json(GOLD_SPOT_URL, cfg.request_timeout)
+            spot = float(quote["price"])
+        except Exception as exc:
+            raise ProviderError(f"gold_futures_spot: spot {type(exc).__name__}") from exc
+        if not (spot > 0):
+            raise ProviderError("gold_futures_spot: spot price not positive")
+
+        offset = spot - float(futures["close"].iloc[-1])
+        return futures + offset
+
+
 PROVIDERS: dict[str, type[_Provider]] = {
     YFinanceProvider.name: YFinanceProvider,
+    GoldFuturesSpotProvider.name: GoldFuturesSpotProvider,
     FrankfurterProvider.name: FrankfurterProvider,
 }
 
