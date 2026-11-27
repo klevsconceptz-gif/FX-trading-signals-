@@ -1,4 +1,4 @@
-"""Gold (XAUUSD) uses its own, lower entry threshold. Other pairs keep the default."""
+"""Per-symbol entry thresholds. Gold uses the shared default unless an override is set."""
 
 import pandas as pd
 
@@ -14,23 +14,23 @@ def _flat(close: float) -> pd.DataFrame:
     )
 
 
-def test_threshold_for_uses_gold_override_and_default_for_others():
+def test_gold_uses_the_shared_default_threshold():
     cfg = SignalConfig()
-    assert cfg.threshold_for("XAUUSD") == 0.20
-    assert cfg.threshold_for("EURUSD") == cfg.entry_threshold == 0.25
-    assert cfg.threshold_for("XAGUSD") == 0.25
+    assert cfg.symbol_entry_thresholds == {}
+    assert cfg.threshold_for("XAUUSD") == cfg.entry_threshold == 0.25
 
 
-def test_gold_wait_message_shows_gold_threshold():
-    """The WAIT plan states the threshold that applies to that symbol."""
+def test_wait_message_shows_the_symbol_threshold():
     gold = build_plan("XAUUSD", _flat(2320.0), SignalConfig())
     eur = build_plan("EURUSD", _flat(1.1), SignalConfig())
     assert gold.side == "WAIT" and eur.side == "WAIT"
-    assert any("0.2 threshold" in note for note in gold.notes)
+    assert any("0.25 threshold" in note for note in gold.notes)
     assert any("0.25 threshold" in note for note in eur.notes)
 
 
-def test_override_can_be_changed_per_config():
-    cfg = SignalConfig(symbol_entry_thresholds={"XAUUSD": 0.5})
-    assert cfg.threshold_for("XAUUSD") == 0.5
+def test_override_applies_only_to_its_symbol():
+    cfg = SignalConfig(symbol_entry_thresholds={"XAUUSD": 0.20})
+    assert cfg.threshold_for("XAUUSD") == 0.20
     assert cfg.threshold_for("EURUSD") == 0.25
+    gold = build_plan("XAUUSD", _flat(2320.0), cfg)
+    assert any("0.2 threshold" in note for note in gold.notes)

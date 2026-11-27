@@ -32,9 +32,8 @@ class SignalConfig:
 
     # composite score threshold to emit a directional signal
     entry_threshold: float = 0.25
-    # per-symbol overrides of entry_threshold. Gold (XAUUSD) uses a lower bar so it can issue
-    # BUY/SELL signals; its score is still computed and shown the same way as every other pair.
-    symbol_entry_thresholds: dict = field(default_factory=lambda: {"XAUUSD": 0.20})
+    # per-symbol overrides of entry_threshold (empty: every symbol uses entry_threshold).
+    symbol_entry_thresholds: dict = field(default_factory=dict)
 
     def threshold_for(self, symbol: str) -> float:
         """Entry threshold for one symbol: its override if it has one, else ``entry_threshold``."""

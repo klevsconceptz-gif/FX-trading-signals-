@@ -70,3 +70,35 @@ def test_quotes_are_escaped_in_sql_literals():
     statement = job.upsert_statement({"symbol": "EURUSD", "run_at": "2026-10-10T00:00:00Z",
                                       "data_source": "live (it's fine)", "trades": []})
     assert "'live (it''s fine)'" in statement
+
+
+def test_entry_threshold_is_recorded_in_the_stored_result(tmp_path, monkeypatch):
+    monkeypatch.setattr(job, "MarketData", LiveLookingData)
+    out = tmp_path / "backtests.sql"
+    code = job.main(["--symbols", "EURUSD", "--bars", "600", "--entry-threshold", "0.2",
+                     "--dry-run", "--out", str(out)])
+    assert code == 0
+    sql = out.read_text(encoding="utf-8")
+    body = sql.split(", 'live (test feed, 1h)', '", 1)[1].split("', ", 1)[0].replace("''", "'")
+    assert json.loads(body)["params"]["entry_threshold"] == 0.2
+
+
+def test_entry_threshold_is_refused_with_all_symbols(tmp_path, monkeypatch):
+    monkeypatch.setattr(job, "MarketData", LiveLookingData)
+    with pytest.raises(SystemExit):
+        job.main(["--symbols", "all", "--entry-threshold", "0.2", "--dry-run", "--out", str(tmp_path / "x.sql")])
+
+
+def test_entry_threshold_must_be_a_fraction(tmp_path, monkeypatch):
+    monkeypatch.setattr(job, "MarketData", LiveLookingData)
+    with pytest.raises(SystemExit):
+        job.main(["--symbols", "XAUUSD", "--entry-threshold", "2.5", "--dry-run", "--out", str(tmp_path / "x.sql")])
+
+
+def test_backtest_workflow_passes_the_threshold_only_when_set():
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / ".github" / "workflows" / "backtest.yml").read_text(encoding="utf-8")
+    assert "entry_threshold:" in text
+    assert 'if [ -n "${BACKTEST_ENTRY_THRESHOLD:-}" ]' in text
+    assert "--entry-threshold" in text

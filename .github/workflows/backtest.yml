@@ -13,6 +13,10 @@ on:
         description: "Comma-separated symbols (e.g. EURUSD,GBPUSD), or 'all'"
         required: false
         default: "all"
+      entry_threshold:
+        description: "Optional entry threshold to test for the named symbols (0 to 1). Empty uses the live default."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -33,6 +37,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       KFX_LIVE_DATA: "1"
       BACKTEST_SYMBOLS: ${{ inputs.symbols }}
+      BACKTEST_ENTRY_THRESHOLD: ${{ inputs.entry_threshold }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -47,4 +52,7 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt -r requirements-live.txt
       - name: Backtest live data and store the results in D1
-        run: python -m scripts.publish_backtests --symbols "${BACKTEST_SYMBOLS:-all}"
+        run: |
+          args=(--symbols "${BACKTEST_SYMBOLS:-all}")
+          if [ -n "${BACKTEST_ENTRY_THRESHOLD:-}" ]; then args+=(--entry-threshold "$BACKTEST_ENTRY_THRESHOLD"); fi
+          python -m scripts.publish_backtests "${args[@]}"

@@ -47,7 +47,8 @@ def json_safe(value: Any) -> Any:
 
 
 def build_payload(symbol: str, df, result, *, equity: float, risk: float, bars: int,
-                  data_source: str, run_at: str | None = None) -> dict[str, Any]:
+                  data_source: str, run_at: str | None = None,
+                  entry_threshold: float | None = None) -> dict[str, Any]:
     """Build the result in the shape the Lab reads (the same shape as the self-hosted /api/backtest)."""
     curve = result.equity_curve
     step = max(1, len(curve) // CURVE_POINTS)
@@ -61,6 +62,7 @@ def build_payload(symbol: str, df, result, *, equity: float, risk: float, bars: 
             "bars_used": int(len(df)),
             "equity": float(equity),
             "risk_per_trade_pct": float(risk),
+            "entry_threshold": None if entry_threshold is None else float(entry_threshold),
         },
         "metrics": json_safe(result.metrics),
         "equity_curve": {
