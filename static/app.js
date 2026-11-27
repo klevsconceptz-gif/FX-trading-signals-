@@ -186,20 +186,21 @@ function renderScan() {
     })
     .join("");
 
-  // signals table
+  // signals table. A market with no live data is shown as UNAVAILABLE, never left out (gold included).
   const all = [...(SCAN.signals || []), ...(SCAN.watchlist || [])];
-  $("#signal-count").textContent = `${all.length} instruments · click a row for the full plan`;
-  all.sort((a, b) => {
+  const listed = [...all, ...(SCAN.unavailable || []).map(unavailableRow)];
+  $("#signal-count").textContent = `${listed.length} instruments · click a row for the full plan`;
+  listed.sort((a, b) => {
     const va = a[sortKey], vb = b[sortKey];
     if (typeof va === "number" && typeof vb === "number") return (va - vb) * sortDir;
     return String(va).localeCompare(String(vb)) * sortDir;
   });
   const tbody = $("#signals-table tbody");
-  tbody.innerHTML = all
+  tbody.innerHTML = listed
     .map(
       (p) => `<tr data-symbol="${p.symbol}">
       <td><strong>${p.display}</strong></td>
-      <td><span class="badge ${sideClass(p.side)}">${p.side === "WAIT" ? "WAIT" : p.side + " NOW"}</span></td>
+      <td><span class="badge ${sideClass(p.side)}">${p.side === "UNAVAILABLE" ? "UNAVAILABLE" : p.side === "WAIT" ? "WAIT" : p.side + " NOW"}</span></td>
       <td>${confCell(p.confidence)}</td>
       <td>${String(p.regime).replace("_", " ")}</td>
       <td>${fmt(p.price)}</td>
@@ -229,6 +230,16 @@ function renderScan() {
   renderHeatmap(all);
   renderCorrelation(SCAN.correlation);
   populateBacktestSymbols(all);
+}
+
+// A market with no live data, as a table row: every number is empty, so the row says so.
+function unavailableRow(u) {
+  return {
+    symbol: u.symbol, display: u.display, side: "UNAVAILABLE", regime: "—", reason: u.reason,
+    confidence: null, price: null, p_up: null, p_target_first: null, expected_move_pct: null,
+    entry: null, target: null, stop: null, target2: null, risk_reward: null,
+    lots: null, risk_amount: null, time_stop_bars: null,
+  };
 }
 
 // Forex heatmap: one tile per instrument. Colour is the signal side; brightness is the confidence.
