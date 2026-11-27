@@ -217,7 +217,8 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
     def px(value: float) -> str:
         return format_price(symbol, value)
 
-    if abs(score) < cfg.entry_threshold:
+    threshold = cfg.threshold_for(symbol)
+    if abs(score) < threshold:
         side = "WAIT"
         stop = target = target2 = close
         rr = 0.0
@@ -225,12 +226,12 @@ def build_plan(symbol: str, ind: pd.DataFrame, cfg: SignalConfig,
         expected_bars = 0
         notes.append(
             f"No edge right now — composite score {score:+.2f} below the "
-            f"{cfg.entry_threshold} threshold. Keep on the watchlist."
+            f"{threshold} threshold. Keep on the watchlist."
         )
         actions = [
             f"DO NOT BUY YET — the system is not instructing an entry on {display_name}.",
-            f"Trigger to act: composite score crosses +{cfg.entry_threshold} → the system "
-            f"will instruct BUY; crosses −{cfg.entry_threshold} → instructs SELL (short).",
+            f"Trigger to act: composite score crosses +{threshold} → the system "
+            f"will instruct BUY; crosses −{threshold} → instructs SELL (short).",
         ]
         predicted_outcome = (
             f"No position predicted to be taken. Model leans "

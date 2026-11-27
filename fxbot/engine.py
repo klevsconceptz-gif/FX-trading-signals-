@@ -285,7 +285,7 @@ class MarketEngine:
                     f"DO NOT BUY {p.display} — portfolio risk veto: {p.risk_veto_reason}."
                     if p.risk_veto_reason else
                     f"DO NOT BUY {p.display} — no edge (score {p.score:+.2f}). "
-                    f"Trigger: score crosses ±{self.cfg.signal.entry_threshold} → "
+                    f"Trigger: score crosses ±{self.cfg.signal.threshold_for(p.symbol)} → "
                     f"the system will instruct BUY or SELL."
                 ),
                 "exit_orders": [],

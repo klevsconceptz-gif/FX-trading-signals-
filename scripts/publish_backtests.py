@@ -54,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--bars", type=int, default=3000)
     ap.add_argument("--equity", type=float, default=10_000.0)
     ap.add_argument("--risk", type=float, default=0.75, help="risk per trade %%")
+    ap.add_argument("--entry-threshold", type=float, default=None,
+                    help="test this entry threshold for the named symbols (not with 'all'); recorded in the result")
     ap.add_argument("--dry-run", action="store_true", help="write the SQL to --out and do not touch D1")
     ap.add_argument("--out", help="SQL file path (required with --dry-run; otherwise a temp file)")
     args = ap.parse_args(argv)
@@ -66,10 +68,18 @@ def main(argv: list[str] | None = None) -> int:
         if unknown:
             fail(f"unknown symbol(s): {', '.join(unknown)}")
 
+    if args.entry_threshold is not None:
+        if args.symbols.strip().lower() == "all":
+            fail("--entry-threshold needs named symbols, not 'all'")
+        if not (0.0 < args.entry_threshold <= 1.0):
+            fail(f"--entry-threshold must be between 0 and 1, got {args.entry_threshold}")
+
     cfg = AppConfig()
     cfg.data.bars = args.bars
     cfg.risk.equity = args.equity
     cfg.risk.risk_per_trade_pct = args.risk
+    if args.entry_threshold is not None:
+        cfg.signal.symbol_entry_thresholds.update(dict.fromkeys(wanted, args.entry_threshold))
 
     data = MarketData(cfg.data)
     history = data.load(prefer_live=True)
@@ -85,7 +95,8 @@ def main(argv: list[str] | None = None) -> int:
             continue
         result = run_backtest(symbol, df, cfg, equity=args.equity, conversion_history=history)
         payload = build_payload(symbol, df, result, equity=args.equity, risk=args.risk, bars=args.bars,
-                                data_source=data.source_label)
+                                data_source=data.source_label,
+                                entry_threshold=cfg.signal.threshold_for(symbol))
         statements.append(upsert_statement(payload))
         m = result.metrics
         print(f"{symbol:8} {len(df):6} bars  trades {m.get('trades')}  return {m.get('total_return_pct')}%  "
