@@ -87,7 +87,7 @@ class DataConfig:
     timeframe: str = "1h"        # '1h' or '1d'
     bars: int = 3000             # history length to generate / fetch
     synthetic_seed: int = 20261010
-    provider_order: tuple[str, ...] = ("yfinance", "frankfurter")
+    provider_order: tuple[str, ...] = ("yfinance", "gold_futures_spot", "frankfurter")
     request_timeout: float = 8.0
     cache_dir: str = "data/cache"
 
